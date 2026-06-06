@@ -193,8 +193,7 @@ npm install
 
 ---
 
-![Joe 微信二维码](img/Joe-wechat.jpg)
-
+[![Joe 微信二维码](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/Joe-wechat.jpg)
 
 ## 📄 License
 Under [MIT License](./LICENSE). Custom integrations might specify separate terms.
