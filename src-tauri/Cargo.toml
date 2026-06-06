@@ -1,0 +1,36 @@
+[package]
+name = "ai0-video-creator"
+version = "0.1.0"
+description = "An AI video creator"
+authors = ["Yan ZhenJiao"]
+edition = "2021"
+
+[lib]
+name = "ai0_video_creator_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-shell = "2.0.0"
+sysinfo = "0.30"
+tauri-plugin-dialog = "2.0.0"
+tauri-plugin-fs = "2.0.0"
+tauri-plugin-http = "2.0.0"
+base64 = "0.21"
+tauri-plugin-log = "2"
+log = "0.4"
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1.0", features = ["time", "macros", "rt-multi-thread"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

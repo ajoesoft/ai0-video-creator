@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-primary: #FF5D22;
+  --color-brand-secondary: #ff7e52;
+  --color-surface-base: #0A0A0B;
+  --color-surface-raised: #111114;
+  --color-surface-overlay: #18181b;
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-text-primary: #E2E2E2;
+  --color-text-secondary: rgba(255, 255, 255, 0.4);
+  --color-text-accent: #FFFFFF;
+  --color-bg-header: rgba(0, 0, 0, 0.2);
+  
+  --font-serif: "Playfair Display", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  --color-surface-base: #0A0A0B;
+  --color-surface-raised: #111114;
+  --color-surface-overlay: #18181b;
+  --color-border-subtle: rgba(255, 255, 255, 0.08);
+  --color-text-primary: #E2E2E2;
+  --color-text-secondary: rgba(255, 255, 255, 0.4);
+  --color-text-accent: #FFFFFF;
+  --color-bg-header: rgba(0, 0, 0, 0.2);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --color-surface-base: #FFFFFF;
+  --color-surface-raised: #F8F9FA;
+  --color-surface-overlay: #E9ECEF;
+  --color-border-subtle: rgba(0, 0, 0, 0.08);
+  --color-text-primary: #212529;
+  --color-text-secondary: rgba(0, 0, 0, 0.6);
+  --color-text-accent: #000000;
+  --color-bg-header: rgba(255, 255, 255, 0.8);
+}
+
+@layer base {
+  body {
+    @apply antialiased selection:bg-brand-primary/30;
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--color-surface-base);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+  }
+
+  h1, h2, h3, .editorial-title {
+    @apply font-serif italic;
+  }
+}
+
+@layer components {
+  .desktop-card {
+    background-color: var(--color-surface-raised);
+    border: 1px solid var(--color-border-subtle);
+    @apply rounded-sm overflow-hidden transition-all duration-200;
+  }
+  
+  .desktop-button-primary {
+    background-color: var(--color-text-accent);
+    color: var(--color-surface-base);
+    @apply hover:opacity-80 px-6 py-2 rounded-sm font-bold uppercase tracking-widest text-[10px] transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .desktop-button-ghost {
+    background-color: transparent;
+    @apply px-4 py-2 rounded-sm transition-all uppercase tracking-widest text-[10px] font-bold;
+    color: var(--color-text-secondary);
+    border: 1px solid transparent;
+  }
+  
+  .desktop-button-ghost:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-primary);
+  }
+
+  [data-theme="light"] .desktop-button-ghost:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+
+  .desktop-input {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--color-border-subtle);
+    @apply rounded-sm px-3 py-2 outline-none focus:border-brand-primary/50 transition-all;
+    color: var(--color-text-primary);
+  }
+
+  .desktop-input::placeholder {
+    color: var(--color-text-secondary);
+  }
+
+  [data-theme="light"] .desktop-input {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  [data-theme="light"] .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.1);
+  }
+
+  [data-theme="light"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.2);
+  }
+
+  .mono-text {
+    @apply font-mono text-[10px] uppercase tracking-tighter;
+  }
+
+  .accent-text {
+    @apply text-brand-primary;
+  }
+}
+
+/* Timeline specific styles */
+.timeline-track {
+  @apply relative h-16 border-b border-border-subtle bg-surface-base/50;
+}
+
+.timeline-clip {
+  @apply absolute h-12 top-2 rounded-sm border border-brand-primary/20 bg-brand-primary/10 transition-all hover:bg-brand-primary/20;
+}

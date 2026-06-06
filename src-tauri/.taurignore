@@ -1,0 +1,5 @@
+# 忽略 SQLite 数据库文件
+data/
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,172 @@
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { useState, useEffect } from 'react';
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export function getAssetUrl(path: string | undefined | null): string {
+  if (!path) return '';
+
+  // Decode URI encoding (e.g. %20, %3A, %2F)
+  let rawPath = decodeURIComponent(path);
+
+  // Normalize backslashes (Windows) to forward slashes for unified parsing
+  rawPath = rawPath.replace(/\\/g, '/');
+
+  // Strip any assets:/// or assets://localhost/ or asset://localhost/ prefixes
+  const tauriPrefixes = [
+    'assets://localhost/',
+    'asset://localhost/',
+    'http://asset.localhost/',
+    'https://asset.localhost/',
+    'assets://localhost',
+    'asset://localhost',
+    'http://asset.localhost',
+    'https://asset.localhost',
+    'assets:///',
+    'asset:///',
+    'assets://',
+    'asset://'
+  ];
+  for (const prefix of tauriPrefixes) {
+    if (rawPath.startsWith(prefix)) {
+      rawPath = rawPath.slice(prefix.length);
+      break;
+    }
+  }
+
+  // After cleaning prefixes, detect if it is a truly remote URL or data-URI
+  const isRemote = rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.startsWith('data:');
+  if (isRemote) {
+    return rawPath;
+  }
+
+  // Tauri detection
+  const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+  if (isTauri) {
+    try {
+      return convertFileSrc(rawPath);
+    } catch (e) {
+      console.warn('Tauri convertFileSrc failed, falling back:', e);
+    }
+  }
+
+  // Web Browser / AI Studio preview fallback:
+  // Convert absolute or relative path to a web-accessible relative URL
+  let relativePath = rawPath;
+  const workspaceMarkers = ['workflow/workspace/', '/workspace/', 'workspace/'];
+  
+  let foundMarker = false;
+  for (const marker of workspaceMarkers) {
+    const idx = relativePath.indexOf(marker);
+    if (idx !== -1) {
+      relativePath = relativePath.slice(idx + marker.length);
+      foundMarker = true;
+      break;
+    }
+  }
+
+  if (!foundMarker) {
+    // Fallback if no workspace marker is found
+    const workspacePrefix = '/data/workflow/workspace/';
+    if (relativePath.startsWith(workspacePrefix)) {
+      relativePath = relativePath.slice(workspacePrefix.length);
+    } else if (relativePath.startsWith('/')) {
+      relativePath = relativePath.slice(1);
+    }
+  }
+
+  // Ensure there are no leading or double slashes
+  relativePath = relativePath.replace(/^\/+/, '');
+
+  // Prepend origin to ensure the browser fetches standard web URLs
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  return `${origin}/workspace/${relativePath}`;
+}
+
+export function useMediaUrl(path: string | undefined | null, mediaType: 'video' | 'audio' | 'image' = 'video') {
+  const [url, setUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (!path) {
+      setUrl('');
+      return;
+    }
+
+    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+
+    // Clean up path similarly to getAssetUrl
+    let cleanPath = decodeURIComponent(path);
+    cleanPath = cleanPath.replace(/\\/g, '/');
+
+    const tauriPrefixes = [
+      'assets://localhost/',
+      'asset://localhost/',
+      'http://asset.localhost/',
+      'https://asset.localhost/',
+      'assets://localhost',
+      'asset://localhost',
+      'http://asset.localhost',
+      'https://asset.localhost',
+      'assets:///',
+      'asset:///',
+      'assets://',
+      'asset://'
+    ];
+    for (const prefix of tauriPrefixes) {
+      if (cleanPath.startsWith(prefix)) {
+        cleanPath = cleanPath.slice(prefix.length);
+        break;
+      }
+    }
+
+    // Now check if it's a truly remote HTTP/HTTPS/data/blob URL
+    const isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://') || cleanPath.startsWith('data:') || cleanPath.startsWith('blob:');
+    if (isRemote) {
+      setUrl(cleanPath);
+      return;
+    }
+
+    let active = true;
+    let blobUrl = '';
+
+    const resolveUrl = async () => {
+      if (isTauri) {
+        try {
+          // Dynamically import Tauri's plugin-fs to prevent any web browser load-time issues
+          const { readFile } = await import('@tauri-apps/plugin-fs');
+          const fileData = await readFile(cleanPath);
+          const mimeType = mediaType === 'video' ? 'video/mp4' : mediaType === 'audio' ? 'audio/mpeg' : 'image/png';
+          const blob = new Blob([fileData], { type: mimeType });
+          blobUrl = URL.createObjectURL(blob);
+          if (active) {
+            setUrl(blobUrl);
+            console.log(`[useMediaUrl] Resolved ${mediaType} file as secure blob URL:`, blobUrl);
+          }
+          return;
+        } catch (err) {
+          console.warn(`[useMediaUrl] Direct Tauri readFile failed for ${path}, falling back to convertFileSrc:`, err);
+        }
+      }
+
+      // Fallback
+      if (active) {
+        setUrl(getAssetUrl(cleanPath));
+      }
+    };
+
+    resolveUrl();
+
+    return () => {
+      active = false;
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, [path, mediaType]);
+
+  return url;
+}
