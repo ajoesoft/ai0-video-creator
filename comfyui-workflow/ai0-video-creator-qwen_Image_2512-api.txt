@@ -1,0 +1,269 @@
+{
+  "60": {
+    "inputs": {
+      "filename_prefix": "monkeyandragon",
+      "images": [
+        "259",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "245": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "246": {
+    "inputs": {
+      "shift": 3.1000000000000005,
+      "model": [
+        "258",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "247": {
+    "inputs": {
+      "text": "指环王史诗电影风格，古松，金毛小石猴，蹲坐松枝，圆眼打量云雾，拨松针，灵动治愈，柔和晨光",
+      "clip": [
+        "262",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "248": {
+    "inputs": {
+      "width": 1920,
+      "height": 1088,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "249": {
+    "inputs": {
+      "value": 4
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "CFG"
+    }
+  },
+  "250": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Enable 4 Steps LoRA?"
+    }
+  },
+  "252": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "CFG"
+    }
+  },
+  "253": {
+    "inputs": {
+      "lora_name": "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors",
+      "strength_model": 1,
+      "model": [
+        "263",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "254": {
+    "inputs": {
+      "switch": [
+        "250",
+        0
+      ],
+      "on_false": [
+        "249",
+        0
+      ],
+      "on_true": [
+        "252",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (cfg)"
+    }
+  },
+  "255": {
+    "inputs": {
+      "value": 4
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "256": {
+    "inputs": {
+      "value": 50
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Steps"
+    }
+  },
+  "257": {
+    "inputs": {
+      "switch": [
+        "250",
+        0
+      ],
+      "on_false": [
+        "256",
+        0
+      ],
+      "on_true": [
+        "255",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (steps)"
+    }
+  },
+  "258": {
+    "inputs": {
+      "switch": [
+        "250",
+        0
+      ],
+      "on_false": [
+        "263",
+        0
+      ],
+      "on_true": [
+        "253",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (model)"
+    }
+  },
+  "259": {
+    "inputs": {
+      "samples": [
+        "260",
+        0
+      ],
+      "vae": [
+        "245",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "260": {
+    "inputs": {
+      "seed": [
+        "255",
+        0
+      ],
+      "steps": [
+        "257",
+        0
+      ],
+      "cfg": [
+        "254",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "246",
+        0
+      ],
+      "positive": [
+        "247",
+        0
+      ],
+      "negative": [
+        "261",
+        0
+      ],
+      "latent_image": [
+        "248",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "261": {
+    "inputs": {
+      "text": "半身构图，裁切身体，残缺镜子，镜子变形，卡通动漫，二次元，现代服装，高跟鞋，短发，五官扭曲，肢体畸形，模糊低清，多余人物，脸部崩坏，画面裁切，比例失调，浓妆艳抹违和感\n",
+      "clip": [
+        "262",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "262": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "263": {
+    "inputs": {
+      "unet_name": "qwen-image-2512-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  }
+}

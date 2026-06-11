@@ -30,6 +30,76 @@ export function GlobalSettings() {
   const [cudaDevice, setCudaDevice] = useState('0');
   const [threadLimit, setThreadLimit] = useState('4');
 
+  const [pythonVer, setPythonVer] = useState<string>('Detecting (检测中)...');
+  const [cudaVer, setCudaVer] = useState<string>('Detecting (检测中)...');
+  const [ollamaVer, setOllamaVer] = useState<string>('Detecting (检测中)...');
+
+  const fetchVersions = async (pyPath: string) => {
+    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+    
+    if (!isTauri) {
+      setPythonVer('Web Mode (Sandbox Environment: Python N/A)');
+      setCudaVer('Web Mode (GPU Accelerated via Iframe Sandbox)');
+      
+      try {
+        const response = await fetch('http://127.0.0.1:11434/api/version');
+        const data = await response.json();
+        if (data && data.version) {
+          setOllamaVer(`Ollama v${data.version} (Active via Local Loopback)`);
+        } else {
+          setOllamaVer('Ollama API Connection Active');
+        }
+      } catch (err) {
+        setOllamaVer('Ollama Service Not Detected locally (Or CORS restrictions)');
+      }
+      return;
+    }
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      
+      setPythonVer('Querying (正在查询)...');
+      try {
+        const pyResult = await invoke<string>('get_python_version', { pythonPath: pyPath });
+        setPythonVer(pyResult);
+      } catch (err: any) {
+        setPythonVer(`Not Accessible: ${err?.toString() || 'Executable not found'}`);
+      }
+
+      setCudaVer('Querying (正在查询)...');
+      try {
+        const cudaResult = await invoke<string>('get_cuda_version', { pythonPath: pyPath });
+        setCudaVer(cudaResult);
+      } catch (err: any) {
+        setCudaVer('Not Detected');
+      }
+
+      setOllamaVer('Querying (正在查询)...');
+      try {
+        const ollamaResult = await invoke<string>('get_ollama_version');
+        setOllamaVer(ollamaResult);
+      } catch (err: any) {
+        // Fallback to fetch API on localhost
+        try {
+          const response = await fetch('http://127.0.0.1:11434/api/version');
+          const data = await response.json();
+          if (data && data.version) {
+            setOllamaVer(`Ollama v${data.version} (Active via local API)`);
+          } else {
+            setOllamaVer('Ollama Active');
+          }
+        } catch (e) {
+          setOllamaVer('Not Found in PATH / API Offline');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to import tauri core invoke:', e);
+      setPythonVer('Error loading Tauri interface');
+      setCudaVer('Error');
+      setOllamaVer('Error');
+    }
+  };
+
   useEffect(() => {
     async function loadSettings() {
       const path = await getSetting('workspace_path');
@@ -39,13 +109,17 @@ export function GlobalSettings() {
       setSqlitePath(dbPath);
 
       const pyPath = await getSetting('python_path');
-      setPythonPath(pyPath || 'C:\\Program Files\\Python310\\python.exe');
+      const resolvedPyPath = pyPath || 'C:\\Program Files\\Python310\\python.exe';
+      setPythonPath(resolvedPyPath);
 
       const cuda = await getSetting('python_cuda_device');
       setCudaDevice(cuda || '0');
 
       const threads = await getSetting('python_thread_limit');
       setThreadLimit(threads || '4');
+
+      // Fetch dynamic version tags
+      await fetchVersions(resolvedPyPath);
     }
     loadSettings();
   }, []);
@@ -91,6 +165,7 @@ export function GlobalSettings() {
       if (selected && typeof selected === 'string') {
         setPythonPath(selected);
         await setSetting('python_path', selected);
+        await fetchVersions(selected);
       }
     } catch (e) {
       console.error('Failed to select Python path:', e);
@@ -105,6 +180,7 @@ export function GlobalSettings() {
       await setSetting('python_cuda_device', cudaDevice);
       await setSetting('python_thread_limit', threadLimit);
       setSaveStatus('saved');
+      await fetchVersions(pythonPath);
     } catch (e) {
       console.error('Failed to save settings:', e);
       setSaveStatus('idle');
@@ -210,6 +286,17 @@ export function GlobalSettings() {
                     />
                   </div>
                 </div>
+
+                <div className="p-4 bg-white/5 border border-white/5 rounded-xl space-y-3 mt-4">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400 font-medium">Python Runtime Version (运行环境版本):</span>
+                    <span className="font-mono text-brand-primary font-bold bg-brand-primary/10 px-2.5 py-1 rounded-md">{pythonVer}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs border-t border-white/5 pt-3">
+                    <span className="text-gray-400 font-medium">CUDA Acceleration Support (显卡加速版本):</span>
+                    <span className="font-mono text-brand-primary font-bold bg-brand-primary/10 px-2.5 py-1 rounded-md">{cudaVer}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -235,6 +322,11 @@ export function GlobalSettings() {
                       <input type="range" className="flex-1 accent-brand-primary h-1 bg-white/10 rounded-full appearance-none" />
                       <span className="text-xs font-mono text-gray-400 w-16">8192 px</span>
                     </div>
+                 </div>
+
+                 <div className="p-4 bg-white/5 border border-white/5 rounded-xl flex justify-between items-center text-xs mt-4">
+                   <span className="text-gray-400 font-medium">Ollama Core Version (Ollama 运行版本):</span>
+                   <span className="font-mono text-brand-primary font-bold bg-brand-primary/10 px-2.5 py-1 rounded-md">{ollamaVer}</span>
                  </div>
               </div>
             </div>

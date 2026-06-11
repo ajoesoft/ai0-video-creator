@@ -7,8 +7,8 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 
 #[tauri::command]
 fn greet(name: &str) -> String {
-    info!("[tauri] Hello: {}", name);
-    format!("Hello, {}! You've been greeted from Rust!", name)
+    info!("[AI0 Video Creator] Hello: {}", name);
+    format!("Hello, {}! You've been greeted from AI0 Video Creator!", name)
 }
 
 #[tauri::command]
@@ -586,31 +586,256 @@ async fn load_local_image(path: String) -> Result<String, String> {
 
     Ok(base64)
 }
-// 修复：统一数据库路径（关键！）
-fn get_app_db_path() -> Result<std::path::PathBuf, String> {
-    let cwd = std::env::current_dir().map_err(|e| format!("获取当前目录失败: {}", e))?;
-    let data_dir = cwd.join("../data"); // 去掉 ../，避免路径错乱
-
-    if !data_dir.exists() {
-        fs::create_dir_all(&data_dir).map_err(|e| format!("创建 data 目录失败: {}", e))?;
-    }
-
-    Ok(data_dir.join("main.db"))
-}
 
 #[tauri::command]
 fn get_db_file_path() -> Result<String, String> {
-    let path = get_app_db_path()?;
-    path.to_str()
+    let app_dir = if cfg!(target_os = "windows") {
+        let appdata = std::env::var("APPDATA")
+            .map_err(|_| "Failed to get APPDATA environment variable".to_string())?;
+        std::path::PathBuf::from(appdata).join("site.ai0.videoCreator")
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Failed to get HOME environment variable".to_string())?;
+        std::path::PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("site.ai0.videoCreator")
+    } else {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Failed to get HOME environment variable".to_string())?;
+        std::path::PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("site.ai0.videoCreator")
+    };
+
+    if !app_dir.exists() {
+        fs::create_dir_all(&app_dir)
+            .map_err(|e| format!("Failed to create app data directory: {}", e))?;
+    }
+    let db_path = app_dir.join("main.db");
+    db_path.to_str()
         .map(|s| s.to_string())
-        .ok_or_else(|| "数据库路径转字符串失败".to_string())
+        .ok_or_else(|| "Failed to convert database path to string".to_string())
 }
 
+#[tauri::command]
+fn get_python_version(python_path: String) -> Result<String, String> {
+    let path_to_use = if python_path.is_empty() {
+        "python".to_string()
+    } else {
+        python_path
+    };
+
+    let output = std::process::Command::new(&path_to_use)
+        .arg("--version")
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if out.status.success() {
+                if !stdout.is_empty() {
+                    Ok(stdout)
+                } else if !stderr.is_empty() {
+                    Ok(stderr)
+                } else {
+                    Ok("Python Connection Success".to_string())
+                }
+            } else {
+                let err_msg = if !stdout.is_empty() { stdout } else { stderr };
+                Err(format!("Python returned error: {}", err_msg))
+            }
+        }
+        Err(e) => Err(format!("Python not accessible: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn get_cuda_version(python_path: String) -> Result<String, String> {
+    let path_to_use = if python_path.is_empty() {
+        "python".to_string()
+    } else {
+        python_path
+    };
+
+    // 1. Try PyTorch CUDA inquiry via process
+    let output = std::process::Command::new(&path_to_use)
+        .args(&["-c", "import torch; print(torch.version.cuda) if torch.cuda.is_available() else print('PyTorch CUDA unsupported')"])
+        .output();
+
+    if let Ok(out) = output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !stdout.is_empty() && !stdout.contains("unsupported") {
+                return Ok(format!("CUDA {} (via PyTorch)", stdout));
+            }
+        }
+    }
+
+    // 2. Try nvidia-smi
+    let output_smi = std::process::Command::new("nvidia-smi")
+        .output();
+    if let Ok(out) = output_smi {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if line.contains("CUDA Version:") {
+                    if let Some(pos) = line.find("CUDA Version:") {
+                        let sub = &line[pos..];
+                        let parts: Vec<&str> = sub.split_whitespace().collect();
+                        if parts.len() >= 3 {
+                            return Ok(format!("CUDA {} (via System)", parts[2].trim_end_matches('|').trim()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Try nvcc
+    let output_nvcc = std::process::Command::new("nvcc")
+        .arg("--version")
+        .output();
+    if let Ok(out) = output_nvcc {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if line.contains("release") {
+                    let parts: Vec<&str> = line.split("release").collect();
+                    if parts.len() >= 2 {
+                        let ver_parts: Vec<&str> = parts[1].trim().split(',').collect();
+                        if !ver_parts.is_empty() {
+                            return Ok(format!("CUDA {} (via nvcc)", ver_parts[0].trim()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok("CUDA Not Detected / Undefined".to_string())
+}
+
+#[tauri::command]
+fn get_ollama_version() -> Result<String, String> {
+    let output = std::process::Command::new("ollama")
+        .arg("--version")
+        .output();
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !stdout.is_empty() {
+                    return Ok(stdout);
+                }
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                if !stderr.is_empty() {
+                    return Ok(stderr);
+                }
+                Ok("Ollama active".to_string())
+            } else {
+                Err("Ollama query command returned error".to_string())
+            }
+        }
+        Err(_) => Err("Ollama executable not found in system PATH".to_string()),
+    }
+}
+
+#[tauri::command]
+fn get_comfyui_details(comfyui_root: String) -> Result<serde_json::Value, String> {
+    use std::fs;
+    use std::path::Path;
+    use std::collections::HashMap;
+
+    if comfyui_root.is_empty() {
+        return Err("ComfyUI Root Path is empty".to_string());
+    }
+
+    let root_path = Path::new(&comfyui_root);
+    if !root_path.exists() {
+        return Err(format!("ComfyUI root path does not exist: {}", comfyui_root));
+    }
+
+    // 1. Gather custom_nodes
+    let mut custom_nodes = Vec::new();
+    let custom_nodes_dir = root_path.join("custom_nodes");
+    if custom_nodes_dir.exists() && custom_nodes_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(custom_nodes_dir) {
+            for entry in entries {
+                if let Ok(e) = entry {
+                    let path = e.path();
+                    if path.is_dir() {
+                        if let Some(name) = path.file_name() {
+                            let name_str = name.to_string_lossy().to_string();
+                            if name_str != "__pycache__" && !name_str.starts_with('.') {
+                                custom_nodes.push(name_str);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    custom_nodes.sort_by_key(|name| name.to_lowercase());
+
+    // 2. Gather models
+    let mut models = HashMap::new();
+    let models_dir = root_path.join("models");
+    if models_dir.exists() && models_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&models_dir) {
+            for entry in entries {
+                if let Ok(e) = entry {
+                    let path = e.path();
+                    if path.is_dir() {
+                        if let Some(folder_name) = path.file_name() {
+                            let folder_name_str = folder_name.to_string_lossy().to_string();
+                            if !folder_name_str.starts_with('.') && folder_name_str != "__pycache__" {
+                                let mut files_list = Vec::new();
+                                traverse_model_files(&path, &mut files_list, &path);
+                                files_list.sort_by_key(|f| f.to_lowercase());
+                                models.insert(folder_name_str, files_list);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "custom_nodes": custom_nodes,
+        "models": models,
+    }))
+}
+
+fn traverse_model_files(dir: &std::path::Path, list: &mut Vec<String>, base_dir: &std::path::Path) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries {
+            if let Ok(e) = entry {
+                let path = e.path();
+                if path.is_dir() {
+                    traverse_model_files(&path, list, base_dir);
+                } else if path.is_file() {
+                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    if !file_name.starts_with('.') {
+                        if let Ok(rel_path) = path.strip_prefix(base_dir) {
+                            list.push(rel_path.to_string_lossy().to_string());
+                        } else {
+                            list.push(file_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // ##############################
-    // 修复：正确、安全、一次性完成的迁移
-    // ##############################
+       let db_path = get_db_file_path().unwrap_or_else(|_| "main.db".to_string());
+    let connection_string = format!("sqlite:{}", db_path);
+
     let migrations = vec![
         // v1: 基础表
         Migration {
@@ -766,14 +991,61 @@ pub fn run() {
             ",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "fix_video_projects_translation_table",
+            sql: "CREATE TABLE IF NOT EXISTS video_projects_new (
+                      project_uuid TEXT PRIMARY KEY,
+                      project_name TEXT NOT NULL,
+                      project_prompt TEXT,
+                      cover_image_path TEXT,
+                      create_time INTEGER NOT NULL,
+                      update_time INTEGER NOT NULL,
+                      project_status INTEGER NOT NULL DEFAULT 0,
+                      scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation')),
+                      scene_config_id INTEGER,
+                      template_id INTEGER,
+                      project_path TEXT
+                  );",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "fix_video_projects_translation_copy",
+            sql: "INSERT OR REPLACE INTO video_projects_new (
+                      project_uuid, project_name, project_prompt, cover_image_path, 
+                      create_time, update_time, project_status, scene_type, 
+                      scene_config_id, template_id, project_path
+                  )
+                  SELECT 
+                      project_uuid, project_name, project_prompt, cover_image_path, 
+                      create_time, update_time, project_status, 
+                      CASE 
+                          WHEN scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation') THEN scene_type 
+                          ELSE 'short_video' 
+                      END, 
+                      scene_config_id, template_id, project_path 
+                  FROM video_projects;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "fix_video_projects_translation_drop",
+            sql: "DROP TABLE IF EXISTS video_projects;",
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 11,
+            description: "fix_video_projects_translation_rename",
+            sql: "ALTER TABLE video_projects_new RENAME TO video_projects;",
+            kind: MigrationKind::Up,
+        }
     ];
 
     // ##############################
     // 修复：插件使用 **同一个数据库路径**
     // ##############################
-    let db_path = get_app_db_path().unwrap();
-    let db_url = format!("sqlite:{}", db_path.to_string_lossy());
-
+    
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -789,7 +1061,7 @@ pub fn run() {
         // 关键修复：数据库路径统一
         .plugin(
             tauri_plugin_sql::Builder::new()
-                .add_migrations(&db_url, migrations)
+                .add_migrations(&connection_string, migrations)
                 .build(),
         )
         .plugin(tauri_plugin_shell::init())
@@ -803,7 +1075,11 @@ pub fn run() {
             generate_comfy_image_rust,
             submit_comfy_image_rust,
             save_comfy_image_rust,
+            get_comfyui_details,
             get_db_file_path,
+            get_python_version,
+            get_cuda_version,
+            get_ollama_version,
             save_comfy_audio_rust
         ])
         .run(tauri::generate_context!())

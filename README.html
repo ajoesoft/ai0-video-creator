@@ -1,0 +1,268 @@
+<h1 id="ai0-video-creator-ai-video-studio">ai0-video-creator (AI Video
+Studio)</h1>
+<p><a href="./README.md#english">English</a> | <a
+href="./README.md#简体中文">简体中文</a></p>
+<hr />
+<p><a name="english"></a></p>
+<h1 id="ai0-video-creator-ai-video-studio-1">ai0-video-creator — AI
+Video Studio</h1>
+<p><code>ai0-video-creator</code> is a premium, full-featured desktop
+audio-visual content creation suite designed to streamline the pipeline
+from writing scripts to generating high-fidelity video assets. Powered
+by <strong>Tauri v2</strong>, <strong>Rust</strong>, <strong>React
+19</strong>, <strong>Tailwind CSS v4</strong>, and
+<strong>SQLite</strong>, the studio bridges localized desktop execution
+and automated cloud-hosted AI integrations seamlessly.</p>
+<p>Whether you are crafting short vertical reels, horizontal narrative
+stories, multi-actor conversations, vocabulary educational cards, or
+running frame-accurate lip-sync video translations,
+<code>ai0-video-creator</code> handles the orchestration via native
+APIs, Ollama, and customizable ComfyUI backends.</p>
+<hr />
+<h2 id="key-scenes-modes">🚀 Key Scenes &amp; Modes</h2>
+<p>The workbench features <strong>five custom creation modes</strong>
+(Scene Types) to suit different creative content pipelines:</p>
+<h3 id="short-video-creator-short_video">1. Short Video Creator
+(<code>short_video</code>)</h3>
+<ul>
+<li>Optimized for <strong>9:16 vertical short-form video
+releases</strong> (15 to 60 seconds).</li>
+<li>Dynamic video frame composition, text-to-image script blueprints,
+and narrative pacing controls.</li>
+</ul>
+<h3 id="story-notebook-story">2. Story Notebook
+(<code>story</code>)</h3>
+<ul>
+<li>Centered on <strong>16:9 horizontal narrative</strong> story-driven
+structures.</li>
+<li>Staggered sequence layout, custom illustration boards, and
+multi-segment timeline assembly.</li>
+</ul>
+<h3 id="multi-actor-dialogue-engine-dialogue">3. Multi-Actor Dialogue
+Engine (<code>dialogue</code>)</h3>
+<ul>
+<li>Focuses on multi-character conversational scripts.</li>
+<li>Configurable character casting, custom face avatar allocations, and
+distinctive voice-cloning configurations.</li>
+</ul>
+<h3 id="bilingual-word-flashcard-generator-word">4. Bilingual Word &amp;
+Flashcard Generator (<code>word</code>)</h3>
+<ul>
+<li>An educational asset design editor designed for modern language
+learning.</li>
+<li>Standard search and alphabetical index keys (A-Z list controls) to
+browse vocabularies.</li>
+<li>Automated IPA symbols generation, Chinese/English definitions sync,
+script builders, and LTX2.3/Qwen video generator prompt adapters.</li>
+</ul>
+<h3 id="video-translation-lipsync-workbench-video_translation">5. Video
+Translation &amp; LipSync Workbench
+(<code>video_translation</code>)</h3>
+<ul>
+<li>A flagship video localization and dubbing terminal.</li>
+<li>High-integrity automated subtitle extraction and edit
+timelines.</li>
+<li>Automated text translation powered by the unified
+<code>@google/genai</code> (Gemini-1.5/2.0/3.5) SDK.</li>
+<li>Multi-actor voice cloning utilizing <strong>Volcengine Voice Clone
+App</strong> and <strong>Qwen3-TTS</strong>.</li>
+<li>Dynamic audio-visual lip synchronization with support for
+<strong>LTX2.3 Spatial Video LipSync Pipeline</strong> and
+<strong>Wav2Lip</strong>.</li>
+</ul>
+<hr />
+<h2 id="advanced-tech-stack">🛠️ Advanced Tech Stack</h2>
+<p><code>ai0-video-creator</code> is built with a decoupled,
+environment-aware architecture, enabling it to run natively on the
+desktop or fall back gracefully to a standard responsive browser
+container:</p>
+<ul>
+<li><strong>Frontend Engine</strong>: React 19, TypeScript 5.8, React
+Router v7, Recharts / D3.</li>
+<li><strong>Aesthetics &amp; Micro-interactions</strong>: Tailwind CSS
+v4.0 (fully compiled at build-time using <code>@tailwindcss/vite</code>
+plugin), Framer Motion / Motion v12, and Lucide React.</li>
+<li><strong>Native Desktop Container</strong>: Tauri v2, Rust Cargo
+Shell.</li>
+<li><strong>Durable Local Database</strong>: Embedded
+<strong>SQLite</strong> (<code>main.db</code> via Tauri SQL plugin)
+governed by a robust 11-step database migration lifecycle (with
+client-side LocalStorage fallback).</li>
+<li><strong>AI Orchestration Framework</strong>:
+<ul>
+<li><strong>Gemini Client-Side Proxy</strong>: Native, unified
+<code>@google/genai</code> SDK for lightning-fast translation &amp;
+prompt compile.</li>
+<li><strong>Ollama Connection</strong>: Dedicated port mapping for
+offline LLM narration writing.</li>
+<li><strong>ComfyUI Bridge</strong>: Direct WS/API pipeline integrations
+targeting <code>z-image-turbo</code> and <code>qwen-image-2512</code>
+model nodes.</li>
+</ul></li>
+</ul>
+<hr />
+<h2 id="desktop-grade-settings">⚙️ Desktop-Grade Settings</h2>
+<ul>
+<li><strong>Workspace Synchronization</strong>: Configurable save
+directories mapped directly onto the native OS filesystem via
+<code>tauri-plugin-fs</code>.</li>
+<li><strong>Path Selector Dialogue</strong>: Elegant directory-dialog
+query controls (utilizing <code>tauri-plugin-dialog</code>) to select
+python executables dynamically.</li>
+<li><strong>System Hardening</strong>: Set customizable CUDA core
+devices (e.g., <code>cuda:0</code>) and thread bounds manually to
+maximize hardware potential during local ComfyUI rendering cycles.</li>
+</ul>
+<hr />
+<h2 id="development-lifecycle">🏗️ Development Lifecycle</h2>
+<h3 id="prerequisites">Prerequisites</h3>
+<ul>
+<li><a href="https://nodejs.org/en/">Node.js</a> (v18+ recommended)</li>
+<li><a href="https://www.rust-lang.org/">Rust &amp; Cargo</a> (for Tauri
+desktop builds)</li>
+</ul>
+<h3 id="initialize-dependencies">1. Initialize Dependencies</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install</span></code></pre></div>
+<h3 id="launch-development-servers">2. Launch Development Servers</h3>
+<ul>
+<li><p><strong>Vite Web Environment</strong>:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run dev</span></code></pre></div></li>
+<li><p><strong>Tauri Desktop Native Mode</strong>:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run tauri dev</span></code></pre></div></li>
+</ul>
+<h3 id="production-compilation">3. Production Compilation</h3>
+<ul>
+<li><p>Build and package the Tauri desktop app:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run tauri build</span></code></pre></div></li>
+</ul>
+<hr />
+<p><br/> <br/></p>
+<hr />
+<p><a name="简体中文"></a></p>
+<h1 id="ai0-video-creator-ai-智能视频创作工作站">ai0-video-creator —— AI
+智能视频创作工作站</h1>
+<p><code>ai0-video-creator</code>
+是一款专业的、全功能的桌面端影音视听内容创作套件，旨在打通从“创意文案编写”到“高保真视频资源渲染生成”的全链路。项目基于
+<strong>Tauri v2</strong> + <strong>Rust</strong> + <strong>React
+19</strong> + <strong>Tailwind CSS v4</strong> + <strong>SQLite</strong>
+构建，无缝衔接本地原生化系统能力与云端 AI 大模型算力。</p>
+<p>无论是制作短视频、故事手绘、多角色对话、背单词卡片，还是进行高精度音唇同步（LipSync）视频翻译，<code>ai0-video-creator</code>
+都能通过本地 API（如 Ollama）或自定义 ComfyUI
+工作流实现自动化控制和渲染。</p>
+<hr />
+<h2 id="核心五大创作场景">🚀 核心五大创作场景</h2>
+<p>工作站预设了<strong>五大专注创作场景</strong>，满足各种不同类型的音视频及教育开发管线：</p>
+<h3 id="短视频大师-short_video">1. 短视频大师
+(<code>short_video</code>)</h3>
+<ul>
+<li>专为 <strong>9:16 竖屏快节奏视频</strong>（15 - 60 秒）优化。</li>
+<li>智能文案镜头拆解、AI 画面风格匹配，支持一键渲染精美竖屏内容。</li>
+</ul>
+<h3 id="故事绘本模式-story">2. 故事绘本模式 (<code>story</code>)</h3>
+<ul>
+<li>专为 <strong>16:9 横屏故事与绘本画幅</strong> 设计。</li>
+<li>分镜式脚本节点、画面连贯性控制、分段式多轨道时间轴。</li>
+</ul>
+<h3 id="多角色对话剪辑-dialogue">3. 多角色对话剪辑
+(<code>dialogue</code>)</h3>
+<ul>
+<li>专注于多角色、多演员情景剧创作。</li>
+<li>可视化演员管理、自定义角色头像，以及独立的配音克隆音色配置。</li>
+</ul>
+<h3 id="背单词卡片工坊-word">4. 背单词卡片工坊 (<code>word</code>)</h3>
+<ul>
+<li>专为语言教育开发的卡片创作工坊。</li>
+<li>提供首字母 A-Z 滑动检索（A-Z Index
+Panel），支持中英文混合搜索。</li>
+<li>单词音标自动捕获、释义配音同步、Qwen 单词画面描述及 LTX2.3
+动态词义视频背景描述生成。</li>
+</ul>
+<h3 id="视频翻译与音唇同步-video_translation">5. 视频翻译与音唇同步
+(<code>video_translation</code>)</h3>
+<ul>
+<li>旗舰级视频本地化译配中心。</li>
+<li>帧精确视频播放器控制，可视化 SRG/SRT 字母时间轴面板。</li>
+<li>集成统一 <strong><span class="citation"
+data-cites="google/genai">@google/genai</span></strong> SDK，由 Gemini
+1.5/2.0/3.5 大模型驱动智能翻译。</li>
+<li>对接<strong>火山引擎声音克隆</strong>以及
+<strong>Qwen3-TTS</strong>，生成极高相似度的翻译配音。</li>
+<li>内嵌 <strong>LTX2.3 Spatial Video LipSync (音唇同步算法)</strong> 与
+<strong>Wav2Lip</strong>，生成画面口型高度协调的本地化译配成品。</li>
+</ul>
+<hr />
+<h2 id="先进技术底座">🛠️ 先进技术底座</h2>
+<p><code>ai0-video-creator</code>
+采用松耦合、环境感知的架构设计，既能在本地桌面端稳定运行，也能完美兼容现代
+Web 浏览器内核：</p>
+<ul>
+<li><strong>前端引擎</strong>：React 19、TypeScript 5.8、React Router
+v7、Recharts / D3 绘图库。</li>
+<li><strong>动效与视觉</strong>：Tailwind CSS v4.0（通过
+<code>@tailwindcss/vite</code> 插件进行极速编译构建）、Framer Motion /
+Motion v12 动作编排、Lucide React 矢量图标。</li>
+<li><strong>桌面外壳</strong>：Tauri v2 + Rust 原生容器。</li>
+<li><strong>本地高性能存储</strong>：<strong>SQLite</strong>
+嵌入式数据库（使用 Tauri SQL 插件支持的 <code>main.db</code>），配备 11
+步高可靠的数据库表迁移架构，并在浏览器环境提供 LocalStorage
+自动回退支持。</li>
+<li><strong>AI 大模型总线</strong>：
+<ul>
+<li><strong>Gemini 客户端代理</strong>：极速调用 Gemini API
+完成多语言翻译、文案批改。</li>
+<li><strong>Ollama 本地大模型</strong>：对接本地端口 <code>11434</code>
+完成离线脚本产出。</li>
+<li><strong>ComfyUI 服务网关</strong>：内置 WebSockets，兼容
+<code>z-image-turbo</code> 和 <code>qwen-image-2512</code>
+生成节点。</li>
+</ul></li>
+</ul>
+<hr />
+<h2 id="系统设置与硬件优化">⚙️ 系统设置与硬件优化</h2>
+<ul>
+<li><strong>工作空间映射</strong>：支持自定义媒体资源、字幕、音轨等静态资源文件在本地系统上的持久化存储目录。</li>
+<li><strong>Python 路径可视化选择</strong>：集成
+<code>tauri-plugin-dialog</code> 原生文件选择器，点击 Browse
+按钮即可一键获取并保存 Python 可执行文件绝对路径。</li>
+<li><strong>硬件推理负载分配</strong>：支持手动调整 CUDA 设备 ID（如 GPU
+<code>0</code>）与多核线程限制上限，最大化本地 ComfyUI 运算性能。</li>
+</ul>
+<hr />
+<h2 id="快速开始">🏗️ 快速开始</h2>
+<h3 id="准备环境">准备环境</h3>
+<ul>
+<li>安装 <a href="https://nodejs.org/en/">Node.js</a>（推荐安装 v18+
+长期支持版）</li>
+<li>安装 <a href="https://www.rust-lang.org/">Rust &amp;
+Cargo</a>（仅在构建 Tauri 桌面客户端时需要）</li>
+</ul>
+<h3 id="安装项目依赖">1. 安装项目依赖</h3>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install</span></code></pre></div>
+<h3 id="启动开发服务器">2. 启动开发服务器</h3>
+<ul>
+<li><p><strong>启动网页预览环境</strong>:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run dev</span></code></pre></div></li>
+<li><p><strong>启动 Tauri 桌面原生客户端</strong>:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run tauri dev</span></code></pre></div></li>
+</ul>
+<h3 id="打包构建">3. 打包构建</h3>
+<ul>
+<li><p>编译打包桌面客户端程序：</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run tauri build</span></code></pre></div></li>
+</ul>
+<hr />
+<p><a
+href="https://github.com/ajoesoft/ai0-video-creator/blob/main/Joe-wechat.jpg"><img
+src="https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg"
+alt="Joe 微信二维码" /></a></p>
+<h2 id="license">📄 License</h2>
+<p>Under <a href="./LICENSE">MIT License</a>. Custom integrations might
+specify separate terms.</p>

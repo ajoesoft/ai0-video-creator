@@ -1,0 +1,53 @@
+{
+  "1": {
+    "inputs": {
+      "模型名称": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+      "运行设备": "auto",
+      "精度": "fp16"
+    },
+    "class_type": "Qwen3TTSModelLoader",
+    "_meta": {
+      "title": "Qwen3 TTS 模型加载"
+    }
+  },
+  "6": {
+    "inputs": {
+      "filename_prefix": "travel",
+      "quality": "V0",
+      "audioUI": "",
+      "audio": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveAudioMP3",
+    "_meta": {
+      "title": "Save Audio (MP3)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "文本": "青海旅游旺季即将到来，青海省交通运输综合行政执法总队聚焦从事旅游的包车、三类以上班线客车和运输危险化学品、烟花爆竹、民用爆炸物品的道路专用车辆，进一步加大道路运输非法营运治理。截至 5 月 18 日，全省累计查处各类道路运输违法违规行为 249 起，其中非法营运行为 159 起，有效规范道路运输市场秩序。省交通运输综合行政执法总队紧扣重点时段，聚焦非法营运、超限超载、客运及网约车违规等七类问题开展集中整治。针对旅游大巴车改装问题下发执法监管通知，在全省 6 个重点点位部署执法检查，确保风险隐患及时发现及时纠治。制定联合治理方案，在旅游旺季到来前，提前在西宁西收费站、青海湖二郎剑等 6 处关键点位启动公安、交通联合执法服务点，以备及时展开交通疏导、便民服务和打非治违行动。组建省级联合治理工作专班，依托大数据筛查疑似非法营运车辆，结合通行信息精准调度执法查缉。截至目前，梳理分析车辆通行数据 224.8 万条，精准查处非法营运车辆 30 辆，对重点非法营运线路形成有力震慑。建立常态化协作机制，落实两省执法部门周会商、周通报机制，通过排查函告在青运营的外地旅游客运车辆，实现跨区域违法违规运营的闭环治理，有效消除跨省异地违规运营隐患。",
+      "提示词": "**Lily**\nGender: Female.\nPitch: Lower-mid register, rich and resonant.\nSpeed: Moderate to slow, rhythmic with deliberate, relaxed pacing.\nVolume: Moderate to soft, occasionally accompanied by breathy undertones.\nClarity: Precise articulation with a hint of \"lazy\" yet sophisticated sophistication.\nFluency: Silky smooth and effortlessly fluid.\nAccent: Standard/Neutral (with a sophisticated urban tone).\nTimbre: Velvety and magnetic, with a subtle, husky undertone.\nEmotion: Confident, elegant, with a touch of restrained playfulness and mystery.\nIntonation: Sinuous and undulating, with lingering or subtly rising sentence endings.\nPersonality: Mature, sophisticated, observant, and possessing a captivating aura of control.",
+      "语言": "中文",
+      "自动卸载模型": true,
+      "最大生成Token数": 2048,
+      "seed": 100002,
+      "语速": 0.9,
+      "批量模式": 1,
+      "top_p": 1,
+      "top_k": 60,
+      "temperature": 0.9,
+      "repetition_penalty": 1,
+      "启用高级采样配置": 50,
+      "模型": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "Qwen3TTSVoiceDesign",
+    "_meta": {
+      "title": "Qwen3 TTS 声音设计"
+    }
+  }
+}

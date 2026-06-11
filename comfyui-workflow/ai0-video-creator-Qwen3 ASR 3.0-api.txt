@@ -1,0 +1,106 @@
+{
+  "2": {
+    "inputs": {
+      "language": "English",
+      "task": "transcribe",
+      "timestamps": "word",
+      "chunk_size": 30,
+      "overlap": 2,
+      "enable_asr_cache": true,
+      "engine": [
+        "4",
+        0
+      ],
+      "audio": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "UnifiedASRTranscribeNode",
+    "_meta": {
+      "title": "✏️ ASR Transcribe"
+    }
+  },
+  "4": {
+    "inputs": {
+      "model_size": "1.7B",
+      "device": "auto",
+      "voice_preset": "None (Zero-shot / Custom)",
+      "language": "Auto",
+      "instruct": "",
+      "top_k": 50,
+      "top_p": 1,
+      "temperature": 0.9,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 2048,
+      "dtype": "auto",
+      "attn_implementation": "sage_attn",
+      "x_vector_only_mode": false,
+      "use_torch_compile": false,
+      "use_cuda_graphs": false,
+      "compile_mode": "default",
+      "asr_use_forced_aligner": true,
+      "asr_translate_target_language": "English",
+      "asr_translate_instruction_override": "Translate the speech from {source_language} into {target_language} text. Return only the translated text."
+    },
+    "class_type": "Qwen3TTSEngineNode",
+    "_meta": {
+      "title": "⚙️ Qwen3-TTS Engine"
+    }
+  },
+  "7": {
+    "inputs": {
+      "preview_markdown": "",
+      "preview_text": "",
+      "previewMode": null,
+      "source": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview as Text"
+    }
+  },
+  "17": {
+    "inputs": {
+      "audioUI": "",
+      "audio": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "Preview Audio"
+    }
+  },
+  "21": {
+    "inputs": {
+      "output_file_path": "",
+      "file_name": "",
+      "file_extension": "txt",
+      "overwrite": true,
+      "text": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "easy saveText",
+    "_meta": {
+      "title": "Save Text"
+    }
+  },
+  "24": {
+    "inputs": {
+      "audio": "emma_01_austen_64kb.mp3",
+      "start_time": 0,
+      "duration": 0
+    },
+    "class_type": "VHS_LoadAudioUpload",
+    "_meta": {
+      "title": "Load Audio (Upload)🎥🅥🅗🅢"
+    }
+  }
+}

@@ -31,6 +31,7 @@ export async function getDb() {
       let dbPath = "main.db";
       try {
         const path = await invoke<string>("get_db_file_path");
+        console.log("Invoked get_db_file_path, got:", path);
         if (path) {
           dbPath = path;
         }
@@ -88,16 +89,85 @@ export async function getDb() {
   return db;
 }
 
+// // Browser fallback storage
+// const LOCAL_STORAGE_KEY = 'ai_video_projects_fallback';
+
+// function getLocalStorageProjects(): VideoProject[] {
+//   const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+//   return data ? JSON.parse(data) : [];
+// }
+
+// function saveLocalStorageProjects(projects: VideoProject[]) {
+//   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(projects));
+// }
+
 // Browser fallback storage
 const LOCAL_STORAGE_KEY = 'ai_video_projects_fallback';
 
-function getLocalStorageProjects(): VideoProject[] {
+async function getLocalStorageProjects(): Promise<VideoProject[]> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const result = await database.select<any[]>(
+          `SELECT p.*, 
+          (SELECT image_path FROM vocabulary v 
+           WHERE v.project_uuid = p.project_uuid 
+           AND v.image_path IS NOT NULL 
+           AND v.image_path != '' 
+           ORDER BY RANDOM() LIMIT 1) as random_cover
+          FROM video_projects p 
+          ORDER BY p.update_time DESC`
+        );
+        if (result.length > 0) {
+          return result.map(p => ({
+            id: p.project_uuid,
+            name: p.project_name,
+            prompt: p.project_prompt,
+            coverImagePath: p.random_cover || p.cover_image_path,
+            projectPath: p.project_path,
+            status: p.project_status,
+            sceneType: p.scene_type || 'short_video',
+            createdAt: p.create_time,
+            updatedAt: p.update_time,
+          }));
+        }
+
+        // Try reading backup from app_settings
+        const backupRaw = await database.select<any[]>(
+          "SELECT value FROM app_settings WHERE key = ? LIMIT 1",
+          [LOCAL_STORAGE_KEY]
+        );
+        if (backupRaw.length > 0 && backupRaw[0].value) {
+          return JSON.parse(backupRaw[0].value);
+        }
+      } catch (err) {
+        console.error("Failed to fetch projects from database in fallback getter:", err);
+      }
+    }
+  }
   const data = localStorage.getItem(LOCAL_STORAGE_KEY);
   return data ? JSON.parse(data) : [];
 }
 
-function saveLocalStorageProjects(projects: VideoProject[]) {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(projects));
+async function saveLocalStorageProjects(projects: VideoProject[]): Promise<void> {
+  const data = JSON.stringify(projects);
+  localStorage.setItem(LOCAL_STORAGE_KEY, data);
+
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        // Also save to app_settings table
+        await database.execute(
+          "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
+          [LOCAL_STORAGE_KEY, data]
+        );
+      } catch (err) {
+        console.error("Failed to sync projects backup to database:", err);
+      }
+    }
+  }
 }
 
 export async function fetchProjects(): Promise<VideoProject[]> {
@@ -418,12 +488,35 @@ export async function getSetting(key: string): Promise<string | null> {
   if (isTauri) {
     const database = await getDb();
     if (database) {
-      const result = await database.select<any[]>(
-        "SELECT value FROM app_settings WHERE key = ? LIMIT 1",
-        [key]
-      );
-      if (result.length > 0 && result[0].value) {
-        return result[0].value;
+      try {
+        const result = await database.select<any[]>(
+          "SELECT value FROM app_settings WHERE key = ? LIMIT 1",
+          [key]
+        );
+        if (result.length > 0 && result[0].value) {
+          return result[0].value;
+        }
+      } catch (err: any) {
+        const errMsg = err?.toString() || "";
+        if (errMsg.includes("no such table: app_settings")) {
+          console.warn("Table app_settings does not exist, creating it...");
+          try {
+            await database.execute(
+              "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);"
+            );
+            const result = await database.select<any[]>(
+              "SELECT value FROM app_settings WHERE key = ? LIMIT 1",
+              [key]
+            );
+            if (result.length > 0 && result[0].value) {
+              return result[0].value;
+            }
+          } catch (createErr) {
+            console.error("Failed to self-heal app_settings table in getSetting:", createErr);
+          }
+        } else {
+          console.error("Error reading setting:", err);
+        }
       }
     }
   }
@@ -440,12 +533,16 @@ export async function fetchRandomProjectImage(projectUuid: string): Promise<stri
   if (isTauri) {
     const database = await getDb();
     if (database) {
-      const result = await database.select<any[]>(
-        "SELECT image_path FROM vocabulary WHERE project_uuid = ? AND image_path IS NOT NULL AND image_path != '' ORDER BY RANDOM() LIMIT 1",
-        [projectUuid]
-      );
-      if (result.length > 0) {
-        return result[0].image_path;
+      try {
+        const result = await database.select<any[]>(
+          "SELECT image_path FROM vocabulary WHERE project_uuid = ? AND image_path IS NOT NULL AND image_path != '' ORDER BY RANDOM() LIMIT 1",
+          [projectUuid]
+        );
+        if (result.length > 0) {
+          return result[0].image_path;
+        }
+      } catch (err) {
+        console.error("Error fetching random project image:", err);
       }
     }
   }
@@ -457,11 +554,32 @@ export async function setSetting(key: string, value: string): Promise<boolean> {
   if (isTauri) {
     const database = await getDb();
     if (database) {
-      await database.execute(
-        "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
-        [key, value]
-      );
-      return true;
+      try {
+        await database.execute(
+          "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
+          [key, value]
+        );
+        return true;
+      } catch (err: any) {
+        const errMsg = err?.toString() || "";
+        if (errMsg.includes("no such table: app_settings")) {
+          console.warn("Table app_settings does not exist in setSetting, creating it...");
+          try {
+            await database.execute(
+              "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);"
+            );
+            await database.execute(
+              "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
+              [key, value]
+            );
+            return true;
+          } catch (createErr) {
+            console.error("Failed to self-heal app_settings table in setSetting:", createErr);
+          }
+        } else {
+          console.error("Error writing setting:", err);
+        }
+      }
     }
   }
   return true;
