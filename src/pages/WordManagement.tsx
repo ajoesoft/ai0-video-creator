@@ -16,7 +16,8 @@ import {
   createVocabulary, 
   updateVocabulary, 
   deleteVocabulary,
-  getSetting
+  getSetting,
+  applyPromptHarnessRules
 } from '../lib/db';
 import { comfy } from '../lib/comfy';
 import { VideoProject, Vocabulary, SceneType } from '../types';
@@ -110,7 +111,7 @@ function VocabularyCard({
       <div className="aspect-[16/10] bg-[#111114] -mx-6 -mt-6 mb-4 relative overflow-hidden">
         {imageSrc ? (
           <img 
-            src={`data:image/png;base64,${imageSrc}`} 
+            src={imageSrc} 
             alt={word.word} 
             className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
           />
@@ -397,9 +398,11 @@ export function WordManagement() {
       }
 
       const promptPrefix = project?.prompt ? `${project.prompt}, ` : '';
-      const prompt = word.qwenImagePrompt || `${promptPrefix}${word.word}, 8K, high resolution, ${word.chinese || ''}`;
+      const basePrompt = word.qwenImagePrompt || `${promptPrefix}${word.word}, 8K, high resolution, ${word.chinese || ''}`;
+      // Apply Prompt Consistency Harness Rules
+      const prompt = await applyPromptHarnessRules(basePrompt, id!);
       
-      console.log(`Generating image for ${word.word} with prompt: ${prompt}`);
+      console.log(`Generating image for ${word.word} with prompt (harness applied): ${prompt}`);
       
       const savedPath = await comfy.runImageGenerationRust(prompt, localImgPath, true, (msg) => {
         setGenerationProgress(prev => ({ ...prev, [word.id]: msg }));
@@ -500,7 +503,10 @@ export function WordManagement() {
 
       const localVideoPath = await join(projectRoot, 'video', `${word.word}.mp4`);
 
-      const prompt = word.ltx23Prompt || word.word;
+      const baseVideoPrompt = word.ltx23Prompt || word.word;
+      // Apply Prompt Consistency Harness Rules
+      const prompt = await applyPromptHarnessRules(baseVideoPrompt, id!);
+      
       const videos = await comfy.runVideoGeneration(word.imagePath, word.audioPath, prompt, (msg) => {
         setGenerationProgress(prev => ({ ...prev, [word.id]: msg }));
       });

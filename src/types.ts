@@ -88,6 +88,34 @@ export interface Vocabulary {
   chinese?: string;
 }
 
+export interface VisualLibraryItem {
+  id: number;
+  projectId: string; // references video_projects (project_uuid)
+  sceneId: string;   // scene_id or code
+  title: string;
+  type: string;      // e.g. "IP", "环境", "物品" or customizable
+  uuid?: string;      // Specific UUID requested
+  shortName?: string; // Specific short name requested
+  imagePrompt?: string;
+  videoPrompt?: string;
+  audioPrompt?: string;
+  imagePath?: string;
+  videoPath?: string;
+  audioPath?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PromptHarness {
+  id: number;
+  projectId: string;       // References video_projects (project_uuid)
+  triggerKeyword: string;  // Word or token trigger in scripts/prompts, e.g. "@Protagonist", "IronMan"
+  visualAssetId: number;   // Associated visual_library item ID
+  active: number;          // 1 = Active, 0 = Inactive
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ScriptContent {
   id: string;
   projectId: string;
@@ -129,4 +157,43 @@ export interface AppConfig {
   comfyuiPort?: number;
   exportPath?: string;
   theme?: 'light' | 'dark' | 'system';
+}
+
+
+
+export enum TaskStatus {
+  PENDING = 'pending',
+  RUNNING = 'running',
+  COMPLETED = 'completed',
+  FAILED = 'failed',
+  CANCELLED = 'cancelled',
+}
+
+export enum TaskType {
+  TTS = 'tts',
+  ASR = 'asr',
+  AUDIO = 'audio',
+  T2I = 't2i',
+  I2I = 'i2i',
+  T2V = 't2v',
+  I2V = 'i2v',
+  LIPSYNC = 'lipsync',
+  COMFY_WORKFLOW = 'comfy_workflow',
+}
+
+export interface BackgroundTask {
+  id: string;
+  projectId: string;
+  name: string;
+  type: TaskType;
+  status: TaskStatus;
+  params: string; // JSON string
+  result?: string; // JSON string
+  error?: string;
+  progress: number;
+  scheduledAt?: number;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  priority: number;
 }

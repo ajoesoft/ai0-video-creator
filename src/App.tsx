@@ -13,6 +13,7 @@ import { GlobalSettings } from './pages/GlobalSettings';
 import { ModelManagement } from './pages/ModelManagement';
 import { VideoTranslation } from './pages/VideoTranslation';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { QueueManager } from './pages/QueueManager';
 
 export default function App() {
   return (
@@ -24,17 +25,18 @@ export default function App() {
             <Route path="/translation" element={<VideoTranslation />} />
             <Route path="/models" element={<ModelManagement />} />
             <Route path="/settings" element={<GlobalSettings />} />
-            
+            <Route path="/queue" element={<QueueManager />} />
+
             <Route path="/project/:id">
-               <Route index element={<Navigate to="details" replace />} />
-               <Route path="details" element={<ProjectDetail />} />
-               <Route path="words" element={<WordManagement />} />
-               <Route path="script" element={<ScriptEditor />} />
-               <Route path="visuals" element={<VisualsLibrary />} />
-               <Route path="audio" element={<AudioEngine />} />
-               <Route path="timeline" element={<TimelineEditor />} />
-               <Route path="translation" element={<VideoTranslation />} />
-               <Route path="export" element={<ExportCenter />} />
+              <Route index element={<Navigate to="details" replace />} />
+              <Route path="details" element={<ProjectDetail />} />
+              <Route path="words" element={<WordManagement />} />
+              <Route path="script" element={<ScriptEditor />} />
+              <Route path="visuals" element={<VisualsLibrary />} />
+              <Route path="audio" element={<AudioEngine />} />
+              <Route path="timeline" element={<TimelineEditor />} />
+              <Route path="translation" element={<VideoTranslation />} />
+              <Route path="export" element={<ExportCenter />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

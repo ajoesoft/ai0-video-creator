@@ -1,10 +1,12 @@
 import Database from "@tauri-apps/plugin-sql";
 import { remove, BaseDirectory } from "@tauri-apps/plugin-fs";
-import { VideoProject, Vocabulary } from "../types";
+import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType } from "../types";
+
 import { invoke } from "@tauri-apps/api/core";
 
 let db: Database | null = null;
 let dbError: string | null = null;
+const PROMPT_HARNESS_LOCAL_STORAGE_KEY = 'ai_prompt_harnesses_fallback';
 
 const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 
@@ -39,6 +41,71 @@ export async function getDb() {
         console.warn("Failed to retrieve dynamic database path via get_db_file_path:", err);
       }
       db = await Database.load("sqlite:" + dbPath);
+       // Auto-create visual_library table if missing
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS visual_library (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT,
+            scene_id TEXT,
+            title TEXT,
+            type TEXT,
+            uuid TEXT,
+            short_name TEXT,
+            image_prompt TEXT,
+            video_prompt TEXT,
+            audio_prompt TEXT,
+            image_path TEXT,
+            video_path TEXT,
+            audio_path TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+          );
+        `);
+      } catch (errTable) {
+        console.error("Failed to create visual_library table:", errTable);
+      }
+
+      // Auto-create prompt_harness table if missing
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS prompt_harness (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT,
+            trigger_keyword TEXT,
+            visual_asset_id INTEGER,
+            active INTEGER DEFAULT 1,
+            created_at INTEGER,
+            updated_at INTEGER
+          );
+        `);
+      } catch (errHarnessTable) {
+        console.error("Failed to create prompt_harness table:", errHarnessTable);
+      }
+
+      // Auto-create background_tasks table if missing
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS background_tasks (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            name TEXT,
+            type TEXT,
+            status TEXT,
+            params TEXT,
+            result TEXT,
+            error TEXT,
+            progress INTEGER DEFAULT 0,
+            scheduled_at INTEGER,
+            created_at INTEGER,
+            started_at INTEGER,
+            completed_at INTEGER,
+            priority INTEGER DEFAULT 0
+          );
+        `);
+      } catch (errTasksTable) {
+        console.error("Failed to create background_tasks table:", errTasksTable);
+      }
     } catch (err: any) {
       console.error("Failed to load SQLite via Tauri plugin-sql:", err);
       const errMsg = err?.toString() || "";
@@ -582,5 +649,600 @@ export async function setSetting(key: string, value: string): Promise<boolean> {
       }
     }
   }
+  return true;
+}
+
+
+
+// Visual Library operations
+const VISUAL_LIBRARY_LOCAL_STORAGE_KEY = 'ai_visual_library_fallback';
+
+export function getLocalStorageVisualLibrary(): VisualLibraryItem[] {
+  const data = localStorage.getItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export function saveLocalStorageVisualLibrary(items: VisualLibraryItem[]) {
+  localStorage.setItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY, JSON.stringify(items));
+}
+
+export async function fetchVisualLibraryByProject(projectId: string): Promise<VisualLibraryItem[]> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const result = await database.select<any[]>(
+          "SELECT * FROM visual_library WHERE project_id = ? ORDER BY created_at DESC",
+          [projectId]
+        );
+        return result.map(v => ({
+          id: v.id,
+          projectId: v.project_id,
+          sceneId: v.scene_id || '',
+          title: v.title || '',
+          type: v.type || '',
+          uuid: v.uuid || '',
+          shortName: v.short_name || '',
+          imagePrompt: v.image_prompt || '',
+          videoPrompt: v.video_prompt || '',
+          audioPrompt: v.audio_prompt || '',
+          imagePath: v.image_path || '',
+          videoPath: v.video_path || '',
+          audioPath: v.audio_path || '',
+          createdAt: typeof v.created_at === 'string' ? new Date(v.created_at).getTime() : (v.created_at || Date.now()),
+          updatedAt: typeof v.updated_at === 'string' ? new Date(v.updated_at).getTime() : (v.updated_at || Date.now()),
+        }));
+      } catch (err) {
+        console.error("Error fetching visual library from DB:", err);
+      }
+    }
+  }
+
+  // Fallback to LocalStorage for Web Preview / fallback
+  const allItems = getLocalStorageVisualLibrary();
+  return allItems.filter(item => item.projectId === projectId).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function createVisualLibraryItem(item: Partial<VisualLibraryItem>): Promise<VisualLibraryItem> {
+  const now = Date.now();
+  
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute(
+          `INSERT INTO visual_library (
+            project_id, scene_id, title, type, uuid, short_name, image_prompt, video_prompt, audio_prompt, 
+            image_path, video_path, audio_path, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            item.projectId || "",
+            item.sceneId || "",
+            item.title || "",
+            item.type || "",
+            item.uuid || "",
+            item.shortName || "",
+            item.imagePrompt || "",
+            item.videoPrompt || "",
+            item.audioPrompt || "",
+            item.imagePath || "",
+            item.videoPath || "",
+            item.audioPath || "",
+            now,
+            now
+          ]
+        );
+        
+        // Retrive last inserted id in SQLite
+        const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
+        const insertedId = idResult[0]?.id || now;
+        
+        return {
+          id: insertedId,
+          projectId: item.projectId || "",
+          sceneId: item.sceneId || "",
+          title: item.title || "",
+          type: item.type || "",
+          uuid: item.uuid || "",
+          shortName: item.shortName || "",
+          imagePrompt: item.imagePrompt || "",
+          videoPrompt: item.videoPrompt || "",
+          audioPrompt: item.audioPrompt || "",
+          imagePath: item.imagePath || "",
+          videoPath: item.videoPath || "",
+          audioPath: item.audioPath || "",
+          createdAt: now,
+          updatedAt: now,
+        } as VisualLibraryItem;
+      } catch (err) {
+        console.error("Error inserting visual library item:", err);
+      }
+    }
+  }
+
+  // Fallback to LocalStorage
+  const allItems = getLocalStorageVisualLibrary();
+  const nextId = allItems.length > 0 ? Math.max(...allItems.map(v => v.id)) + 1 : 1;
+  const newItem: VisualLibraryItem = {
+    id: nextId,
+    projectId: item.projectId || '',
+    sceneId: item.sceneId || '',
+    title: item.title || '',
+    type: item.type || '',
+    uuid: item.uuid || '',
+    shortName: item.shortName || '',
+    imagePrompt: item.imagePrompt || '',
+    videoPrompt: item.videoPrompt || '',
+    audioPrompt: item.audioPrompt || '',
+    imagePath: item.imagePath || '',
+    videoPath: item.videoPath || '',
+    audioPath: item.audioPath || '',
+    createdAt: now,
+    updatedAt: now,
+  };
+  allItems.push(newItem);
+  saveLocalStorageVisualLibrary(allItems);
+  return newItem;
+}
+
+export async function updateVisualLibraryItem(id: number, updates: Partial<VisualLibraryItem>): Promise<boolean> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const { id: _, projectId: __, ...rest } = updates;
+        const entries = Object.entries(rest);
+        
+        if (entries.length === 0) return true;
+
+        const setClause = entries.map(([key]) => {
+          // Map camelCase keys to snake_case db columns
+          const dbKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+          return `${dbKey} = ?`;
+        }).concat(["updated_at = ?"]).join(", ");
+
+        const values = entries.map(([_, value]) => value ?? null).concat([now, id]);
+
+        await database.execute(
+          `UPDATE visual_library SET ${setClause} WHERE id = ?`,
+          values
+        );
+        return true;
+      } catch (err) {
+        console.error("Error updating visual library item in DB:", err);
+        return false;
+      }
+    }
+  }
+
+  // Fallback to LocalStorage
+  const allItems = getLocalStorageVisualLibrary();
+  const index = allItems.findIndex(v => v.id === id);
+  if (index !== -1) {
+    allItems[index] = { ...allItems[index], ...updates, updatedAt: now };
+    saveLocalStorageVisualLibrary(allItems);
+    return true;
+  }
+  return false;
+}
+
+export async function deleteVisualLibraryItem(id: number): Promise<boolean> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM visual_library WHERE id = ?", [id]);
+        return true;
+      } catch (err) {
+        console.error("Error deleting visual library item:", err);
+        return false;
+      }
+    }
+  }
+
+  // Fallback to LocalStorage
+  const allItems = getLocalStorageVisualLibrary();
+  const filtered = allItems.filter(v => v.id !== id);
+  saveLocalStorageVisualLibrary(filtered);
+  return true;
+}
+
+export function getLocalStoragePromptHarnesses(): PromptHarness[] {
+  const data = localStorage.getItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+export function saveLocalStoragePromptHarnesses(items: PromptHarness[]) {
+  localStorage.setItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY, JSON.stringify(items));
+}
+
+export async function fetchPromptHarnessByProject(projectId: string): Promise<PromptHarness[]> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const result = await database.select<any[]>(
+          "SELECT * FROM prompt_harness WHERE project_id = ? ORDER BY created_at DESC",
+          [projectId]
+        );
+        return result.map(h => ({
+          id: h.id,
+          projectId: h.project_id,
+          triggerKeyword: h.trigger_keyword || '',
+          visualAssetId: h.visual_asset_id || 0,
+          active: h.active === undefined ? 1 : h.active,
+          createdAt: typeof h.created_at === 'string' ? new Date(h.created_at).getTime() : (h.created_at || Date.now()),
+          updatedAt: typeof h.updated_at === 'string' ? new Date(h.updated_at).getTime() : (h.updated_at || Date.now()),
+        }));
+      } catch (err) {
+        console.error("Error fetching prompt harnesses from DB:", err);
+      }
+    }
+  }
+
+  // Fallback to LocalStorage
+  const allItems = getLocalStoragePromptHarnesses();
+  return allItems.filter(item => item.projectId === projectId).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function createPromptHarness(harness: Partial<PromptHarness>): Promise<PromptHarness> {
+  const now = Date.now();
+  const triggerKeyword = harness.triggerKeyword || "";
+  const visualAssetId = harness.visualAssetId || 0;
+  const active = harness.active !== undefined ? harness.active : 1;
+  const projectId = harness.projectId || "";
+
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute(
+          `INSERT INTO prompt_harness (
+            project_id, trigger_keyword, visual_asset_id, active, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+          [projectId, triggerKeyword, visualAssetId, active, now, now]
+        );
+        
+        const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
+        const insertedId = idResult[0]?.id || now;
+        
+        return {
+          id: insertedId,
+          projectId,
+          triggerKeyword,
+          visualAssetId,
+          active,
+          createdAt: now,
+          updatedAt: now
+        };
+      } catch (err) {
+        console.error("Error inserting prompt harness:", err);
+      }
+    }
+  }
+
+  // Client fallback
+  const allItems = getLocalStoragePromptHarnesses();
+  const nextId = allItems.length > 0 ? Math.max(...allItems.map(h => h.id)) + 1 : 1;
+  const newItem: PromptHarness = {
+    id: nextId,
+    projectId,
+    triggerKeyword,
+    visualAssetId,
+    active,
+    createdAt: now,
+    updatedAt: now
+  };
+  allItems.push(newItem);
+  saveLocalStoragePromptHarnesses(allItems);
+  return newItem;
+}
+
+export async function updatePromptHarness(id: number, updates: Partial<PromptHarness>): Promise<boolean> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const { id: _, projectId: __, ...rest } = updates;
+        const entries = Object.entries(rest);
+        
+        if (entries.length === 0) return true;
+
+        const setClause = entries.map(([key]) => {
+          const dbKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+          return `${dbKey} = ?`;
+        }).concat(["updated_at = ?"]).join(", ");
+
+        const values = entries.map(([_, value]) => value ?? null).concat([now, id]);
+
+        await database.execute(
+          `UPDATE prompt_harness SET ${setClause} WHERE id = ?`,
+          values
+        );
+        return true;
+      } catch (err) {
+        console.error("Error updating prompt harness in DB:", err);
+        return false;
+      }
+    }
+  }
+
+  // Local storage fallback
+  const allItems = getLocalStoragePromptHarnesses();
+  const index = allItems.findIndex(h => h.id === id);
+  if (index !== -1) {
+    allItems[index] = { ...allItems[index], ...updates, updatedAt: now };
+    saveLocalStoragePromptHarnesses(allItems);
+    return true;
+  }
+  return false;
+}
+
+export async function deletePromptHarness(id: number): Promise<boolean> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM prompt_harness WHERE id = ?", [id]);
+        return true;
+      } catch (err) {
+        console.error("Error deleting prompt harness:", err);
+        return false;
+      }
+    }
+  }
+
+  // Local storage fallback
+  const allItems = getLocalStoragePromptHarnesses();
+  const filtered = allItems.filter(h => h.id !== id);
+  saveLocalStoragePromptHarnesses(filtered);
+  return true;
+}
+
+/**
+ * Harness Engine - Core Prompt expander
+ * Finds Trigger Keywords matched in the original raw draft prompt,
+ * and appends/replaces them with the detailed visual prompts of synced library assets.
+ */
+export async function applyPromptHarnessRules(promptText: string, projectId: string): Promise<string> {
+  if (!promptText || !promptText.trim()) return promptText;
+
+  try {
+    // 1. Fetch active harness rules
+    const harnesses = await fetchPromptHarnessByProject(projectId);
+    const activeHarnesses = harnesses.filter(h => h.active === 1);
+    if (activeHarnesses.length === 0) return promptText;
+
+    // 2. Fetch project visual library assets
+    const visualAssets = await fetchVisualLibraryByProject(projectId);
+    if (visualAssets.length === 0) return promptText;
+
+    let modifiedPrompt = promptText;
+
+    // 3. For each active harness rule, check presence of trigger keyword
+    for (const rule of activeHarnesses) {
+      const parentAsset = visualAssets.find(v => v.id === rule.visualAssetId);
+      if (!parentAsset) continue;
+
+      const trigger = rule.triggerKeyword;
+      // Use escape helper to support special characters of keyword e.g. "@主角"
+      const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      
+      // Match with word bounds or direct boundaries
+      const regex = new RegExp(`(${escapedTrigger})`, 'gi');
+
+      if (regex.test(modifiedPrompt)) {
+        // Construct the detailed consistency inject token
+        const designDetails = [
+          parentAsset.imagePrompt,
+          parentAsset.videoPrompt
+        ].filter(Boolean).join(", ");
+
+        if (designDetails.trim()) {
+          // Replace matching keywords with their descriptive high fidelity context
+          modifiedPrompt = modifiedPrompt.replace(regex, `$1 (${designDetails})`);
+        }
+      }
+    }
+
+    return modifiedPrompt;
+  } catch (err) {
+    console.warn("Harness engine substitution warning:", err);
+    return promptText;
+  }
+}
+
+
+
+// ========================================================
+// BACKGROUND QUEUE & TASK MANAGER DB OPERATIONS
+// ========================================================
+const TASKS_LOCAL_STORAGE_KEY = 'background_tasks_fallback';
+
+function getLocalStorageTasks(): BackgroundTask[] {
+  const data = localStorage.getItem(TASKS_LOCAL_STORAGE_KEY);
+  return data ? JSON.parse(data) : [];
+}
+
+function saveLocalStorageTasks(items: BackgroundTask[]) {
+  localStorage.setItem(TASKS_LOCAL_STORAGE_KEY, JSON.stringify(items));
+}
+
+export async function fetchBackgroundTasks(projectId?: string): Promise<BackgroundTask[]> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        let query = "SELECT * FROM background_tasks";
+        let params: any[] = [];
+        if (projectId) {
+          query += " WHERE project_id = ?";
+          params.push(projectId);
+        }
+        query += " ORDER BY priority DESC, created_at DESC";
+        const result = await database.select<any[]>(query, params);
+        return result.map(t => ({
+          id: t.id,
+          projectId: t.project_id || '',
+          name: t.name || '',
+          type: t.type as TaskType,
+          status: t.status as TaskStatus,
+          params: t.params || '{}',
+          result: t.result || undefined,
+          error: t.error || undefined,
+          progress: t.progress || 0,
+          scheduledAt: t.scheduled_at || undefined,
+          createdAt: t.created_at || Date.now(),
+          startedAt: t.started_at || undefined,
+          completedAt: t.completed_at || undefined,
+          priority: t.priority || 0,
+        }));
+      } catch (err) {
+        console.error("Error fetching background tasks from DB:", err);
+      }
+    }
+  }
+
+  // Local storage fallback
+  const allTasks = getLocalStorageTasks();
+  let filtered = allTasks;
+  if (projectId) {
+    filtered = allTasks.filter(t => t.projectId === projectId);
+  }
+  return filtered.sort((a, b) => b.priority - a.priority || b.createdAt - a.createdAt);
+}
+
+export async function createBackgroundTask(task: any): Promise<BackgroundTask> {
+  const now = Date.now();
+  const id = task.id || Math.random().toString(36).substr(2, 9);
+  const projectId = task.projectId || '';
+  const name = task.name || 'Unnamed Task';
+  const type = task.type || TaskType.T2I;
+  const status = task.status || TaskStatus.PENDING;
+  const params = task.params || '{}';
+  const result = task.result || undefined;
+  const error = task.error || undefined;
+  const progress = task.progress || 0;
+  const scheduledAt = task.scheduledAt || undefined;
+  const priority = task.priority || 0;
+
+  const newTask: BackgroundTask = {
+    id,
+    projectId,
+    name,
+    type,
+    status,
+    params,
+    result,
+    error,
+    progress,
+    scheduledAt,
+    createdAt: now,
+    priority,
+  };
+
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute(
+          `INSERT INTO background_tasks (
+            id, project_id, name, type, status, params, result, error, progress, scheduled_at, created_at, priority
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, projectId, name, type, status, params, result || null, error || null, progress, scheduledAt || null, now, priority]
+        );
+        return newTask;
+      } catch (err) {
+        console.error("Error inserting background task:", err);
+      }
+    }
+  }
+
+  // LocalStorage fallback
+  const allTasks = getLocalStorageTasks();
+  allTasks.push(newTask);
+  saveLocalStorageTasks(allTasks);
+  return newTask;
+}
+
+export async function updateBackgroundTask(id: string, updates: Partial<BackgroundTask>): Promise<boolean> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const entries = Object.entries(updates);
+        if (entries.length === 0) return true;
+
+        const setClause = entries.map(([key]) => {
+          const dbKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+          return `${dbKey} = ?`;
+        }).join(", ");
+
+        const values = entries.map(([_, value]) => value ?? null).concat([id]);
+
+        await database.execute(
+          `UPDATE background_tasks SET ${setClause} WHERE id = ?`,
+          values
+        );
+        return true;
+      } catch (err) {
+        console.error("Error updating background task in DB:", err);
+        return false;
+      }
+    }
+  }
+
+  // LocalStorage fallback
+  const allTasks = getLocalStorageTasks();
+  const index = allTasks.findIndex(t => t.id === id);
+  if (index !== -1) {
+    allTasks[index] = { ...allTasks[index], ...updates };
+    saveLocalStorageTasks(allTasks);
+    return true;
+  }
+  return false;
+}
+
+export async function deleteBackgroundTask(id: string): Promise<boolean> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM background_tasks WHERE id = ?", [id]);
+        return true;
+      } catch (err) {
+        console.error("Error deleting background task:", err);
+        return false;
+      }
+    }
+  }
+
+  // LocalStorage fallback
+  const allTasks = getLocalStorageTasks();
+  const filtered = allTasks.filter(t => t.id !== id);
+  saveLocalStorageTasks(filtered);
+  return true;
+}
+
+export async function clearCompletedTasks(): Promise<boolean> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM background_tasks WHERE status = ? OR status = ? OR status = ?", [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]);
+        return true;
+      } catch (err) {
+        console.error("Error clearing completed tasks:", err);
+        return false;
+      }
+    }
+  }
+
+  // LocalStorage fallback
+  const allTasks = getLocalStorageTasks();
+  const filtered = allTasks.filter(t => t.status !== TaskStatus.COMPLETED && t.status !== TaskStatus.FAILED && t.status !== TaskStatus.CANCELLED);
+  saveLocalStorageTasks(filtered);
   return true;
 }

@@ -1,11 +1,11 @@
 import React from 'react';
-import {
-  LayoutDashboard,
-  FileText,
-  Image as ImageIcon,
-  Mic2,
-  GanttChart,
-  Video,
+import { 
+  LayoutDashboard, 
+  FileText, 
+  Image as ImageIcon, 
+  Mic2, 
+  GanttChart, 
+  Video, 
   Settings,
   Database,
   Plus,
@@ -54,14 +54,15 @@ export function Sidebar() {
   const mainNav: NavItem[] = [
     { label: t('dashboard'), icon: LayoutDashboard, path: '/' },
     { label: t('models'), icon: Database, path: '/models' },
+    { label: '后台队列 Queue', icon: GanttChart, path: '/queue' },
   ];
 
   const projectNav: NavItem[] = isProjectView ? (
     sceneType === 'video_translation' ? [
-      { label: '项目详情', icon: Settings, path: `/project/${projectId}/details` },
+      { label: '项目详情 Details', icon: Settings, path: `/project/${projectId}/details` },
       { label: t('videoTranslation') || '视频翻译 Workspace', icon: Languages, path: `/project/${projectId}/translation` },
     ] : [
-      { label: '项目详情', icon: Settings, path: `/project/${projectId}/details` },
+      { label: '项目详情 Details', icon: Settings, path: `/project/${projectId}/details` },
       { label: t('scripting'), icon: FileText, path: `/project/${projectId}/script` },
       { label: t('visuals'), icon: ImageIcon, path: `/project/${projectId}/visuals` },
       { label: t('audio'), icon: Mic2, path: `/project/${projectId}/audio` },
@@ -71,7 +72,7 @@ export function Sidebar() {
   ) : [];
 
   return (
-    <aside
+    <aside 
       className={cn(
         "h-full bg-black border-r border-border-subtle flex flex-col shrink-0 transition-all duration-300 ease-in-out relative",
         isCollapsed ? "w-20" : "w-64"
@@ -80,15 +81,13 @@ export function Sidebar() {
       <div className={cn("p-6 flex items-center justify-between mb-4", isCollapsed ? "flex-col gap-4" : "flex-row")}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-brand-primary rounded-sm flex items-center justify-center font-bold text-black shadow-lg shadow-brand-primary/10 shrink-0">
-            <img src="/logo.png" alt='VeraAI' />
+            T
           </div>
           {!isCollapsed && (
-            <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">
-              VeraAI
-            </span>
+            <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">Tauri AI 2.0</span>
           )}
         </div>
-        <button
+        <button 
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-2 hover:bg-white/10 rounded-sm text-gray-500 hover:text-white transition-colors"
         >
@@ -138,9 +137,9 @@ export function Sidebar() {
             <span>SQLite 3.0</span>
           </div>
         )}
-        <NavLink
-          item={{ label: t('configuration'), icon: Settings, path: '/settings' }}
-          active={path === '/settings'}
+        <NavLink 
+          item={{ label: t('configuration'), icon: Settings, path: '/settings' }} 
+          active={path === '/settings'} 
           isCollapsed={isCollapsed}
         />
       </div>
@@ -169,8 +168,8 @@ function NavLink({ item, active, isCollapsed }: { item: NavItem; active: boolean
       title={isCollapsed ? item.label : undefined}
       className={cn(
         "flex items-center gap-3 px-3 py-2 transition-all group border-l-2 h-10",
-        active
-          ? "border-brand-primary bg-white/5 text-white"
+        active 
+          ? "border-brand-primary bg-white/5 text-white" 
           : "border-transparent text-white/40 hover:text-white",
         isCollapsed && "justify-center px-0"
       )}

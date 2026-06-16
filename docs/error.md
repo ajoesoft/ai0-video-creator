@@ -1,4 +1,9 @@
 
+export OPENSSL_DIR=/usr
+export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+export OPENSSL_INCLUDE_DIR=/usr/lib/x86_64-linux-gnu
+
+sudo ln -s /usr/include/x86_64-linux-gnu/openssl/configuration.h configuration.h
 
 
 [Error] Failed to load SQLite via Tauri plugin-sql: – "error returned from database: (code: 5) database is locked"
