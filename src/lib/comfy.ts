@@ -1,9 +1,25 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { getAssetUrl } from "./utils";
 
 export interface ComfyConfig {
   serverAddress: string; // e.g. "127.0.0.1:8188"
+}
+
+export function extractComfyFilename(pathOrUrl: string | undefined): string {
+  if (!pathOrUrl) return "";
+  try {
+    if (pathOrUrl.includes('filename=')) {
+      const url = new URL(pathOrUrl);
+      const filename = url.searchParams.get('filename');
+      if (filename) return filename;
+    }
+  } catch (e) {
+    // Ignore parse errors
+  }
+  const base = pathOrUrl.split(/[/\\]/).pop() || "";
+  return base.split('?')[0];
 }
 
 export class ComfyService {
@@ -206,7 +222,20 @@ export class ComfyService {
   }
 
   async runVideoGeneration(imagePath: string, audioPath: string, prompt: string, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getVideoWorkflow(imagePath, audioPath, prompt);
+    onProgress?.("Uploading assets to ComfyUI...");
+    let uploadedImage = imagePath;
+    let uploadedAudio = audioPath;
+
+    if (imagePath) {
+      const ext = imagePath.endsWith('.jpg') || imagePath.endsWith('.jpeg') ? 'jpg' : 'png';
+      uploadedImage = await this.ensureUploaded(imagePath, `image_${Date.now()}.${ext}`, onProgress);
+    }
+    if (audioPath) {
+      uploadedAudio = await this.ensureUploaded(audioPath, `audio_${Date.now()}.mp3`, onProgress);
+    }
+
+    onProgress?.("Configuring video generation workflow...");
+    const workflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt);
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     
@@ -782,17 +811,315 @@ export class ComfyService {
   private getTTSWorkflow(text: string, referenceAudio: string) {
     const workflow = {
       "7": { "inputs": { "文本": text, "参考文本": "A walrus lives in the cold sea.", "语言": "中文", "自动卸载模型": true, "最大生成Token数": 2048, "seed": 2, "语速": 0.5, "批量模式": false, "top_p": 0.9, "top_k": 10, "temperature": 2, "repetition_penalty": 1.05, "启用高级采样配置": false, "模型": ["13", 0], "参考音频": ["9", 0] }, "class_type": "Qwen3TTSVoiceClone" },
-      "9": { "inputs": { "audio": referenceAudio }, "class_type": "LoadAudio" },
+      "9": { "inputs": { "audio": extractComfyFilename(referenceAudio) }, "class_type": "LoadAudio" },
       "10": { "inputs": { "filename_prefix": "voice", "quality": "V0", "audio": ["7", 0] }, "class_type": "SaveAudioMP3" },
       "13": { "inputs": { "模型名称": "Qwen/Qwen3-TTS-12Hz-1.7B-Base", "运行设备": "cuda", "精度": "fp16" }, "class_type": "Qwen3TTSModelLoader" }
     };
     return workflow;
   }
 
+  private getVoxCPMWorkflow(text: string, referenceAudio: string) {
+    const workflow = {
+      "17": {
+        "inputs": {
+          "audio": extractComfyFilename(referenceAudio) || "female.mp3",
+          "audioUI": ""
+        },
+        "class_type": "LoadAudio",
+        "_meta": {
+          "title": "Load Audio"
+        }
+      },
+      "21": {
+        "inputs": {
+          "model_name": "VoxCPM2",
+          "optimize": false,
+          "lora_name": "None"
+        },
+        "class_type": "RunningHub_VoxCPM_LoadModel",
+        "_meta": {
+          "title": "RunningHub VoxCPM Load Model"
+        }
+      },
+      "26": {
+        "inputs": {
+          "control_instruction": "",
+          "text": [
+            "28",
+            0
+          ],
+          "cfg_value": 3.3,
+          "inference_steps": 20,
+          "seed": Math.floor(Math.random() * 9000000) + 1000000,
+          "ultimate_clone": false,
+          "reference_audio_text": "I even talk with a robot.",
+          "normalize_text": false,
+          "denoise_reference": false,
+          "max_len": 4096,
+          "retry_badcase": true,
+          "model": [
+            "21",
+            0
+          ],
+          "reference_audio": [
+            "17",
+            0
+          ]
+        },
+        "class_type": "RunningHub_VoxCPM_Generate",
+        "_meta": {
+          "title": "RunningHub VoxCPM Generate Speech"
+        }
+      },
+      "28": {
+        "inputs": {
+          "text": text
+        },
+        "class_type": "Textbox",
+        "_meta": {
+          "title": "Textbox"
+        }
+      },
+      "30": {
+        "inputs": {
+          "filename_prefix": "word",
+          "quality": "V0",
+          "audioUI": "",
+          "audio": [
+            "26",
+            0
+          ]
+        },
+        "class_type": "SaveAudioMP3",
+        "_meta": {
+          "title": "Save Audio (MP3)"
+        }
+      }
+    };
+    return workflow;
+  }
+
+  /**
+   * Ensures that a referenced file exists in the ComfyUI input directory by copying it locally if running under Tauri.
+   * Also searches the workspace directory as a fallback if the file is not found at the source path.
+   */
+  async ensureLocalFileInComfyInput(pathOrUrl: string | undefined, defaultName: string): Promise<string> {
+    if (!pathOrUrl || pathOrUrl.trim() === "") {
+      return "";
+    }
+
+    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+    if (!isTauri) {
+      console.log("ensureLocalFileInComfyInput: Not in Tauri environment, skipping copy.");
+      return pathOrUrl;
+    }
+
+    try {
+      const { getSetting } = await import("./db");
+      const { exists, mkdir, readFile, writeFile, readDir } = await import("@tauri-apps/plugin-fs");
+      const { join } = await import("@tauri-apps/api/path");
+
+      const comfyuiRoot = await getSetting("comfyui_root_path") || "/ai/working/ComfyUI";
+      const inputDir = await join(comfyuiRoot, "input");
+
+      // Ensure input dir exists
+      if (!(await exists(inputDir))) {
+        await mkdir(inputDir, { recursive: true });
+      }
+
+      const filename = extractComfyFilename(pathOrUrl) || defaultName;
+      const destPath = await join(inputDir, filename);
+
+      console.log(`[comfy.ts] Checking and ensuring file in ComfyUI input directory: ${destPath}`);
+
+      // Case 1: Check if the file already exists at destPath and contains data
+      if (await exists(destPath)) {
+        console.log(`[comfy.ts] File already exists in ComfyUI input: ${destPath}`);
+        return destPath;
+      }
+
+      // Case 2: Source file path is valid and exists on local system
+      if (pathOrUrl !== destPath && !pathOrUrl.includes("/ai/working/ComfyUI/input/") && (await exists(pathOrUrl))) {
+        console.log(`[comfy.ts] Copying from direct source path ${pathOrUrl} to ComfyUI input...`);
+        const fileData = await readFile(pathOrUrl);
+        await writeFile(destPath, fileData);
+        console.log(`[comfy.ts] Copied ${pathOrUrl} to ${destPath}`);
+        return destPath;
+      }
+
+      // Case 3: Fallback search in the workspace directory (useful if the DB points to a previously configured ComfyUI input path that is missing the physical file)
+      console.log(`[comfy.ts] File not found at direct source path. Searching workspace for ${filename}...`);
+      const workspacePath = await getSetting("workspace_path");
+      if (workspacePath && (await exists(workspacePath))) {
+        const workspaceEntries = await readDir(workspacePath);
+        for (const entry of workspaceEntries) {
+          if (entry.isDirectory) {
+            const projectDir = await join(workspacePath, entry.name);
+            for (const subDirName of ["audio", "image", "video"]) {
+              const subDir = await join(projectDir, subDirName);
+              if (await exists(subDir)) {
+                const searchPath = await join(subDir, filename);
+                if (await exists(searchPath)) {
+                  console.log(`[comfy.ts] Found file in workspace: ${searchPath}. Copying to ComfyUI input...`);
+                  const fileData = await readFile(searchPath);
+                  await writeFile(destPath, fileData);
+                  console.log(`[comfy.ts] Copied ${searchPath} to ${destPath}`);
+                  return destPath;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      console.log(`[comfy.ts] File ${filename} could not be resolved from workspace fallback.`);
+    } catch (err) {
+      console.error("[comfy.ts] Failed ensuring file in ComfyUI input directory:", err);
+    }
+
+    return pathOrUrl;
+  }
+
+  async ensureUploaded(pathOrUrl: string | undefined, defaultName: string, onProgress?: (msg: string) => void): Promise<string> {
+    if (!pathOrUrl || pathOrUrl.trim() === "") {
+      return "";
+    }
+
+    // Try copying the file locally into comfyui root's input folder if running in Tauri environment
+    const ensuredLocalPath = await this.ensureLocalFileInComfyInput(pathOrUrl, defaultName);
+    
+    // If it's already in the comfyui input directory (either from the copy or originally), we return the filename
+    if (ensuredLocalPath.includes("/ai/working/ComfyUI/input/") || ensuredLocalPath.includes("/input/")) {
+      return extractComfyFilename(ensuredLocalPath);
+    }
+
+    // If it's already just a pure filename without path/url markers, assume it's already in the input directory.
+    const hasSlashes = ensuredLocalPath.includes("/") || ensuredLocalPath.includes("\\");
+    if (!hasSlashes) {
+      return ensuredLocalPath;
+    }
+
+    // If it's a ComfyUI view URL, and it is already an input, we can return the filename directly.
+    if (ensuredLocalPath.includes("/view?filename=") || ensuredLocalPath.includes("filename=")) {
+      if (ensuredLocalPath.includes("type=input")) {
+        const extracted = extractComfyFilename(ensuredLocalPath);
+        if (extracted) return extracted;
+      }
+    }
+
+    onProgress?.(`Uploading asset to ComfyUI: ${defaultName}...`);
+
+    try {
+      let file: File | null = null;
+
+      if (ensuredLocalPath.startsWith("data:")) {
+        // Handle Base64 data URIs
+        const arr = ensuredLocalPath.split(",");
+        const mime = arr[0].match(/:(.*?);/)?.[1] || "image/png";
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        file = new File([blob], defaultName, { type: mime });
+      } else {
+        // Resolve path to the fetchable web URL using getAssetUrl (handles Tauri/web automatically)
+        const fetchUrl = getAssetUrl(ensuredLocalPath);
+        console.log(`ensureUploaded: fetching asset from resolved URL: ${fetchUrl}`);
+        const fetchRes = await this.fetch(fetchUrl);
+        if (!fetchRes.ok) {
+          throw new Error(`Failed to fetch local asset from ${fetchUrl}: ${fetchRes.statusText}`);
+        }
+        const blob = await fetchRes.blob();
+        
+        let mimeType = blob.type;
+        if (!mimeType) {
+          if (defaultName.endsWith(".mp3")) mimeType = "audio/mp3";
+          else if (defaultName.endsWith(".png")) mimeType = "image/png";
+          else if (defaultName.endsWith(".jpg") || defaultName.endsWith(".jpeg")) mimeType = "image/jpeg";
+          else if (defaultName.endsWith(".mp4")) mimeType = "video/mp4";
+        }
+        
+        file = new File([blob], defaultName, { type: mimeType });
+      }
+
+      const uploadedName = await this.uploadFile(file);
+      console.log(`Successfully uploaded ${defaultName} as ${uploadedName} to ComfyUI input.`);
+      return uploadedName;
+    } catch (err: any) {
+      console.error(`ensureUploaded failed for ${ensuredLocalPath}:`, err);
+      // Fallback to extractComfyFilename
+      return extractComfyFilename(ensuredLocalPath);
+    }
+  }
+
+  async runVoxCPMCloneVoice(text: string, referenceAudio: string, onProgress?: (msg: string) => void): Promise<string[]> {
+    onProgress?.("Building VoxCPM2 Voice Clone Workflow...");
+    let uploadedRefAudio = referenceAudio;
+    if (referenceAudio) {
+      uploadedRefAudio = await this.ensureUploaded(referenceAudio, `ref_audio_${Date.now()}.mp3`, onProgress);
+    }
+    const workflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+    onProgress?.("Submitting VoxCPM2 job to ComfyUI...");
+    const promptId = await this.submitPrompt(workflow);
+    const result = await this.waitForCompletion(promptId, onProgress);
+
+    const audios: string[] = [];
+    if (result.outputs && result.outputs["30"]) {
+      const output = result.outputs["30"];
+      const audioItems = output.audio || output.images || output.output; 
+      if (audioItems && Array.isArray(audioItems)) {
+        for (const aud of audioItems) {
+          if (aud.filename) {
+            audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+          }
+        }
+      }
+    }
+    return audios;
+  }
+
+  async runVoxCPMCloneVoiceRust(
+    text: string, 
+    referenceAudio: string, 
+    localPath: string, 
+    onProgress?: (msg: string) => void
+  ): Promise<string> {
+    onProgress?.("Building VoxCPM2 Voice Clone Workflow...");
+    let uploadedRefAudio = referenceAudio;
+    if (referenceAudio) {
+      uploadedRefAudio = await this.ensureUploaded(referenceAudio, `ref_audio_${Date.now()}.mp3`, onProgress);
+    }
+    const workflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+    
+    onProgress?.("Submitting VoxCPM2 job (Dispatched)...");
+    const promptId = await invoke<string>("submit_comfy_image_rust", {
+      workflow,
+      serverAddress: this.config.serverAddress
+    });
+    
+    console.log(`Submitted comfy VoxCPM2 workflow, got promptId: ${promptId}`);
+    onProgress?.(`VoxCPM2 job submitted. Prompt ID: ${promptId}`);
+
+    onProgress?.("Generating audio with VoxCPM2 (Polling status)...");
+    await this.waitForCompletion(promptId, onProgress);
+
+    onProgress?.("Downloading and saving audio local-path...");
+    const savedPath = await invoke<string>("save_comfy_audio_rust", {
+      promptId,
+      serverAddress: this.config.serverAddress,
+      localPath
+    });
+
+    return savedPath;
+  }
+
   private getVideoWorkflow(imagePath: string, audioPath: string, prompt: string) {
     // Note: The original workflow 101 uses VHS_LoadImagePath and VHS_LoadAudio which might need local absolute paths if ComfyUI is configured to allow them.
     // Or we might need to upload them first.
-    const workflow = {
+    const workflow: any = {
         "101": { "inputs": { "model_name": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors" }, "class_type": "LatentUpscaleModelLoader" },
         "146": { "inputs": { "clip_name1": "gemma_3_12B_it_fp4_mixed.safetensors", "clip_name2": "ltx-2.3_text_projection_bf16.safetensors", "type": "ltxv", "device": "default" }, "class_type": "DualCLIPLoader" },
         "174": { "inputs": { "vae_name": "LTX23_video_vae_bf16.safetensors", "device": "main_device", "weight_dtype": "bf16" }, "class_type": "VAELoaderKJ" },
@@ -801,7 +1128,7 @@ export class ComfyService {
         "196": { "inputs": { "Xi": 6, "Xf": 6, "isfloatX": 0 }, "class_type": "mxSlider" },
         "211": { "inputs": { "lora_1": { "on": true, "lora": "ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors", "strength": 0.6 }, "model": ["366", 0], "clip": ["146", 0] }, "class_type": "Power Lora Loader (rgthree)" },
         "217": { "inputs": { "any_04": ["521:522", 0] }, "class_type": "Any Switch (rgthree)" },
-        "218": { "inputs": { "any_04": ["5566", 0] }, "class_type": "Any Switch (rgthree)" },
+        "218": { "inputs": { "any_04": (audioPath && audioPath.trim() !== "" && audioPath !== "/ai/working/ComfyUI/input/") ? ["5566", 0] : null }, "class_type": "Any Switch (rgthree)" },
         "366": { "inputs": { "unet_name": "ltx-2.3-22b-dev-Q3_K_M.gguf" }, "class_type": "UnetLoaderGGUF" },
         "591": { "inputs": { "vae_name": "taeltx2_3.safetensors" }, "class_type": "VAELoader" },
         "700": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["211", 0] }, "class_type": "LTXVChunkFeedForward" },
@@ -816,8 +1143,8 @@ export class ComfyService {
         "5446": { "inputs": { "a": ["5445", 0] }, "class_type": "CM_IntToFloat" },
         "5536": { "inputs": { "text": prompt, "clip": ["146", 0] }, "class_type": "CLIPTextEncode" },
         "5537": { "inputs": { "text": "blurry, low quality...", "clip": ["146", 0] }, "class_type": "CLIPTextEncode" },
-        "5565": { "inputs": { "image": imagePath, "custom_width": 0, "custom_height": 0 }, "class_type": "VHS_LoadImagePath" },
-        "5566": { "inputs": { "audio_file": audioPath, "seek_seconds": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudio" },
+        "5565": { "inputs": { "image": extractComfyFilename(imagePath) }, "class_type": "LoadImage" },
+        "5566": { "inputs": { "audio": (audioPath && audioPath.trim() !== "") ? extractComfyFilename(audioPath) : "Silverberry-1778409858.mp3", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
         "521:465": { "inputs": { "sigmas": "1., 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0" }, "class_type": "ManualSigmas" },
         "521:469": { "inputs": { "value": 0, "width": ["521:473", 0], "height": ["521:473", 1] }, "class_type": "SolidMask" },
         "521:471": { "inputs": { "width": ["521:473", 0], "height": ["521:473", 1], "length": ["521:5511", 0], "batch_size": 1 }, "class_type": "EmptyLTXVLatentVideo" },
@@ -849,6 +1176,11 @@ export class ComfyService {
         "521:519": { "inputs": { "av_latent": ["521:478", 0] }, "class_type": "LTXVSeparateAVLatent" },
         "521:485": { "inputs": { "width": ["5383", 0], "height": ["5382", 0], "batch_size": 1, "color": 0 }, "class_type": "EmptyImage" }
     };
+
+    if (!audioPath || audioPath.trim() === "" || audioPath === "/ai/working/ComfyUI/input/") {
+      workflow["188"].inputs["audio"] = null;
+    }
+
     return workflow;
   }
 
@@ -870,7 +1202,7 @@ export class ComfyService {
     const workflow: any = {
       "101": { "inputs": { "model_name": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors" }, "class_type": "LatentUpscaleModelLoader" },
       "146": { "inputs": { "clip_name1": "gemma_3_12B_it_fp4_mixed.safetensors", "clip_name2": "ltx-2.3_text_projection_bf16.safetensors", "type": "ltxv", "device": "default" }, "class_type": "DualCLIPLoader" },
-      "149": { "inputs": { "image": params.image1 || "" }, "class_type": "LoadImage" },
+      "149": { "inputs": { "image": extractComfyFilename(params.image1) }, "class_type": "LoadImage" },
       "174": { "inputs": { "vae_name": "LTX23_video_vae_bf16.safetensors", "device": "main_device", "weight_dtype": "bf16" }, "class_type": "VAELoaderKJ" },
       "175": { "inputs": { "vae_name": "LTX23_audio_vae_bf16.safetensors", "device": "main_device", "weight_dtype": "bf16" }, "class_type": "VAELoaderKJ" },
       "188": { "inputs": { "frame_rate": ["5446", 0], "loop_count": 0, "filename_prefix": "LTX2.3/Video", "format": "video/h264-mp4", "pix_fmt": "yuv420p", "crf": 8, "save_metadata": false, "trim_to_audio": false, "pingpong": false, "save_output": true, "images": ["217", 0], "audio": ["218", 0] }, "class_type": "VHS_VideoCombine" },
@@ -890,7 +1222,7 @@ export class ComfyService {
         "class_type": "Power Lora Loader (rgthree)" 
       },
       "217": { "inputs": { "any_04": ["521:522", 0] }, "class_type": "Any Switch (rgthree)" },
-      "218": { "inputs": { "any_04": params.audio ? ["5400", 0] : null }, "class_type": "Any Switch (rgthree)" },
+      "218": { "inputs": { "any_04": (params.audio && params.audio.trim() !== "" && params.audio !== "/ai/working/ComfyUI/input/") ? ["5400", 0] : null }, "class_type": "Any Switch (rgthree)" },
       "366": { "inputs": { "unet_name": "ltx-2.3-22b-dev-Q4_K_S.gguf" }, "class_type": "UnetLoaderGGUF" },
       "591": { "inputs": { "vae_name": "taeltx2_3.safetensors" }, "class_type": "VAELoader" },
       "700": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["211", 0] }, "class_type": "LTXVChunkFeedForward" },
@@ -910,13 +1242,13 @@ export class ComfyService {
       "5383": { "inputs": { "value": params.width || 1920 }, "class_type": "INTConstant" },
       "5387": { "inputs": { "expression": "a*b+1", "a": ["196", 0], "b": ["5445", 0] }, "class_type": "MathExpression|pysssss" },
       "5392": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["5376", 0] }, "class_type": "LTXVChunkFeedForward" },
-      "5400": { "inputs": { "audio": params.audio || "", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
+      "5400": { "inputs": { "audio": (params.audio && params.audio.trim() !== "" && params.audio !== "/ai/working/ComfyUI/input/") ? extractComfyFilename(params.audio) : "Silverberry-1778409858.mp3", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
       "5401": { "inputs": { "audioUI": "", "audio": ["5400", 0] }, "class_type": "PreviewAudio" },
       "5429": { "inputs": { "resize_type": "scale dimensions", "resize_type.width": ["5383", 0], "resize_type.height": ["5382", 0], "resize_type.crop": "center", "scale_method": "lanczos", "input": ["149", 0] }, "class_type": "ResizeImageMaskNode" },
       "5434": { "inputs": { "resize_type": "scale dimensions", "resize_type.width": ["5383", 0], "resize_type.height": ["5382", 0], "resize_type.crop": "center", "scale_method": "lanczos", "input": ["5437", 0] }, "class_type": "ResizeImageMaskNode" },
-      "5437": { "inputs": { "image": params.image2 || "" }, "class_type": "LoadImage" },
+      "5437": { "inputs": { "image": extractComfyFilename(params.image2) }, "class_type": "LoadImage" },
       "5442": { "inputs": { "a": ["196", 0] }, "class_type": "CM_IntToFloat" },
-      "5444": { "inputs": { "video": params.video || "", "force_rate": ["5446", 0], "custom_width": 0, "custom_height": 0, "frame_load_cap": ["5387", 0], "skip_first_frames": 0, "select_every_nth": 1, "format": "AnimateDiff" }, "class_type": "VHS_LoadVideo" },
+      "5444": { "inputs": { "video": extractComfyFilename(params.video), "force_rate": ["5446", 0], "custom_width": 0, "custom_height": 0, "frame_load_cap": ["5387", 0], "skip_first_frames": 0, "select_every_nth": 1, "format": "AnimateDiff" }, "class_type": "VHS_LoadVideo" },
       "5445": { "inputs": { "value": params.fps || 24 }, "class_type": "INTConstant" },
       "5446": { "inputs": { "a": ["5445", 0] }, "class_type": "CM_IntToFloat" },
       "5458": { "inputs": { "resize_type": "scale dimensions", "resize_type.width": ["5383", 0], "resize_type.height": ["5382", 0], "resize_type.crop": "center", "scale_method": "lanczos", "input": ["5444", 0] }, "class_type": "ResizeImageMaskNode" },
@@ -967,7 +1299,7 @@ export class ComfyService {
       }
     }
 
-    if (!params.audio) {
+    if (!params.audio || params.audio.trim() === "" || params.audio === "/ai/working/ComfyUI/input/") {
       workflow["188"].inputs["audio"] = null;
     }
 
@@ -984,19 +1316,10 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getLTX23AllInOneWorkflow({
+    return this.runVideoGenerationAllInOne({
       option: 1,
-      prompt: params.prompt,
-      negativePrompt: params.negativePrompt,
-      duration: params.duration,
-      width: params.width,
-      height: params.height,
-      fps: params.fps,
-      seed: params.seed
-    });
-    const promptId = await this.submitPrompt(workflow);
-    const result = await this.waitForCompletion(promptId, onProgress);
-    return this.parseVideoCombineOutputs(result);
+      ...params
+    }, onProgress);
   }
 
   // Option 2: 音频到视频 (Audio-to-Video)
@@ -1010,20 +1333,10 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getLTX23AllInOneWorkflow({
+    return this.runVideoGenerationAllInOne({
       option: 2,
-      prompt: params.prompt,
-      negativePrompt: params.negativePrompt,
-      audio: params.audio,
-      duration: params.duration,
-      width: params.width,
-      height: params.height,
-      fps: params.fps,
-      seed: params.seed
-    });
-    const promptId = await this.submitPrompt(workflow);
-    const result = await this.waitForCompletion(promptId, onProgress);
-    return this.parseVideoCombineOutputs(result);
+      ...params
+    }, onProgress);
   }
 
   // Option 3: 图片到视频(+音频) (Image-to-Video [+ Audio])
@@ -1038,21 +1351,10 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getLTX23AllInOneWorkflow({
+    return this.runVideoGenerationAllInOne({
       option: 3,
-      prompt: params.prompt,
-      negativePrompt: params.negativePrompt,
-      image1: params.image1,
-      audio: params.audio,
-      duration: params.duration,
-      width: params.width,
-      height: params.height,
-      fps: params.fps,
-      seed: params.seed
-    });
-    const promptId = await this.submitPrompt(workflow);
-    const result = await this.waitForCompletion(promptId, onProgress);
-    return this.parseVideoCombineOutputs(result);
+      ...params
+    }, onProgress);
   }
 
   // Option 4: 口型同步(图片+音频到视频+音频) (LipSync)
@@ -1067,21 +1369,10 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getLTX23AllInOneWorkflow({
+    return this.runVideoGenerationAllInOne({
       option: 4,
-      prompt: params.prompt,
-      negativePrompt: params.negativePrompt,
-      image1: params.image1,
-      audio: params.audio,
-      duration: params.duration,
-      width: params.width,
-      height: params.height,
-      fps: params.fps,
-      seed: params.seed
-    });
-    const promptId = await this.submitPrompt(workflow);
-    const result = await this.waitForCompletion(promptId, onProgress);
-    return this.parseVideoCombineOutputs(result);
+      ...params
+    }, onProgress);
   }
 
   // Option 5: 始末帧到视频(+音频) (Start & End Frame to Video)
@@ -1097,22 +1388,10 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getLTX23AllInOneWorkflow({
+    return this.runVideoGenerationAllInOne({
       option: 5,
-      prompt: params.prompt,
-      negativePrompt: params.negativePrompt,
-      image1: params.image1,
-      image2: params.image2,
-      audio: params.audio,
-      duration: params.duration,
-      width: params.width,
-      height: params.height,
-      fps: params.fps,
-      seed: params.seed
-    });
-    const promptId = await this.submitPrompt(workflow);
-    const result = await this.waitForCompletion(promptId, onProgress);
-    return this.parseVideoCombineOutputs(result);
+      ...params
+    }, onProgress);
   }
 
   // Option 6: Style transfer(视频移动控制) (Style Transfer / Video-to-Video)
@@ -1126,20 +1405,10 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getLTX23AllInOneWorkflow({
+    return this.runVideoGenerationAllInOne({
       option: 6,
-      prompt: params.prompt,
-      negativePrompt: params.negativePrompt,
-      video: params.video,
-      duration: params.duration,
-      width: params.width,
-      height: params.height,
-      fps: params.fps,
-      seed: params.seed
-    });
-    const promptId = await this.submitPrompt(workflow);
-    const result = await this.waitForCompletion(promptId, onProgress);
-    return this.parseVideoCombineOutputs(result);
+      ...params
+    }, onProgress);
   }
 
   // Unified endpoint that directs to any of the 6 adaptive LTX Options or any dynamic option
@@ -1157,14 +1426,38 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
+    onProgress?.("Uploading assets to ComfyUI...");
+    
+    let uploadedImage1 = params.image1;
+    let uploadedImage2 = params.image2;
+    let uploadedAudio = params.audio;
+    let uploadedVideo = params.video;
+
+    if (params.image1) {
+      const ext = params.image1.endsWith('.jpg') || params.image1.endsWith('.jpeg') ? 'jpg' : 'png';
+      uploadedImage1 = await this.ensureUploaded(params.image1, `image1_${Date.now()}.${ext}`, onProgress);
+    }
+    if (params.image2) {
+      const ext = params.image2.endsWith('.jpg') || params.image2.endsWith('.jpeg') ? 'jpg' : 'png';
+      uploadedImage2 = await this.ensureUploaded(params.image2, `image2_${Date.now()}.${ext}`, onProgress);
+    }
+    if (params.audio) {
+      uploadedAudio = await this.ensureUploaded(params.audio, `audio_${Date.now()}.mp3`, onProgress);
+    }
+    if (params.video) {
+      uploadedVideo = await this.ensureUploaded(params.video, `video_${Date.now()}.mp4`, onProgress);
+    }
+
+    onProgress?.("Configuring LTX-2.3 execution workflow...");
+
     const workflow = this.getLTX23AllInOneWorkflow({
       option: params.option,
       prompt: params.prompt,
       negativePrompt: params.negativePrompt,
-      image1: params.image1,
-      image2: params.image2,
-      audio: params.audio,
-      video: params.video,
+      image1: uploadedImage1,
+      image2: uploadedImage2,
+      audio: uploadedAudio,
+      video: uploadedVideo,
       duration: params.duration,
       width: params.width,
       height: params.height,

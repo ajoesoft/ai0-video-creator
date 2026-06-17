@@ -8,7 +8,10 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 #[tauri::command]
 fn greet(name: &str) -> String {
     info!("[AI0 Video Creator] Hello: {}", name);
-    format!("Hello, {}! You've been greeted from AI0 Video Creator!", name)
+    format!(
+        "Hello, {}! You've been greeted from AI0 Video Creator!",
+        name
+    )
 }
 
 #[tauri::command]
@@ -425,6 +428,183 @@ async fn save_comfy_image_rust(
 }
 
 #[tauri::command]
+async fn load_local_image(path: String) -> Result<String, String> {
+    info!("[tauri] 开始加载图片: {}", path);
+
+    let bytes = match fs::read(&path) {
+        Ok(data) => {
+            // info!("[tauri] 图片加载成功 | 大小: {} bytes", data.len());
+            data
+        }
+        Err(e) => {
+            error!("[tauri] 图片加载失败: {}", e);
+            return Err(e.to_string());
+        }
+    };
+
+    let base64 = general_purpose::STANDARD.encode(bytes);
+
+    Ok(base64)
+}
+
+#[tauri::command]
+fn get_db_file_path() -> Result<String, String> {
+    let app_dir = if cfg!(target_os = "windows") {
+        let appdata = std::env::var("APPDATA")
+            .map_err(|_| "Failed to get APPDATA environment variable".to_string())?;
+        std::path::PathBuf::from(appdata).join("site.ai0.videoCreator")
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Failed to get HOME environment variable".to_string())?;
+        std::path::PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("site.ai0.videoCreator")
+    } else {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Failed to get HOME environment variable".to_string())?;
+        std::path::PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("site.ai0.videoCreator")
+    };
+
+    if !app_dir.exists() {
+        fs::create_dir_all(&app_dir)
+            .map_err(|e| format!("Failed to create app data directory: {}", e))?;
+    }
+    let db_path = app_dir.join("main.db");
+    db_path
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Failed to convert database path to string".to_string())
+}
+
+#[tauri::command]
+fn get_python_version(python_path: String) -> Result<String, String> {
+    let path_to_use = if python_path.is_empty() {
+        "python".to_string()
+    } else {
+        python_path
+    };
+
+    let output = std::process::Command::new(&path_to_use)
+        .arg("--version")
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if out.status.success() {
+                if !stdout.is_empty() {
+                    Ok(stdout)
+                } else if !stderr.is_empty() {
+                    Ok(stderr)
+                } else {
+                    Ok("Python Connection Success".to_string())
+                }
+            } else {
+                let err_msg = if !stdout.is_empty() { stdout } else { stderr };
+                Err(format!("Python returned error: {}", err_msg))
+            }
+        }
+        Err(e) => Err(format!("Python not accessible: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn get_cuda_version(python_path: String) -> Result<String, String> {
+    let path_to_use = if python_path.is_empty() {
+        "python".to_string()
+    } else {
+        python_path
+    };
+
+    // 1. Try PyTorch CUDA inquiry via process
+    let output = std::process::Command::new(&path_to_use)
+        .args(&["-c", "import torch; print(torch.version.cuda) if torch.cuda.is_available() else print('PyTorch CUDA unsupported')"])
+        .output();
+
+    if let Ok(out) = output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !stdout.is_empty() && !stdout.contains("unsupported") {
+                return Ok(format!("CUDA {} (via PyTorch)", stdout));
+            }
+        }
+    }
+
+    // 2. Try nvidia-smi
+    let output_smi = std::process::Command::new("nvidia-smi").output();
+    if let Ok(out) = output_smi {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if line.contains("CUDA Version:") {
+                    if let Some(pos) = line.find("CUDA Version:") {
+                        let sub = &line[pos..];
+                        let parts: Vec<&str> = sub.split_whitespace().collect();
+                        if parts.len() >= 3 {
+                            return Ok(format!(
+                                "CUDA {} (via System)",
+                                parts[2].trim_end_matches('|').trim()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Try nvcc
+    let output_nvcc = std::process::Command::new("nvcc").arg("--version").output();
+    if let Ok(out) = output_nvcc {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if line.contains("release") {
+                    let parts: Vec<&str> = line.split("release").collect();
+                    if parts.len() >= 2 {
+                        let ver_parts: Vec<&str> = parts[1].trim().split(',').collect();
+                        if !ver_parts.is_empty() {
+                            return Ok(format!("CUDA {} (via nvcc)", ver_parts[0].trim()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok("CUDA Not Detected / Undefined".to_string())
+}
+
+#[tauri::command]
+fn get_ollama_version() -> Result<String, String> {
+    let output = std::process::Command::new("ollama")
+        .arg("--version")
+        .output();
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !stdout.is_empty() {
+                    return Ok(stdout);
+                }
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                if !stderr.is_empty() {
+                    return Ok(stderr);
+                }
+                Ok("Ollama active".to_string())
+            } else {
+                Err("Ollama query command returned error".to_string())
+            }
+        }
+        Err(_) => Err("Ollama executable not found in system PATH".to_string()),
+    }
+}
+
+#[tauri::command]
 async fn save_comfy_audio_rust(
     prompt_id: String,
     server_address: String,
@@ -452,7 +632,8 @@ async fn save_comfy_audio_rust(
         let err_text = res.text().await.unwrap_or_default();
         return Err(format!(
             "Failed to retrieve history: HTTP {}: {}",
-            status, err_text
+            status,
+            err_text
         ));
     }
 
@@ -567,187 +748,12 @@ async fn save_comfy_audio_rust(
     println!("- Successfully stored generated audio at {:?}", output_path);
     Ok(local_path)
 }
-#[tauri::command]
-async fn load_local_image(path: String) -> Result<String, String> {
-    info!("[tauri] 开始加载图片: {}", path);
-
-    let bytes = match fs::read(&path) {
-        Ok(data) => {
-            // info!("[tauri] 图片加载成功 | 大小: {} bytes", data.len());
-            data
-        }
-        Err(e) => {
-            error!("[tauri] 图片加载失败: {}", e);
-            return Err(e.to_string());
-        }
-    };
-
-    let base64 = general_purpose::STANDARD.encode(bytes);
-
-    Ok(base64)
-}
-
-#[tauri::command]
-fn get_db_file_path() -> Result<String, String> {
-    let app_dir = if cfg!(target_os = "windows") {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| "Failed to get APPDATA environment variable".to_string())?;
-        std::path::PathBuf::from(appdata).join("site.ai0.videoCreator")
-    } else if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Failed to get HOME environment variable".to_string())?;
-        std::path::PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join("site.ai0.videoCreator")
-    } else {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Failed to get HOME environment variable".to_string())?;
-        std::path::PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("site.ai0.videoCreator")
-    };
-
-    if !app_dir.exists() {
-        fs::create_dir_all(&app_dir)
-            .map_err(|e| format!("Failed to create app data directory: {}", e))?;
-    }
-    let db_path = app_dir.join("main.db");
-    db_path.to_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "Failed to convert database path to string".to_string())
-}
-
-#[tauri::command]
-fn get_python_version(python_path: String) -> Result<String, String> {
-    let path_to_use = if python_path.is_empty() {
-        "python".to_string()
-    } else {
-        python_path
-    };
-
-    let output = std::process::Command::new(&path_to_use)
-        .arg("--version")
-        .output();
-
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if out.status.success() {
-                if !stdout.is_empty() {
-                    Ok(stdout)
-                } else if !stderr.is_empty() {
-                    Ok(stderr)
-                } else {
-                    Ok("Python Connection Success".to_string())
-                }
-            } else {
-                let err_msg = if !stdout.is_empty() { stdout } else { stderr };
-                Err(format!("Python returned error: {}", err_msg))
-            }
-        }
-        Err(e) => Err(format!("Python not accessible: {}", e)),
-    }
-}
-
-#[tauri::command]
-fn get_cuda_version(python_path: String) -> Result<String, String> {
-    let path_to_use = if python_path.is_empty() {
-        "python".to_string()
-    } else {
-        python_path
-    };
-
-    // 1. Try PyTorch CUDA inquiry via process
-    let output = std::process::Command::new(&path_to_use)
-        .args(&["-c", "import torch; print(torch.version.cuda) if torch.cuda.is_available() else print('PyTorch CUDA unsupported')"])
-        .output();
-
-    if let Ok(out) = output {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !stdout.is_empty() && !stdout.contains("unsupported") {
-                return Ok(format!("CUDA {} (via PyTorch)", stdout));
-            }
-        }
-    }
-
-    // 2. Try nvidia-smi
-    let output_smi = std::process::Command::new("nvidia-smi")
-        .output();
-    if let Ok(out) = output_smi {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                if line.contains("CUDA Version:") {
-                    if let Some(pos) = line.find("CUDA Version:") {
-                        let sub = &line[pos..];
-                        let parts: Vec<&str> = sub.split_whitespace().collect();
-                        if parts.len() >= 3 {
-                            return Ok(format!("CUDA {} (via System)", parts[2].trim_end_matches('|').trim()));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 3. Try nvcc
-    let output_nvcc = std::process::Command::new("nvcc")
-        .arg("--version")
-        .output();
-    if let Ok(out) = output_nvcc {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                if line.contains("release") {
-                    let parts: Vec<&str> = line.split("release").collect();
-                    if parts.len() >= 2 {
-                        let ver_parts: Vec<&str> = parts[1].trim().split(',').collect();
-                        if !ver_parts.is_empty() {
-                            return Ok(format!("CUDA {} (via nvcc)", ver_parts[0].trim()));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok("CUDA Not Detected / Undefined".to_string())
-}
-
-#[tauri::command]
-fn get_ollama_version() -> Result<String, String> {
-    let output = std::process::Command::new("ollama")
-        .arg("--version")
-        .output();
-    match output {
-        Ok(out) => {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !stdout.is_empty() {
-                    return Ok(stdout);
-                }
-                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                if !stderr.is_empty() {
-                    return Ok(stderr);
-                }
-                Ok("Ollama active".to_string())
-            } else {
-                Err("Ollama query command returned error".to_string())
-            }
-        }
-        Err(_) => Err("Ollama executable not found in system PATH".to_string()),
-    }
-}
 
 #[tauri::command]
 fn get_comfyui_details(comfyui_root: String) -> Result<serde_json::Value, String> {
+    use std::collections::HashMap;
     use std::fs;
     use std::path::Path;
-    use std::collections::HashMap;
 
     if comfyui_root.is_empty() {
         return Err("ComfyUI Root Path is empty".to_string());
@@ -755,7 +761,10 @@ fn get_comfyui_details(comfyui_root: String) -> Result<serde_json::Value, String
 
     let root_path = Path::new(&comfyui_root);
     if !root_path.exists() {
-        return Err(format!("ComfyUI root path does not exist: {}", comfyui_root));
+        return Err(format!(
+            "ComfyUI root path does not exist: {}",
+            comfyui_root
+        ));
     }
 
     // 1. Gather custom_nodes
@@ -791,7 +800,8 @@ fn get_comfyui_details(comfyui_root: String) -> Result<serde_json::Value, String
                     if path.is_dir() {
                         if let Some(folder_name) = path.file_name() {
                             let folder_name_str = folder_name.to_string_lossy().to_string();
-                            if !folder_name_str.starts_with('.') && folder_name_str != "__pycache__" {
+                            if !folder_name_str.starts_with('.') && folder_name_str != "__pycache__"
+                            {
                                 let mut files_list = Vec::new();
                                 traverse_model_files(&path, &mut files_list, &path);
                                 files_list.sort_by_key(|f| f.to_lowercase());
@@ -818,7 +828,11 @@ fn traverse_model_files(dir: &std::path::Path, list: &mut Vec<String>, base_dir:
                 if path.is_dir() {
                     traverse_model_files(&path, list, base_dir);
                 } else if path.is_file() {
-                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let file_name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     if !file_name.starts_with('.') {
                         if let Ok(rel_path) = path.strip_prefix(base_dir) {
                             list.push(rel_path.to_string_lossy().to_string());
@@ -833,7 +847,7 @@ fn traverse_model_files(dir: &std::path::Path, list: &mut Vec<String>, base_dir:
 }
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-       let db_path = get_db_file_path().unwrap_or_else(|_| "main.db".to_string());
+    let db_path = get_db_file_path().unwrap_or_else(|_| "main.db".to_string());
     let connection_string = format!("sqlite:{}", db_path);
 
     let migrations = vec![
@@ -1045,7 +1059,7 @@ pub fn run() {
     // ##############################
     // 修复：插件使用 **同一个数据库路径**
     // ##############################
-    
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -1071,17 +1085,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             greet,
-            load_local_image,
             generate_comfy_image_rust,
+            load_local_image,
             submit_comfy_image_rust,
             save_comfy_image_rust,
-            get_comfyui_details,
+            save_comfy_audio_rust,
             get_db_file_path,
             get_python_version,
             get_cuda_version,
             get_ollama_version,
-            save_comfy_audio_rust
+            get_comfyui_details
         ])
         .run(tauri::generate_context!())
-        .expect("应用启动失败");
+        .expect("error while running  application");
 }

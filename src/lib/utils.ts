@@ -136,19 +136,24 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
     const resolveUrl = async () => {
       if (isTauri) {
         try {
-          // Dynamically import Tauri's plugin-fs to prevent any web browser load-time issues
+          // Direct fallback to convertFileSrc for video & audio to support native range-requests / seekable streaming
+          if (mediaType === 'video' || mediaType === 'audio') {
+            setUrl(convertFileSrc(cleanPath));
+            return;
+          }
+
+          // Dynamically import Tauri's plugin-fs for smaller static assets / images
           const { readFile } = await import('@tauri-apps/plugin-fs');
           const fileData = await readFile(cleanPath);
-          const mimeType = mediaType === 'video' ? 'video/mp4' : mediaType === 'audio' ? 'audio/mpeg' : 'image/png';
-          const blob = new Blob([fileData], { type: mimeType });
-          blobUrl = URL.createObjectURL(blob);
+          const mimeType = 'image/png';
+          blobUrl = URL.createObjectURL(new Blob([fileData], { type: mimeType }));
           if (active) {
             setUrl(blobUrl);
             console.log(`[useMediaUrl] Resolved ${mediaType} file as secure blob URL:`, blobUrl);
           }
           return;
         } catch (err) {
-          console.warn(`[useMediaUrl] Direct Tauri readFile failed for ${path}, falling back to convertFileSrc:`, err);
+          console.warn(`[useMediaUrl] Direct handle failed for ${path}, falling back to convertFileSrc:`, err);
         }
       }
 
@@ -170,7 +175,6 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
 
   return url;
 }
-
 
 export function useLocalImageBase64(path: string | undefined | null): string {
   const [src, setSrc] = useState<string>('');
@@ -227,7 +231,7 @@ export function useLocalImageBase64(path: string | undefined | null): string {
             const { invoke } = await import('@tauri-apps/api/core');
             const base64 = await invoke<string>('load_local_image', { path: cleanPath });
             if (active) {
-              setSrc(`data:image/png;base64,${base64}`);
+              setSrc(base64);
               return;
             }
           }
@@ -251,3 +255,4 @@ export function useLocalImageBase64(path: string | undefined | null): string {
 
   return src;
 }
+

@@ -285,21 +285,17 @@ Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
         throw new Error(`The selected script segment has empty ${ttsTarget === 'source' ? 'source script' : 'translated script'} text.`);
       }
 
-      // Get voice design prompt from active selected role
+      // Get reference audio from active selected role
       const currentRole = roles.find(r => r.id === activeRoleId) || roles[0];
-      const voicePrompt = currentRole ? (currentRole.voicePrompt || '') : '';
+      const referenceAudio = currentRole ? (currentRole.referenceAudio || 'female.mp3') : 'female.mp3';
 
-      const isChinese = /[\u4e00-\u9fa5]/.test(textToSpeech);
-      const language = isChinese ? "中文" : "English";
+      console.log(`Generating audio for text: "${textToSpeech}" with Reference Audio: "${referenceAudio}"`);
 
-      console.log(`Generating audio for text: "${textToSpeech}" with Voice Design Prompt: "${voicePrompt}" (Language: ${language})`);
-
-      // Run Qwen-TTS Voice Design via ComfyUI (utilising Rust prompt-id polling and native download)
-      const savedPath = await comfy.runQwenTTSVoiceAllInOneRust(
+      // Run VoxCPM2 Voice Clone via ComfyUI (utilising Rust prompt-id polling and native download)
+      const savedPath = await comfy.runVoxCPMCloneVoiceRust(
         textToSpeech, 
-        voicePrompt, 
+        referenceAudio, 
         localAudioPath, 
-        language, 
         (msg) => {
           setProgressMsg(prev => ({ ...prev, [word.id]: msg }));
         }
@@ -326,7 +322,7 @@ Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
       }
     } catch (error: any) {
       console.error('Audio generation failed:', error);
-      alert(`Generation failed: ${error.message || error}. Ensure ComfyUI and Qwen-TTS model are online.`);
+      alert(`Generation failed: ${error.message || error}. Ensure ComfyUI and VoxCPM2 models are online.`);
     } finally {
       setIsGenerating(prev => ({ ...prev, [word.id]: false }));
       setTimeout(() => {

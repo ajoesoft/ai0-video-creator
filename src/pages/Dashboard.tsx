@@ -16,7 +16,7 @@ import {
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists, mkdir } from '@tauri-apps/plugin-fs';
-
+import { useLocalImageBase64 } from '../lib/utils';
 import { ask } from '@tauri-apps/plugin-dialog';
 
 export function Dashboard() {
@@ -338,7 +338,7 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
           setImageExists(existsFile);
           if (existsFile && !project.coverImagePath.startsWith('http')) {
             const base64 = await invoke<string>('load_local_image', { path: project.coverImagePath });
-            setCoverImageBase64(base64);
+            setCoverImageBase64(`data:image/png;base64,${base64}`);
           }
         } catch (e) {
           setImageExists(false);
@@ -379,7 +379,7 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
         <div className="aspect-[16/10] bg-[#111114] relative overflow-hidden">
           {imageExists && project.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64) ? (
             <img 
-              src={ `data:image/png;base64,${coverImageBase64}` }
+              src={ `${coverImageBase64}` }
               alt={project.name} 
               className="w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700" 
             />
