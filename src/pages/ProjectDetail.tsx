@@ -147,7 +147,7 @@ export function ProjectDetail() {
               setImageExists(hasFile);
               if (hasFile && !data.coverImagePath.startsWith('http')) {
                 const base64 = await invoke<string>('load_local_image', { path: data.coverImagePath });
-                setCoverImageBase64(base64);
+                setCoverImageBase64(`data:image/png;base64,${base64}`);
               }
             } catch (e) {
               console.warn("FS exists check failed in Tauri:", e);

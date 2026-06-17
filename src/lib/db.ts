@@ -156,18 +156,6 @@ export async function getDb() {
   return db;
 }
 
-// // Browser fallback storage
-// const LOCAL_STORAGE_KEY = 'ai_video_projects_fallback';
-
-// function getLocalStorageProjects(): VideoProject[] {
-//   const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-//   return data ? JSON.parse(data) : [];
-// }
-
-// function saveLocalStorageProjects(projects: VideoProject[]) {
-//   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(projects));
-// }
-
 // Browser fallback storage
 const LOCAL_STORAGE_KEY = 'ai_video_projects_fallback';
 

@@ -27,7 +27,7 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
-import { cn, getAssetUrl, useMediaUrl } from '@/src/lib/utils';
+import { cn, getAssetUrl, useMediaUrl, useLocalImageBase64 } from '@/src/lib/utils';
 import { 
   fetchProjectById, 
   fetchVocabularyByProject, 
@@ -51,6 +51,7 @@ export function TimelineEditor() {
   
   // Data State
   const [project, setProject] = useState<VideoProject | null>(null);
+  const coverBase64 = useLocalImageBase64(project?.coverImagePath);
   const [vocabulary, setVocabulary] = useState<Vocabulary[]>([]);
   const [clips, setClips] = useState<TimelineClip[]>([]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
@@ -1184,7 +1185,7 @@ export function TimelineEditor() {
                 {(!activeVisualClip && !previewVideoUrl && !isPlaySynthesizedMode) && (
                   <div className="absolute inset-0 bg-[#070709] flex flex-col items-center justify-center p-8 z-0">
                     <img 
-                      src={project?.coverImagePath ? getAssetUrl(project.coverImagePath) : "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80"} 
+                      src={coverBase64 || "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80"} 
                       className="absolute inset-0 w-full h-full object-cover opacity-15 grayscale" 
                       alt="Workspace Backdrop"
                     />

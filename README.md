@@ -12,6 +12,20 @@
 
 Whether you are crafting short vertical reels, horizontal narrative stories, multi-actor conversations, vocabulary educational cards, or running frame-accurate lip-sync video translations, `ai0-video-creator` handles the orchestration via native APIs, Ollama, and customizable ComfyUI backends.
 
+
+
+
+[![Project](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/project.jpg)
+
+
+[![Script](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/script.jpg)
+
+
+[![Vocabulary](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/vocabulary.jpg)
+
+
+[![Harness](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/harness.jpg)
+
 ---
 
 ## 🚀 Key Scenes & Modes

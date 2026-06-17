@@ -17,12 +17,14 @@ import {
   updateVocabulary, 
   deleteVocabulary,
   getSetting,
-  applyPromptHarnessRules
+  applyPromptHarnessRules,
+  fetchVisualLibraryByProject,
+  fetchPromptHarnessByProject
 } from '../lib/db';
 import { comfy } from '../lib/comfy';
-import { VideoProject, Vocabulary, SceneType } from '../types';
+import { VideoProject, Vocabulary, SceneType, PromptHarness, VisualLibraryItem } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, getAssetUrl } from '../lib/utils';
+import { cn, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { useTranslation } from '../contexts/LanguageContext';
 
 function VocabularyCard({ 
@@ -47,37 +49,18 @@ function VocabularyCard({
   onEdit: (word: Vocabulary) => any;
   onDelete: (id: number) => any;
 }) {
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function resolveImage() {
-      if (word.imagePath) {
-        try {
-          const fileExists = await exists(word.imagePath);
-          if (fileExists) {
-            const src = `${getAssetUrl(word.imagePath)}?t=${word.updatedAt || Date.now()}`;
-            setImageSrc(src);
-          } else {
-            setImageSrc(null);
-          }
-        } catch (e) {
-          setImageSrc(null);
-        }
-      } else {
-        setImageSrc(null);
-      }
-    }
-    resolveImage();
-  }, [word.imagePath, word.updatedAt]);
+  const imageSrc = useLocalImageBase64(word.imagePath);
 
   // Extract custom fields if serialized in data
   let charactor = '';
   let introduction = '';
+  let referencedHarnesses: any[] = [];
   if (word.data) {
     try {
       const parsed = JSON.parse(word.data);
       charactor = parsed.charactor || '';
       introduction = parsed.introduction || '';
+      referencedHarnesses = parsed.referencedHarnesses || [];
     } catch (e) {}
   }
 
@@ -169,6 +152,19 @@ function VocabularyCard({
           <div>
             <label className="text-[9px] font-bold uppercase tracking-widest text-[#a78bfa] block mb-1">Character / Actor Role</label>
             <p className="text-xs text-[#a78bfa] font-semibold">{charactor}</p>
+          </div>
+        )}
+
+        {referencedHarnesses && referencedHarnesses.length > 0 && (
+          <div>
+            <label className="text-[9px] font-bold uppercase tracking-widest text-orange-400 block mb-1">Linked Harness Relations</label>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {referencedHarnesses.map((rh: any, idx: number) => (
+                <span key={idx} className="px-1.5 py-0.5 text-[9px] bg-orange-400/10 border border-orange-400/20 rounded text-orange-300 font-mono" title={`${rh.visualAssetTitle} (${rh.visualAssetType})`}>
+                  {rh.triggerKeyword}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
@@ -266,6 +262,110 @@ export function WordManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWord, setEditingWord] = useState<Vocabulary | null>(null);
   const [formData, setFormData] = useState<Partial<Vocabulary>>({});
+  const modalImageBase64 = useLocalImageBase64(formData.imagePath);
+
+  // Prompt Harness and Visual Assets States
+  const [promptHarnesses, setPromptHarnesses] = useState<PromptHarness[]>([]);
+  const [visualItems, setVisualItems] = useState<VisualLibraryItem[]>([]);
+
+  // Inline generating states
+  const [inlineGenerating, setInlineGenerating] = useState(false);
+  const [inlineProgress, setInlineProgress] = useState('');
+
+  const activeHarnesses = promptHarnesses.filter(h => h.active === 1);
+
+  const getExpandedPromptPreview = (rawPromptText: string | undefined | null) => {
+    if (!rawPromptText) return '';
+    let modified = rawPromptText;
+
+    // Parse all @ tags in the prompt
+    const tagRegex = /@([^\s,.:;!?"'()（）[\]{}<>；：，。！？"“‘]+)/g;
+    const matches = Array.from(modified.matchAll(tagRegex));
+    const processedTags = new Set<string>();
+
+    for (const match of matches) {
+      const fullMatch = match[0];
+      const tagName = match[1];
+
+      if (processedTags.has(fullMatch)) continue;
+      processedTags.add(fullMatch);
+
+      const matchingRule = activeHarnesses.find(h => {
+        const trigger = h.triggerKeyword || "";
+        const cleanTrigger = trigger.startsWith('@') ? trigger.slice(1) : trigger;
+        return cleanTrigger.toLowerCase() === tagName.toLowerCase();
+      });
+
+      if (!matchingRule) continue;
+      const asset = visualItems.find(v => v.id === matchingRule.visualAssetId);
+      if (!asset) continue;
+
+      const designDetails = [asset.imagePrompt, asset.videoPrompt].filter(Boolean).join(", ");
+      if (designDetails.trim()) {
+        const replacement = `${tagName} (${designDetails})`;
+        const escapedFullMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const replaceRegex = new RegExp(escapedFullMatch, 'g');
+        modified = modified.replace(replaceRegex, replacement);
+      }
+    }
+
+    // Fallback for non-@ triggers (exact word matches)
+    for (const h of activeHarnesses) {
+      const asset = visualItems.find(v => v.id === h.visualAssetId);
+      if (!asset) continue;
+      const trigger = h.triggerKeyword;
+      if (!trigger) continue;
+      const cleanTrigger = trigger.startsWith('@') ? trigger.slice(1) : trigger;
+      const designDetails = [asset.imagePrompt, asset.videoPrompt].filter(Boolean).join(", ");
+      if (designDetails.trim()) {
+        const escapedTrigger = cleanTrigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const checkRegex = new RegExp(`(?<!@)(${escapedTrigger})(?!\\s*\\()`, 'gi');
+        modified = modified.replace(checkRegex, `$1 (${designDetails})`);
+      }
+    }
+
+    return modified;
+  };
+
+  const handleGenerateImageInline = async () => {
+    if (!formData.word || !id) return;
+    setInlineGenerating(true);
+    setInlineProgress('Initializing...');
+
+    try {
+      const workspacePath = await getSetting('workspace_path');
+      if (!workspacePath) {
+        throw new Error("Global workspace path not configured in settings.");
+      }
+      const projectUuid = project?.id || '';
+      const localImgPath = await join(workspacePath, projectUuid, 'image', `${formData.word.trim()}.png`);
+      
+      const promptPrefix = project?.prompt ? `${project.prompt}, ` : '';
+      const basePrompt = formData.qwenImagePrompt || `${promptPrefix}${formData.word}, 8K, high resolution, ${formData.chinese || ''}`;
+      
+      const prompt = await applyPromptHarnessRules(basePrompt, id);
+      console.log(`Generating inline image with prompt (harness applied): ${prompt}`);
+
+      const savedPath = await comfy.runImageGenerationRust(prompt, localImgPath, true, (msg) => {
+        setInlineProgress(msg);
+      });
+
+      if (savedPath) {
+        console.log(`Saved generated inline image to ${savedPath}`);
+        setFormData(prev => ({ ...prev, imagePath: savedPath }));
+        if (editingWord) {
+          await updateVocabulary(editingWord.id, { imagePath: savedPath });
+          setWords(prev => prev.map(w => w.id === editingWord.id ? { ...w, imagePath: savedPath } : w));
+        }
+      }
+    } catch (error) {
+      console.error('Inline image gen failed:', error);
+      alert('Generation failed. Check ComfyUI connection.');
+    } finally {
+      setInlineGenerating(false);
+      setInlineProgress('');
+    }
+  };
 
   useEffect(() => {
     if (id) {
@@ -280,6 +380,11 @@ export function WordManagement() {
       if (proj) {
         const vocab = await fetchVocabularyByProject(projectId);
         setWords(vocab);
+
+        const harnesses = await fetchPromptHarnessByProject(projectId);
+        setPromptHarnesses(harnesses || []);
+        const visualAssets = await fetchVisualLibraryByProject(projectId);
+        setVisualItems(visualAssets || []);
       }
     } catch (error) {
       console.error('Failed to load vocabulary data:', error);
@@ -330,10 +435,30 @@ export function WordManagement() {
     if (!formData.word || !id) return;
     
     try {
+      // Extract active prompt consistency harnesses referenced in the prompt texts
+      const promptText = (formData.qwenImagePrompt || '') + ' ' + (formData.ltx23Prompt || '');
+      const referencedHarnesses = promptHarnesses.filter(h => {
+        if (!h.triggerKeyword) return false;
+        // Case-insensitive exact substring match using clean regex pattern
+        const escapedKeyword = h.triggerKeyword.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const regex = new RegExp(escapedKeyword, 'i');
+        return regex.test(promptText);
+      }).map(h => {
+        const asset = visualItems.find(v => v.id === h.visualAssetId);
+        return {
+          harnessId: h.id,
+          triggerKeyword: h.triggerKeyword,
+          visualAssetId: h.visualAssetId,
+          visualAssetTitle: asset?.title || '',
+          visualAssetType: asset?.type || ''
+        };
+      });
+
       const extraData = JSON.stringify({
         charactor: (formData as any).charactor || '',
         introduction: (formData as any).introduction || '',
-        script_translation: formData.chinese || ''
+        script_translation: formData.chinese || '',
+        referencedHarnesses: referencedHarnesses
       });
 
       const payload = {
@@ -851,6 +976,46 @@ export function WordManagement() {
                       onChange={(e) => setFormData({...formData, qwenImagePrompt: e.target.value})}
                       placeholder="Detailed image generation prompt..."
                     />
+
+                    {activeHarnesses.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest block">
+                          Insert Project Prompt Harness (插入组件模板)
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {activeHarnesses.map(h => {
+                            const asset = visualItems.find(v => v.id === h.visualAssetId);
+                            return (
+                              <button
+                                key={h.id}
+                                type="button"
+                                onClick={() => {
+                                  const currentPrompt = formData.qwenImagePrompt || '';
+                                  const updatedPrompt = currentPrompt ? `${currentPrompt} ${h.triggerKeyword}` : h.triggerKeyword;
+                                  setFormData({ ...formData, qwenImagePrompt: updatedPrompt });
+                                }}
+                                className="px-1.5 py-0.5 text-[9px] bg-white/5 hover:bg-brand-primary hover:text-black border border-white/10 rounded text-gray-300 transition-colors flex items-center gap-1 font-mono"
+                                title={asset ? `[${asset.type}] ${asset.title}\nImage Prompt: ${asset.imagePrompt || ''}` : ''}
+                              >
+                                <span className="text-brand-primary font-bold">{h.triggerKeyword}</span>
+                                <span className="opacity-50 truncate max-w-[60px]">{asset?.title || 'Asset'}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.qwenImagePrompt && (
+                      <div className="p-2 rounded-lg bg-orange-500/5 border border-orange-500/10 text-[9px] text-orange-400/90 space-y-1">
+                        <div className="font-bold flex items-center gap-1 uppercase tracking-wider text-[8px]">
+                          <span>Active Visual Harness substitution Preview</span>
+                        </div>
+                        <p className="font-mono text-gray-400 break-words line-clamp-3 leading-relaxed">
+                          {getExpandedPromptPreview(formData.qwenImagePrompt)}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Video Motion Prompt</label>
@@ -860,6 +1025,46 @@ export function WordManagement() {
                       onChange={(e) => setFormData({...formData, ltx23Prompt: e.target.value})}
                       placeholder="Detailed video motion prompt..."
                     />
+
+                    {activeHarnesses.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest block">
+                          Insert Project Prompt Harness (插入组件模板)
+                        </span>
+                        <div className="flex flex-wrap gap-1 font-mono">
+                          {activeHarnesses.map(h => {
+                            const asset = visualItems.find(v => v.id === h.visualAssetId);
+                            return (
+                              <button
+                                key={h.id}
+                                type="button"
+                                onClick={() => {
+                                  const currentPrompt = formData.ltx23Prompt || '';
+                                  const updatedPrompt = currentPrompt ? `${currentPrompt} ${h.triggerKeyword}` : h.triggerKeyword;
+                                  setFormData({ ...formData, ltx23Prompt: updatedPrompt });
+                                }}
+                                className="px-1.5 py-0.5 text-[9px] bg-white/5 hover:bg-brand-primary hover:text-black border border-white/10 rounded text-gray-300 transition-colors flex items-center gap-1"
+                                title={asset ? `[${asset.type}] ${asset.title}\nVideo Prompt: ${asset.videoPrompt || ''}` : ''}
+                              >
+                                <span className="text-brand-primary font-bold">{h.triggerKeyword}</span>
+                                <span className="opacity-50 truncate max-w-[60px]">{asset?.title || 'Asset'}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {formData.ltx23Prompt && (
+                      <div className="p-2 rounded-lg bg-orange-500/5 border border-orange-500/10 text-[9px] text-orange-400/90 space-y-1">
+                        <div className="font-bold flex items-center gap-1 uppercase tracking-wider text-[8px]">
+                          <span>Active Visual Harness substitution Preview</span>
+                        </div>
+                        <p className="font-mono text-gray-400 break-words line-clamp-3 leading-relaxed">
+                          {getExpandedPromptPreview(formData.ltx23Prompt)}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -881,11 +1086,41 @@ export function WordManagement() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Visual Preview</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Visual Preview</label>
+                      {formData.word && (
+                        <button
+                          type="button"
+                          onClick={handleGenerateImageInline}
+                          disabled={inlineGenerating}
+                          className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest bg-brand-primary text-black rounded hover:scale-105 disabled:scale-100 disabled:opacity-50 transition-all flex items-center gap-1"
+                        >
+                          {inlineGenerating ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              <span>Generating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-2.5 h-2.5" />
+                              <span>Generate Image & Harness</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
                     <div className="aspect-[16/10] rounded-xl bg-white/5 border border-white/10 overflow-hidden relative">
+                      {inlineGenerating && (
+                        <div className="absolute inset-0 bg-black/80 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-2 p-4">
+                          <Loader2 className="w-6 h-6 text-brand-primary animate-spin" />
+                          <span className="text-[9px] font-bold text-brand-primary uppercase tracking-widest block animate-pulse">GENERATING PREVIEW</span>
+                          <p className="text-[8px] font-mono text-gray-400 text-center uppercase tracking-widest">{inlineProgress}</p>
+                        </div>
+                      )}
+
                       {formData.imagePath ? (
                         <img 
-                          src={getAssetUrl(formData.imagePath)} 
+                          src={modalImageBase64} 
                           alt="Visual asset preview"
                           className="w-full h-full object-cover"
                         />

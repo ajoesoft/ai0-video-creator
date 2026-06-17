@@ -37,8 +37,19 @@ import { comfy } from '../lib/comfy';
 import { parseSRT, compileDialogueToASS, formatAssTime, SubtitleDialogueLine, DEFAULT_SUBTITLE_STYLE } from '../lib/subtitles';
 import { fetchProjectById, updateProject as updateCoreProject, getSetting, setSetting } from '../lib/db';
 import { ProjectStatus, SceneType } from '../types';
-import { useMediaUrl, getAssetUrl } from '../lib/utils';
+import { useMediaUrl, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { useParams, useNavigate } from 'react-router-dom';
+
+function VideoTranslationCover({ path, className = "w-full h-full object-cover", alt = "cover" }: { path: string | undefined | null, className?: string, alt?: string }) {
+  const src = useLocalImageBase64(path);
+  return (
+    <img 
+      src={src} 
+      className={className} 
+      alt={alt} 
+    />
+  );
+}
 
 const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
 
@@ -790,7 +801,7 @@ export function VideoTranslation() {
               className="desktop-button-primary bg-emerald-600 hover:bg-emerald-700 border-none py-2.5 text-black flex items-center gap-2 shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-xs font-bold"
             >
               <Save className="w-4 h-4 text-black" />
-              保存
+              保存到 AI CORE SUITE
             </button>
           )}
           {projects.length > 0 && (
@@ -805,7 +816,7 @@ export function VideoTranslation() {
                 ) : (
                   <PlayCircle className="w-4 h-4 text-black" />
                 )}
-                运行队列
+                一键批量运行整个队列
               </button>
               <button 
                 onClick={() => {
@@ -816,7 +827,7 @@ export function VideoTranslation() {
                 className="desktop-button-secondary py-2.5"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                清空
+                清空队列
               </button>
             </>
           )}
@@ -903,7 +914,7 @@ export function VideoTranslation() {
                       {/* Video Micro Cover Frame */}
                       <div className="w-14 h-10 bg-black rounded overflow-hidden flex-shrink-0 border border-white/10 relative">
                         {proj.coverUrl ? (
-                          <img src={proj.coverUrl} className="w-full h-full object-cover" alt="cover" />
+                          <VideoTranslationCover path={proj.coverUrl} className="w-full h-full object-cover" alt="cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />
@@ -1041,7 +1052,7 @@ export function VideoTranslation() {
                         </div>
                         <div className="flex items-center justify-between mt-auto">
                           {activeProject.coverUrl ? (
-                            <img src={activeProject.coverUrl} className="w-20 h-12 object-cover rounded border border-white/10" alt="Cover preview" />
+                            <VideoTranslationCover path={activeProject.coverUrl} className="w-20 h-12 object-cover rounded border border-white/10" alt="Cover preview" />
                           ) : (
                             <span className="text-xs italic text-gray-600">无封面</span>
                           )}

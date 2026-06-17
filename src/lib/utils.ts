@@ -170,3 +170,84 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
 
   return url;
 }
+
+
+export function useLocalImageBase64(path: string | undefined | null): string {
+  const [src, setSrc] = useState<string>('');
+
+  useEffect(() => {
+    if (!path) {
+      setSrc('');
+      return;
+    }
+
+    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+
+    // Decode and normalize
+    let cleanPath = decodeURIComponent(path);
+    cleanPath = cleanPath.replace(/\\/g, '/');
+
+    // Remove any protocol prefixes from being treated as local storage file paths
+    const tauriPrefixes = [
+      'assets://localhost/',
+      'asset://localhost/',
+      'http://asset.localhost/',
+      'https://asset.localhost/',
+      'assets://localhost',
+      'asset://localhost',
+      'http://asset.localhost',
+      'https://asset.localhost',
+      'assets:///',
+      'asset:///',
+      'assets://',
+      'asset://'
+    ];
+    for (const prefix of tauriPrefixes) {
+      if (cleanPath.startsWith(prefix)) {
+        cleanPath = cleanPath.slice(prefix.length);
+        break;
+      }
+    }
+
+    // Remote detection
+    const isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://') || cleanPath.startsWith('data:') || cleanPath.startsWith('blob:');
+    if (isRemote) {
+      setSrc(cleanPath);
+      return;
+    }
+
+    let active = true;
+
+    const resolveBase64 = async () => {
+      if (isTauri) {
+        try {
+          const { exists } = await import('@tauri-apps/plugin-fs');
+          const fileExists = await exists(cleanPath);
+          if (fileExists) {
+            const { invoke } = await import('@tauri-apps/api/core');
+            const base64 = await invoke<string>('load_local_image', { path: cleanPath });
+            if (active) {
+              setSrc(`data:image/png;base64,${base64}`);
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('[useLocalImageBase64] Failed to load local base64:', err);
+        }
+      }
+
+      // Fallback if not in Tauri or file doesn't exist yet
+      if (active) {
+        setSrc(getAssetUrl(cleanPath));
+      }
+    };
+
+    resolveBase64();
+
+    return () => {
+      active = false;
+    };
+  }, [path]);
+
+  return src;
+}

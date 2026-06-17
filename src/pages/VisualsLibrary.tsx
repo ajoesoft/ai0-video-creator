@@ -26,7 +26,7 @@ import {
   Music,
   Check
 } from 'lucide-react';
-import { cn, useMediaUrl } from '@/src/lib/utils';
+import { cn, useMediaUrl, useLocalImageBase64 } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   fetchProjectById, 
@@ -48,6 +48,18 @@ import { exists, mkdir } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
 import { useTranslation } from '../contexts/LanguageContext';
 
+function VisualAssetItemImage({ path, title, className = "w-full h-full object-cover" }: { path: string | undefined | null, title?: string, className?: string }) {
+  const src = useLocalImageBase64(path);
+  return (
+    <img 
+      src={src} 
+      alt={title || ""} 
+      referrerPolicy="no-referrer"
+      className={className}
+    />
+  );
+}
+
 export function VisualsLibrary() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
@@ -67,6 +79,11 @@ export function VisualsLibrary() {
   const [testPlaygroundInput, setTestPlaygroundInput] = useState('在废墟边缘，@主角 紧握着拳头。突然，空中出现了 @盔甲_IP，它们开始加速拼接。');
   const [testPlaygroundOutput, setTestPlaygroundOutput] = useState('');
   const [isTestingHarness, setIsTestingHarness] = useState(false);
+  
+  // AI Prompt / Context / Harness Blueprint Ecosystem States
+  const [selectedBlueprintIndex, setSelectedBlueprintIndex] = useState<number>(0);
+  const [isDeployingBlueprint, setIsDeployingBlueprint] = useState<boolean>(false);
+  const [blueprintFeedback, setBlueprintFeedback] = useState<string>('');
   
   // New Visual Assets Database Tab States
   const [visualItems, setVisualItems] = useState<VisualLibraryItem[]>([]);
@@ -89,6 +106,7 @@ export function VisualsLibrary() {
   // Visual Library Item Editor / Detail Dialog Modal States
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Partial<VisualLibraryItem> | null>(null);
+  const editingItemImageBase64 = useLocalImageBase64(editingItem?.imagePath);
   
   // Inline Generation Logs & Loaders in Detail Dialog
   const [detailGenType, setDetailGenType] = useState<'image' | 'audio' | 'video' | null>(null);
@@ -212,6 +230,114 @@ export function VisualsLibrary() {
       console.error("Harness testing execution error:", err);
     } finally {
       setIsTestingHarness(false);
+    }
+  };
+
+  const blueprints = [
+    {
+      name: "赛博朋克霓虹风 (Cyberpunk)",
+      trigger: "@Cyberpunk",
+      type: "IP",
+      title: "赛博朋克世界观与角色设定",
+      description: "高对比度霓虹交融色调、荧光背光与细腻的晶体反射镜面，提供未来硬核科幻分镜支持。",
+      imagePrompt: "cyberpunk portrait, high-tech cybernetic clothing, ambient neon lighting, deep blue and hot magenta highlights, detailed reflections in eyes, volumetric smoke, ray-traced, ultra-detailed, octane render, Unreal Engine 5 aesthetic, photorealistic 8k",
+      videoPrompt: "slow camera dolly forward, micro-dust particles swirling in neon beams, dramatic slow-motion eye blink, depth of field"
+    },
+    {
+      name: "3D迪士尼皮克斯 (Pixar Style)",
+      trigger: "@Pixar",
+      type: "IP",
+      title: "三维超轻质拟真黏土角色设定",
+      description: "软萌治愈的面部温散射光、饱满灵动的戏剧化大眼眸，极大提升分镜动画一脉相承的无缝风格衔接。",
+      imagePrompt: "3d animated cute character, soft Pixar lighting, clay render finish, big expressive eyes, masterfully detailed hair groom, pastel colored background, sub-surface scattering skin, Disney model aesthetic, high-fidelity render",
+      videoPrompt: "subtle comical head tilt, slow expressive eye contact, background soft focal shift, whimsical animation physics"
+    },
+    {
+      name: "吉卜力手绘水彩 (Ghibli Watercolor)",
+      trigger: "@Ghibli",
+      type: "环境",
+      title: "吉卜力梦幻手绘清新画风",
+      description: "手绘水彩痕迹、充满怀旧感与饱满绿意的自然色盘、温润积雨云，为影片营造出生机盎然的温馨氛围环境。",
+      imagePrompt: "Studio Ghibli painting style, hand-drawn watercolor aesthetic, lush summer clouds, direct brilliant sunlight, gentle nostalgic wind rustling green grass, warm saturated palette, anime-movie keyframe, high-fidelity classic animation",
+      videoPrompt: "gentle slow breeze shifting clover field petals, clouds drifting across blue atmosphere, nostalgic watercolor animation timing"
+    },
+    {
+      name: "1950s黑白电影胶片 (Film Noir Cinema)",
+      trigger: "@FilmNoir",
+      type: "环境",
+      title: "1950年代黑色电影光影世界",
+      description: "剧烈的 Chiaroscuro 明暗对照阴影关系、百叶窗在灰墙上的斜射几何斑驳、复古深邃烟雾感，极具故事情景张力。",
+      imagePrompt: "classic 1950s film noir cinematography, high-contrast chiaroscuro shadows, Venetian blind light bars on walls, wet asphalt, dark trench coat, retro detective office mood, professional monochrome black and white photography, smoky atmosphere",
+      videoPrompt: "slow panning shot, cigarette smoke curling upwards into soft lighting, crisp vintage camera lens focus pull"
+    },
+    {
+      name: "东方古典浮世绘版画 (Traditional Ukiyo-e)",
+      trigger: "@UkiyoE",
+      type: "IP",
+      title: "传统东方古典浮世绘极简设定",
+      description: "饱满刚劲墨线勾勒、高雅质朴扁平矿物配色、古旧桑皮纸张底图质感，使动画散发出典雅的中式/日式古典视觉美感。",
+      imagePrompt: "traditional Ukiyo-e woodblock print aesthetic, elegant ink wash outlines, flat organic colors, vintage textured mulberry paper, flowing silk robes, iconic wave and pine leaf motifs, classic Edo-period flat illustration style",
+      videoPrompt: "flat horizontal 2D camera pan, stylized ink ripples flowing softly, subtle paper texture jitter animating organic lines"
+    }
+  ];
+
+  const handleDeployBlueprint = async (index: number) => {
+    const bp = blueprints[index];
+    setIsDeployingBlueprint(true);
+    setBlueprintFeedback("正在部署一致性包...");
+    try {
+      const hasAsset = visualItems.some(v => v.title === bp.title);
+      const hasHarness = promptHarnesses.some(h => h.triggerKeyword.toLowerCase() === bp.trigger.toLowerCase());
+      
+      let assetId = 0;
+      if (hasAsset) {
+        const found = visualItems.find(v => v.title === bp.title);
+        assetId = found?.id || 0;
+        setBlueprintFeedback("检测到已存在同名视觉预设，直接复用其标识 ID。");
+      } else {
+        await createVisualLibraryItem({
+          projectId: id || "",
+          sceneId: `bp_${Date.now()}_${index}`,
+          title: bp.title,
+          type: bp.type,
+          imagePrompt: bp.imagePrompt,
+          videoPrompt: bp.videoPrompt,
+          imagePath: ""
+        });
+        const currentItems = await fetchVisualLibraryByProject(id || "");
+        setVisualItems(currentItems);
+        const newlyCreated = currentItems.find(v => v.title === bp.title);
+        assetId = newlyCreated?.id || 0;
+        setBlueprintFeedback("已成功向视觉库内注入高一致性模版！");
+      }
+
+      if (assetId) {
+        if (hasHarness) {
+          setBlueprintFeedback("该一致性控制触发词已经建立映射关系，部署完成！");
+        } else {
+          setBlueprintFeedback("正在映射一致性控制触发词规则...");
+          await createPromptHarness({
+            projectId: id || "",
+            triggerKeyword: bp.trigger,
+            visualAssetId: assetId,
+            active: 1
+          });
+          setBlueprintFeedback("部署成功！你可以在分镜或词汇卡中直接使用对应触发词进行高精画帧生成。");
+        }
+      }
+      
+      await loadHarnessData(id || '');
+      await loadVisualAssets(id || '');
+      
+      setTimeout(() => {
+        setBlueprintFeedback("");
+      }, 3500);
+
+    } catch (err) {
+      console.error("Blueprint deployment error:", err);
+      setBlueprintFeedback("部署失败，请检查数据库配置。");
+    } finally {
+      setIsDeployingBlueprint(false);
     }
   };
 
@@ -642,10 +768,9 @@ export function VisualsLibrary() {
                     {/* Media Aspect Preview Frame */}
                     <div className="aspect-video bg-[#0b0b0d] border-b border-white/5 overflow-hidden relative group/cover">
                       {item.imagePath ? (
-                        <img 
-                          src={item.imagePath} 
-                          alt={item.title} 
-                          referrerPolicy="no-referrer"
+                        <VisualAssetItemImage 
+                          path={item.imagePath} 
+                          title={item.title} 
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" 
                         />
                       ) : (
@@ -847,7 +972,7 @@ export function VisualsLibrary() {
                       
                       {asset.imagePath ? (
                         <div className="aspect-video w-full rounded overflow-hidden relative border border-white/10 bg-black">
-                          <img src={asset.imagePath} alt="" className="w-full h-full object-cover" />
+                          <VisualAssetItemImage path={asset.imagePath} title={asset.word || ""} className="w-full h-full object-cover" />
                         </div>
                       ) : (
                         <div className="aspect-video w-full rounded border border-dashed border-white/5 bg-black/30 flex items-center justify-center text-white/20 text-xs">
@@ -909,6 +1034,174 @@ export function VisualsLibrary() {
                   本系统通过在短剧、故事或多镜分镜脚本中定义 <strong>"触发词" (Trigger Keywords, 例如：@主角)</strong>，在调用AI进行画面绘制或视频渲染时，
                   <strong>自动提取并拼接</strong> 视觉库中该专属IP的一致性高精提示词，保证角色五官、道具和环境细节在不同画幅、镜头之间具有无可挑剔的连续性。
                 </p>
+              </div>
+            </div>
+
+            {/* AI Prompt / Context / Harness (PCH) Solution Hub */}
+            <div className="bg-gradient-to-r from-orange-500/[0.03] to-brand-primary/[0.03] border border-white/5 rounded-2xl p-6 space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-orange-400 animate-pulse" />
+                    <h3 className="text-base font-bold text-white font-sans tracking-tight">AI 创作一致性工程枢纽 (PCH Solution Center)</h3>
+                  </div>
+                  <p className="text-xs text-white/50">
+                    一键注入业界高标准的 Prompt/Context/Harness 工程套件，秒级部署统一的视、听、动多模态协同方案。
+                  </p>
+                </div>
+                
+                {/* Active Diagnostic Badges */}
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-2.5 py-1 bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-mono rounded-full flex items-center gap-1.5 uppercase font-bold">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
+                    Harness Active
+                  </span>
+                  <span className="px-2.5 py-1 bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-mono rounded-full flex items-center gap-1.5 uppercase font-bold">
+                    <span className="w-1.5 h-1.5 bg-orange-500 rounded-full shrink-0" />
+                    Multi-Modal Sync
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid: Left: Educational Playbook, Right: 1-Click Interactive Blueprint Deployer */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                
+                {/* Left: Playbook Quickguide */}
+                <div className="lg:col-span-4 bg-white/[0.01] border border-white/5 rounded-xl p-5 space-y-4">
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-mono font-bold text-orange-400 uppercase tracking-widest block font-sans">Core Solutions Manual</span>
+                    <h4 className="text-xs font-bold text-white uppercase font-sans">多模态一致性工程核心三原则</h4>
+                  </div>
+                  
+                  <div className="space-y-3.5 text-xs font-sans">
+                    <div className="p-3 bg-black/40 rounded-lg space-y-1">
+                      <div className="flex items-center gap-2 text-white">
+                        <span className="w-4 h-4 bg-orange-500/15 border border-orange-500/30 text-[10px] font-bold rounded flex items-center justify-center text-orange-400 font-mono">P</span>
+                        <strong className="text-gray-200">1. Prompt 一致性 (画面)</strong>
+                      </div>
+                      <p className="text-white/40 leading-relaxed text-[11px]">
+                        利用大比例提示词前置规则。在脚本中使用触发词（如 @Ghibli），替换为微距光照、相机型号、特定的色彩描述集。
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-black/40 rounded-lg space-y-1">
+                      <div className="flex items-center gap-2 text-white">
+                        <span className="w-4 h-4 bg-blue-500/15 border border-blue-500/30 text-[10px] font-bold rounded flex items-center justify-center text-blue-400 font-mono">C</span>
+                        <strong className="text-gray-200">2. Context 音色锚定 (声音)</strong>
+                      </div>
+                      <p className="text-white/40 leading-relaxed text-[11px]">
+                        上传一段 10 至 15 秒恒定的配音朗读切片 (MP3/WAV) 储存在 audio/。生成时作为零拍参考基准，维持一以贯之的声线表情。
+                      </p>
+                    </div>
+
+                    <div className="p-3 bg-black/40 rounded-lg space-y-1">
+                      <div className="flex items-center gap-2 text-white">
+                        <span className="w-4 h-4 bg-purple-500/15 border border-purple-500/30 text-[10px] font-bold rounded flex items-center justify-center text-purple-400 font-mono">H</span>
+                        <strong className="text-gray-200">3. Harness 运动轨道 (视频)</strong>
+                      </div>
+                      <p className="text-white/40 leading-relaxed text-[11px]">
+                        锁定微调强度参数。用缓慢前推 (dolly) 或镜头拉焦 (focus pull) 等平滑指向词束缚运动框架，防止逐帧突变造成的割裂感。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Interactive Preset Deployer */}
+                <div className="lg:col-span-8 flex flex-col justify-between bg-black/30 border border-white/5 rounded-xl p-5 space-y-4">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                      <div className="space-y-0.5">
+                        <span className="text-[9px] font-mono font-bold text-brand-primary uppercase tracking-widest block font-sans">Interactive Deployment Deck</span>
+                        <h4 className="text-xs font-bold text-white">一键部署专业级 IP / 艺术画风一致性模版</h4>
+                      </div>
+                      <span className="text-[10px] font-mono text-white/30 uppercase">5 Art Packages</span>
+                    </div>
+
+                    {/* Selector Deck buttons */}
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {blueprints.map((bp, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setSelectedBlueprintIndex(idx)}
+                          className={cn(
+                            "py-2 px-2.5 rounded-lg border text-[11px] font-mono transition-all text-center flex flex-col justify-center items-center gap-1 cursor-pointer",
+                            selectedBlueprintIndex === idx
+                              ? "bg-brand-primary/10 border-brand-primary text-brand-primary font-bold shadow-md shadow-brand-primary/5"
+                              : "bg-white/[0.02] border-white/5 text-white/60 hover:bg-white/5 hover:text-white"
+                          )}
+                        >
+                          <span className="text-xs truncate max-w-[90px]">{bp.name.split(' (')[0]}</span>
+                          <span className="text-[9px] opacity-60 px-1 py-0.5 bg-white/5 rounded block font-bold text-center w-full">{bp.trigger}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Meta info card on current selected blueprint */}
+                    <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white font-mono flex items-center gap-1.5">
+                          <Check className="w-3.5 h-3.5 text-brand-primary" />
+                          {blueprints[selectedBlueprintIndex].title}
+                        </span>
+                        <span className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[9px] font-bold rounded font-mono">
+                          触发代号: {blueprints[selectedBlueprintIndex].trigger}
+                        </span>
+                      </div>
+                      <p className="text-xs text-white/50 leading-relaxed font-sans">
+                        {blueprints[selectedBlueprintIndex].description}
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-white/5 text-[10px]">
+                        <div className="space-y-1 font-mono">
+                          <span className="text-white/30 block uppercase tracking-wider font-bold">注入画风高精描述 (Image Prompt):</span>
+                          <p className="text-white/60 line-clamp-2 leading-relaxed bg-black/40 p-2 rounded border border-white/5">
+                            {blueprints[selectedBlueprintIndex].imagePrompt}
+                          </p>
+                        </div>
+                        <div className="space-y-1 font-mono">
+                          <span className="text-white/30 block uppercase tracking-wider font-bold">画面运动平滑指向 (Video Motion):</span>
+                          <p className="text-white/60 line-clamp-2 leading-relaxed bg-black/40 p-2 rounded border border-white/5">
+                            {blueprints[selectedBlueprintIndex].videoPrompt}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Deploy trigger button */}
+                  <div className="flex flex-col sm:flex-row items-center gap-4 pt-2 border-t border-white/5">
+                    <button
+                      type="button"
+                      onClick={() => handleDeployBlueprint(selectedBlueprintIndex)}
+                      disabled={isDeployingBlueprint}
+                      className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-orange-500 to-brand-primary hover:from-orange-400 hover:to-brand-primary text-black font-sans text-xs font-bold uppercase tracking-wider rounded-xl transition-all active:scale-95 duration-150 flex items-center justify-center gap-2 shadow-lg shadow-brand-primary/10 select-none cursor-pointer"
+                    >
+                      {isDeployingBlueprint ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-black" />
+                          <span>正在执行多层注入部署...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 text-black fill-current" />
+                          <span>一键部署当前风格包 (Deploy Style Pack)</span>
+                        </>
+                      )}
+                    </button>
+                    
+                    {blueprintFeedback ? (
+                      <span className="text-[11px] font-mono text-brand-primary tracking-wide animate-pulse block">
+                        ℹ️ {blueprintFeedback}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-gray-500 font-sans">
+                        系统将在『视觉数据库』插入一条规范属性，并在『Harness机制』对应绑定该代号触发器。
+                      </span>
+                    )}
+                  </div>
+
+                </div>
+
               </div>
             </div>
 
@@ -1044,10 +1337,9 @@ export function VisualsLibrary() {
                               {/* Left Thumbnail reference */}
                               <div className="w-10 h-10 bg-black border border-white/10 rounded overflow-hidden flex-shrink-0 relative">
                                 {targetAsset?.imagePath ? (
-                                  <img 
-                                    src={targetAsset.imagePath} 
-                                    alt="" 
-                                    referrerPolicy="no-referrer"
+                                  <VisualAssetItemImage 
+                                    path={targetAsset.imagePath} 
+                                    title={targetAsset.title} 
                                     className="w-full h-full object-cover" 
                                   />
                                 ) : (
@@ -1382,7 +1674,7 @@ export function VisualsLibrary() {
                       {editingItem.imagePath ? (
                         <div className="aspect-video w-full relative rounded border border-white/10 overflow-hidden shadow-md group/cover-modal">
                           <img 
-                            src={editingItem.imagePath} 
+                            src={editingItemImageBase64} 
                             alt="" 
                             referrerPolicy="no-referrer"
                             className="w-full h-full object-cover" 

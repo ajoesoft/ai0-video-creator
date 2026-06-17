@@ -54,15 +54,15 @@ export function Sidebar() {
   const mainNav: NavItem[] = [
     { label: t('dashboard'), icon: LayoutDashboard, path: '/' },
     { label: t('models'), icon: Database, path: '/models' },
-    { label: '后台队列 Queue', icon: GanttChart, path: '/queue' },
+    { label: 'Queue', icon: GanttChart, path: '/queue' },
   ];
 
   const projectNav: NavItem[] = isProjectView ? (
     sceneType === 'video_translation' ? [
-      { label: '项目详情 Details', icon: Settings, path: `/project/${projectId}/details` },
-      { label: t('videoTranslation') || '视频翻译 Workspace', icon: Languages, path: `/project/${projectId}/translation` },
+      { label: 'Details', icon: Settings, path: `/project/${projectId}/details` },
+      { label: t('videoTranslation') || 'Translation Workspace', icon: Languages, path: `/project/${projectId}/translation` },
     ] : [
-      { label: '项目详情 Details', icon: Settings, path: `/project/${projectId}/details` },
+      { label: 'Details', icon: Settings, path: `/project/${projectId}/details` },
       { label: t('scripting'), icon: FileText, path: `/project/${projectId}/script` },
       { label: t('visuals'), icon: ImageIcon, path: `/project/${projectId}/visuals` },
       { label: t('audio'), icon: Mic2, path: `/project/${projectId}/audio` },
@@ -81,10 +81,10 @@ export function Sidebar() {
       <div className={cn("p-6 flex items-center justify-between mb-4", isCollapsed ? "flex-col gap-4" : "flex-row")}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-brand-primary rounded-sm flex items-center justify-center font-bold text-black shadow-lg shadow-brand-primary/10 shrink-0">
-            T
+            AVC
           </div>
           {!isCollapsed && (
-            <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">Tauri AI 2.0</span>
+            <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">AI0 Video Creator</span>
           )}
         </div>
         <button 

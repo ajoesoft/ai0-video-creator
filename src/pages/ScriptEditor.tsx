@@ -27,6 +27,10 @@ import {
   Maximize2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  ArrowUp,
+  ArrowDown,
   Image as ImageIcon
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
@@ -36,7 +40,8 @@ import {
   fetchVocabularyByProject, 
   createVocabulary, 
   updateVocabulary, 
-  deleteVocabulary 
+  deleteVocabulary,
+  applyPromptHarnessRules
 } from '../lib/db';
 import { comfy } from '../lib/comfy';
 import { VideoProject, Vocabulary } from '../types';
@@ -67,15 +72,18 @@ interface SegmentCoverProps {
   segment: Vocabulary;
   project: VideoProject | null;
   onRefresh: () => void;
+  onOpenVideoGen?: () => void;
 }
 
-export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps) {
+export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: SegmentCoverProps) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [promptInput, setPromptInput] = useState('');
   const [selectedModel, setSelectedModel] = useState<'z-image-turbo' | 'qwen-image-2512'>('z-image-turbo');
+  const [isHarnessResolving, setIsHarnessResolving] = useState(false);
 
   // Extract images array and current index from segment.data
   let customData: any = {};
@@ -92,6 +100,45 @@ export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps)
   const currentIdx = typeof customData.currentImageIndex === 'number' ? customData.currentImageIndex : 0;
 
   useEffect(() => {
+    async function resolveVideo() {
+      if (segment.videoPath) {
+        try {
+          if (isTauri) {
+            const fileExists = await exists(segment.videoPath);
+            if (fileExists) {
+              if (segment.videoPath.startsWith('http')) {
+                setVideoSrc(segment.videoPath);
+              } else {
+                const base64 = await invoke<string>('load_local_image', { path: segment.videoPath });
+                if (base64 && !base64.startsWith('data:')) {
+                  setVideoSrc(`data:video/mp4;base64,${base64}`);
+                } else {
+                  setVideoSrc(base64);
+                }
+              }
+            } else {
+              setVideoSrc(null);
+            }
+          } else {
+            if (segment.videoPath.startsWith('http') || segment.videoPath.startsWith('data:')) {
+              setVideoSrc(segment.videoPath);
+            } else {
+              // Direct assignment in web mode
+              setVideoSrc(segment.videoPath);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load segment video base64:', e);
+          setVideoSrc(null);
+        }
+      } else {
+        setVideoSrc(null);
+      }
+    }
+    resolveVideo();
+  }, [segment.videoPath, segment.updatedAt]);
+
+  useEffect(() => {
     async function resolveImage() {
       if (segment.imagePath) {
         try {
@@ -102,17 +149,14 @@ export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps)
                 setImageSrc(segment.imagePath);
               } else {
                 const base64 = await invoke<string>('load_local_image', { path: segment.imagePath });
-                setImageSrc(base64);
+                setImageSrc(`data:image/png;base64,${base64}`);
               }
             } else {
               setImageSrc(null);
             }
           } else {
-            if (segment.imagePath.startsWith('http')) {
-              setImageSrc(segment.imagePath);
-            } else {
-              setImageSrc(null);
-            }
+            // Web fallback: set directly (supports http, base64 data URIs, or relatives)
+            setImageSrc(segment.imagePath);
           }
         } catch (e) {
           console.error('Failed to load segment image base64:', e);
@@ -130,32 +174,65 @@ export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps)
     setIsModalOpen(true);
   };
 
+  const handleResolveHarness = async () => {
+    if (isHarnessResolving) return;
+    setIsHarnessResolving(true);
+    try {
+      const expanded = await applyPromptHarnessRules(promptInput, project?.id || "");
+      if (expanded !== promptInput) {
+        setPromptInput(expanded);
+      } else {
+        alert("No active harness rules matched or trigger tags (like @Character) found.");
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Harness error: ${e?.message || e}`);
+    } finally {
+      setIsHarnessResolving(false);
+    }
+  };
+
   const handleExecuteGenerate = async () => {
     if (isGenerating) return;
     setIsGenerating(true);
     setProgress('Initializing...');
 
     try {
-      const projectRoot = project?.projectPath;
-      if (!projectRoot) throw new Error("Project path missing");
-
-      const imgDir = await join(projectRoot, 'image');
-      if (!(await exists(imgDir))) {
-        await mkdir(imgDir, { recursive: true });
-      }
-
-      const filename = `image_${segment.id}_${Date.now()}.png`;
-      const localImgPath = await join(imgDir, filename);
-
       const promptPrefix = project?.prompt ? `${project.prompt}, ` : '';
-      const fullPrompt = `${promptPrefix}${promptInput}, 8k, photorealistic`;
-
-      console.log(`Generating image for scene ${segment.id} (Model: ${selectedModel}) with prompt: ${fullPrompt}`);
-
+      const resolvedPromptInput = await applyPromptHarnessRules(promptInput, project?.id || '');
+      const fullPrompt = `${promptPrefix}${resolvedPromptInput}, 8k, photorealistic`;
       const isTurbo = selectedModel === 'z-image-turbo';
-      const savedPath = await comfy.runImageGenerationRust(fullPrompt, localImgPath, isTurbo, (msg) => {
-        setProgress(msg);
-      });
+
+      let savedPath = '';
+
+      if (isTauri) {
+        const projectRoot = project?.projectPath;
+        if (!projectRoot) throw new Error("Project path missing");
+
+        const imgDir = await join(projectRoot, 'image');
+        if (!(await exists(imgDir))) {
+          await mkdir(imgDir, { recursive: true });
+        }
+
+        const filename = `image_${segment.id}_${Date.now()}.png`;
+        const localImgPath = await join(imgDir, filename);
+
+        console.log(`Generating image for scene ${segment.id} (Model: ${selectedModel}) with prompt: ${fullPrompt}`);
+
+        savedPath = await comfy.runImageGenerationRust(fullPrompt, localImgPath, isTurbo, (msg) => {
+          setProgress(msg);
+        });
+      } else {
+        console.log(`Generating image in web mode (Model: ${selectedModel}) with prompt: ${fullPrompt}`);
+        const urls = await comfy.runImageGeneration(fullPrompt, isTurbo, (msg) => {
+          setProgress(msg);
+        });
+        if (urls && urls.length > 0) {
+          savedPath = urls[0];
+        } else {
+          throw new Error("No image paths received from Web ComfyUI.");
+        }
+      }
 
       if (savedPath) {
         console.log(`Generated and stored scene image: ${savedPath}`);
@@ -244,9 +321,21 @@ export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps)
           </div>
         )}
 
-        {imageSrc ? (
+        {videoSrc ? (
+          <div className="w-full h-full relative group/video">
+            <video 
+              src={videoSrc} 
+              controls 
+              className="w-full h-full object-cover rounded" 
+              playsInline
+            />
+            <div className="absolute top-2 right-2 bg-black/75 px-2 py-0.5 rounded text-[8px] tracking-wider mono-text text-blue-400 font-bold uppercase border border-blue-500/20">
+              Video Active
+            </div>
+          </div>
+        ) : imageSrc ? (
           <>
-            <img src={`data:image/png;base64,${imageSrc}`} alt="" className="w-full h-full object-cover" />
+            <img src={imageSrc} alt="" className="w-full h-full object-cover" />
             {imagesList.length > 1 && (
               <>
                 <button
@@ -278,20 +367,31 @@ export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps)
         )}
       </div>
 
-      <button
-        type="button"
-        disabled={isGenerating}
-        onClick={handleOpenModal}
-        className={cn(
-          "w-full py-2 px-3 rounded text-[9px] font-bold uppercase tracking-widest transition-all border flex items-center justify-center gap-2",
-          imageSrc 
-            ? "border-white/5 hover:border-white/20 text-white/50 hover:text-white bg-[#161619]" 
-            : "border-brand-primary/20 text-brand-primary hover:text-white hover:bg-brand-primary/10 hover:border-brand-primary"
-        )}
-      >
-        <Sparkles className="w-3.5 h-3.5" />
-        <span>{imageSrc ? 'REGENERATE IMAGE' : 'GENERATE IMAGE'}</span>
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          disabled={isGenerating}
+          onClick={handleOpenModal}
+          className={cn(
+            "py-2 px-3 rounded text-[9px] font-bold uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5",
+            imageSrc 
+              ? "border-white/5 hover:border-white/20 text-white/50 hover:text-white bg-[#161619]" 
+              : "border-brand-primary/20 text-brand-primary hover:text-white hover:bg-brand-primary/10 hover:border-brand-primary"
+          )}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>{imageSrc ? 'REF IMAGE' : 'GEN IMAGE'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onOpenVideoGen?.()}
+          className="py-2 px-3 rounded text-[9px] font-bold uppercase tracking-widest transition-all border border-blue-500/20 text-blue-400 hover:text-white hover:bg-blue-500/10 hover:border-blue-500 flex items-center justify-center gap-1.5 bg-[#161619]"
+        >
+          <FileVideo className="w-3.5 h-3.5" />
+          <span>{segment.videoPath ? 'REGEN VID' : 'GEN VID'}</span>
+        </button>
+      </div>
 
       {/* Model and Prompt Modal Dialog */}
       {isModalOpen && (
@@ -349,7 +449,18 @@ export function SegmentCover({ segment, project, onRefresh }: SegmentCoverProps)
 
               {/* Prompt Input Area */}
               <div className="space-y-1.5">
-                <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">Image Prompt</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">Image Prompt</label>
+                  <button
+                    type="button"
+                    disabled={isGenerating || isHarnessResolving}
+                    onClick={handleResolveHarness}
+                    className="text-[9px] font-bold text-brand-primary uppercase tracking-widest hover:text-white flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded border border-white/5 transition-colors"
+                  >
+                    <Sparkles className="w-2.5 h-2.5 text-brand-primary animate-pulse" />
+                    <span>{isHarnessResolving ? 'Resolving...' : 'Inject Harness (@一致性)'}</span>
+                  </button>
+                </div>
                 <textarea
                   disabled={isGenerating}
                   value={promptInput}
@@ -416,6 +527,10 @@ export function ScriptEditor() {
   // Script and Segment states
   const [scriptSegments, setScriptSegments] = useState<Vocabulary[]>([]);
   const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+
+  // Video Generation and Reordering states
+  const [videoGenSegment, setVideoGenSegment] = useState<Vocabulary | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   
   // Busy / Processing flags
   const [isGenerating, setIsGenerating] = useState(false);
@@ -501,6 +616,90 @@ export function ScriptEditor() {
         initialDurations[seg.id] = subtitleDurationOverrides[seg.id] || Math.max(3.5, Math.min(8.0, (seg.script || seg.word || '').split(' ').length * 0.45));
       });
       setSubtitleDurationOverrides(initialDurations);
+    }
+  };
+
+  const swapSegments = async (seg1: Vocabulary, seg2: Vocabulary) => {
+    const temp = { ...seg1 };
+    
+    await updateVocabulary(seg1.id, {
+      word: seg2.word,
+      audioPath: seg2.audioPath,
+      indexChar: seg2.indexChar,
+      example: seg2.example,
+      imagePath: seg2.imagePath,
+      phoneticSymbols: seg2.phoneticSymbols,
+      chineseDefinition: seg2.chineseDefinition,
+      data: seg2.data,
+      prompt: seg2.prompt,
+      videoPath: seg2.videoPath,
+      ltx23Prompt: seg2.ltx23Prompt,
+      t2vPrompt: seg2.t2vPrompt,
+      qwenImagePrompt: seg2.qwenImagePrompt,
+      category: seg2.category,
+      script: seg2.script,
+      status: seg2.status,
+      chinese: seg2.chinese
+    });
+
+    await updateVocabulary(seg2.id, {
+      word: temp.word,
+      audioPath: temp.audioPath,
+      indexChar: temp.indexChar,
+      example: temp.example,
+      imagePath: temp.imagePath,
+      phoneticSymbols: temp.phoneticSymbols,
+      chineseDefinition: temp.chineseDefinition,
+      data: temp.data,
+      prompt: temp.prompt,
+      videoPath: temp.videoPath,
+      ltx23Prompt: temp.ltx23Prompt,
+      t2vPrompt: temp.t2vPrompt,
+      qwenImagePrompt: temp.qwenImagePrompt,
+      category: temp.category,
+      script: temp.script,
+      status: temp.status,
+      chinese: temp.chinese
+    });
+  };
+
+  const handleMoveSegment = async (fromIndex: number, toIndex: number) => {
+    if (fromIndex < 0 || fromIndex >= scriptSegments.length) return;
+    if (toIndex < 0 || toIndex >= scriptSegments.length) return;
+
+    const seg1 = scriptSegments[fromIndex];
+    const seg2 = scriptSegments[toIndex];
+
+    await swapSegments(seg1, seg2);
+    if (id) {
+      await loadData(id);
+    }
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+    const fromIndex = draggedIndex;
+    setDraggedIndex(null);
+
+    const seg1 = scriptSegments[fromIndex];
+    const seg2 = scriptSegments[targetIndex];
+
+    await swapSegments(seg1, seg2);
+    if (id) {
+      await loadData(id);
     }
   };
 
@@ -1329,12 +1528,17 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                       <motion.div
                         key={segment.id}
                         layout
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDrop={(e) => handleDrop(e, index)}
                         initial={{ opacity: 0, scale: 0.98 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         className={cn(
-                          "p-6 transition-all border border-border-subtle group hover:border-brand-primary/20",
-                          isDirection ? "bg-brand-primary/[0.02] border-dashed border-gray-800" : "bg-[#111114]"
+                          "p-6 transition-all border border-border-subtle group hover:border-brand-primary/20 cursor-grab active:cursor-grabbing",
+                          isDirection ? "bg-brand-primary/[0.02] border-dashed border-gray-800" : "bg-[#111114]",
+                          draggedIndex === index ? "opacity-30 border-brand-primary" : ""
                         )}
                       >
                         {/* Card Upper Header */}
@@ -1346,6 +1550,36 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                             <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">
                               {isDirection ? 'CINEMATIC DIRECTION' : 'VOICE OVER SEGMENT'}
                             </span>
+
+                            {/* Move up / down controls */}
+                            <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-2">
+                              {index > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await handleMoveSegment(index, index - 1);
+                                  }}
+                                  className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-brand-primary transition-all cursor-pointer"
+                                  title="Move Up 向上移动"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {index < scriptSegments.length - 1 && (
+                                <button
+                                  type="button"
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await handleMoveSegment(index, index + 1);
+                                  }}
+                                  className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-brand-primary transition-all cursor-pointer"
+                                  title="Move Down 向下移动"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
@@ -1504,7 +1738,12 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                           {/* SegmentCover Scene Cover Section */}
                           <div className="lg:col-span-4 border-t lg:border-t-0 lg:border-l border-white/[0.04] pt-6 lg:pt-0 lg:pl-6">
                             <span className="text-[8px] font-mono tracking-widest text-white/30 uppercase block mb-3">SCENE VISUAL COVER</span>
-                            <SegmentCover segment={segment} project={project} onRefresh={() => loadData(id!)} />
+                            <SegmentCover 
+                              segment={segment} 
+                              project={project} 
+                              onRefresh={() => loadData(id!)} 
+                              onOpenVideoGen={() => setVideoGenSegment(segment)}
+                            />
                           </div>
                         </div>
 
@@ -1954,6 +2193,608 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         </AnimatePresence>
       </div>
 
+      {videoGenSegment && (
+        <VideoGenModal
+          segment={videoGenSegment}
+          project={project}
+          onClose={() => setVideoGenSegment(null)}
+          onRefresh={() => {
+            loadData(id!);
+            fetchVocabularyByProject(id!).then(vocab => {
+              const sorted = [...vocab].sort((a,b) => a.id - b.id);
+              const found = sorted.find(s => s.id === videoGenSegment.id);
+              if (found) setVideoGenSegment(found);
+            });
+          }}
+        />
+      )}
+
+    </div>
+  );
+}
+
+export function VideoGenModal({ 
+  segment, 
+  project, 
+  onClose, 
+  onRefresh 
+}: { 
+  segment: Vocabulary; 
+  project: VideoProject | null; 
+  onClose: () => void; 
+  onRefresh: () => void; 
+}) {
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [videoProgress, setVideoProgress] = useState('');
+  const [ltxPrompt, setLtxPrompt] = useState(segment.ltx23Prompt || segment.script || segment.word || '');
+  const [generationMethod, setGenerationMethod] = useState<'text' | 'start_end' | 'image_audio' | 'image_only'>('image_only');
+  
+  // Model select for reference images
+  const [imageModel, setImageModel] = useState<'z-image-turbo' | 'qwen-image-2512'>('z-image-turbo');
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [imageProgress, setImageProgress] = useState('');
+  const [isHarnessResolving, setIsHarnessResolving] = useState(false);
+
+  // Frame choices (local path string)
+  const [startFramePath, setStartFramePath] = useState<string>('');
+  const [endFramePath, setEndFramePath] = useState<string>('');
+
+  // Audio choice
+  const [audioSource, setAudioSource] = useState<'none' | 'scene_audio' | 'translated_audio' | 'custom'>('none');
+  const [customAudioPath, setCustomAudioPath] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Parse list of existing image paths
+  let customData: any = {};
+  try {
+    customData = segment.data ? JSON.parse(segment.data) : {};
+  } catch (e) {
+    customData = {};
+  }
+  const imagesList: string[] = Array.isArray(customData.images) ? customData.images : [];
+  if (segment.imagePath && !imagesList.includes(segment.imagePath)) {
+    imagesList.unshift(segment.imagePath);
+  }
+
+  // Pre-seed start and end frame choices from image list
+  useEffect(() => {
+    if (imagesList.length > 0) {
+      if (!startFramePath) {
+        setStartFramePath(imagesList[imagesList.length - 1]);
+      }
+      if (!endFramePath && imagesList.length > 1) {
+        setEndFramePath(imagesList[imagesList.length - 2]);
+      }
+    }
+  }, [segment.data, imagesList]);
+
+  // Resolve base64 src/paths for images in reference grid
+  const [resolvedThumbnails, setResolvedThumbnails] = useState<Record<string, string>>({});
+  useEffect(() => {
+    async function loadThumbs() {
+      const thumbs: Record<string, string> = {};
+      for (const p of imagesList) {
+        if (!p) continue;
+        try {
+          if (isTauri) {
+            const existsFile = await exists(p);
+            if (existsFile) {
+              if (p.startsWith('http')) {
+                thumbs[p] = p;
+              } else {
+                const b64 = await invoke<string>('load_local_image', { path: p });
+                thumbs[p] = b64;
+              }
+            }
+          } else {
+            // Web mode loads images directly
+            thumbs[p] = p;
+          }
+        } catch (err) {
+          console.error("thumb load fail:", err);
+        }
+      }
+      setResolvedThumbnails(thumbs);
+    }
+    loadThumbs();
+  }, [segment.data, imagesList.length]);
+
+  const handleResolveHarness = async () => {
+    if (isHarnessResolving) return;
+    setIsHarnessResolving(true);
+    try {
+      const expanded = await applyPromptHarnessRules(ltxPrompt, project?.id || "");
+      if (expanded !== ltxPrompt) {
+        setLtxPrompt(expanded);
+      } else {
+        alert("No active harness rules matched or trigger tags (like @Character) found.");
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Harness error: ${e?.message || e}`);
+    } finally {
+      setIsHarnessResolving(false);
+    }
+  };
+
+  const handleGenerateRefImage = async () => {
+    if (isGeneratingImage) return;
+    setIsGeneratingImage(true);
+    setImageProgress('Starting Ref-Image production...');
+    try {
+      const promptPrefix = project?.prompt ? `${project.prompt}, ` : '';
+      const resolvedLtxPrompt = await applyPromptHarnessRules(ltxPrompt, project?.id || '');
+      const fullPrompt = `${promptPrefix}${resolvedLtxPrompt || 'cinematic'}, 8k, photorealistic`;
+      const isTurbo = imageModel === 'z-image-turbo';
+      
+      let savedPath = '';
+
+      if (isTauri) {
+        const projectRoot = project?.projectPath;
+        if (!projectRoot) throw new Error("Project folder path is missing");
+
+        const imgDir = await join(projectRoot, 'image');
+        if (!(await exists(imgDir))) {
+          await mkdir(imgDir, { recursive: true });
+        }
+
+        const filename = `ref_image_${segment.id}_${Date.now()}.png`;
+        const localImgPath = await join(imgDir, filename);
+
+        savedPath = await comfy.runImageGenerationRust(fullPrompt, localImgPath, isTurbo, (msg) => {
+          setImageProgress(msg);
+        });
+      } else {
+        console.log(`Generating reference image in web mode: ${fullPrompt}`);
+        const urls = await comfy.runImageGeneration(fullPrompt, isTurbo, (msg) => {
+          setImageProgress(msg);
+        });
+        if (urls && urls.length > 0) {
+          savedPath = urls[0];
+        } else {
+          throw new Error("No image paths received from ComfyUI generator.");
+        }
+      }
+
+      if (savedPath) {
+        // Append to segment images
+        let cData: any = {};
+        try {
+          cData = segment.data ? JSON.parse(segment.data) : {};
+        } catch (e) {}
+
+        const imgs = Array.isArray(cData.images) ? [...cData.images] : [];
+        if (segment.imagePath && !imgs.includes(segment.imagePath)) {
+          imgs.unshift(segment.imagePath);
+        }
+        imgs.push(savedPath);
+
+        const updatedData = {
+          ...cData,
+          images: imgs,
+          currentImageIndex: imgs.length - 1
+        };
+
+        await updateVocabulary(segment.id, {
+          imagePath: savedPath,
+          data: JSON.stringify(updatedData)
+        });
+
+        onRefresh();
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(`Ref Image creation failed: ${e?.message || e}`);
+    } finally {
+      setIsGeneratingImage(false);
+      setImageProgress('');
+    }
+  };
+
+  const handleStartVideoGen = async () => {
+    if (isGeneratingVideo) return;
+    setIsGeneratingVideo(true);
+    setVideoProgress('Preparing LTX-2.3 execution workflow...');
+    try {
+      let audioPathToSend: string | undefined = undefined;
+      if (audioSource === 'scene_audio' && segment.audioPath) {
+        audioPathToSend = segment.audioPath;
+      } else if (audioSource === 'translated_audio') {
+        const transPath = customData.translatedAudioPath;
+        if (transPath) audioPathToSend = transPath;
+      } else if (audioSource === 'custom' && customAudioPath) {
+        audioPathToSend = customAudioPath;
+      }
+
+      let optionNum = 3; 
+      if (generationMethod === 'text') {
+        optionNum = 1;
+      } else if (generationMethod === 'start_end') {
+        optionNum = 5;
+      } else if (generationMethod === 'image_audio') {
+        optionNum = 3; 
+      }
+
+      const resolvedLtxPrompt = await applyPromptHarnessRules(ltxPrompt, project?.id || '');
+
+      console.log(`invoking LTX all-in-one run... method=${generationMethod} opt=${optionNum}`);
+      const results = await comfy.runVideoGenerationAllInOne({
+        option: optionNum,
+        prompt: resolvedLtxPrompt,
+        image1: (generationMethod !== 'text') ? startFramePath : undefined,
+        image2: (generationMethod === 'start_end') ? endFramePath : undefined,
+        audio: audioPathToSend,
+        duration: 4.0,
+        fps: 24,
+        seed: Math.floor(Math.random() * 100000)
+      }, (progMsg) => {
+        setVideoProgress(progMsg);
+      });
+
+      if (results && results.length > 0) {
+        const firstVideo = results[0];
+        await updateVocabulary(segment.id, {
+          videoPath: firstVideo,
+          ltx23Prompt: ltxPrompt
+        });
+        onRefresh();
+        alert('Scene Video successfully created with LTX-2.3!');
+        onClose();
+      } else {
+        throw new Error("No output paths received from ComfyUI generator.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`LTX-2.3 generation failed: ${err?.message || err}`);
+    } finally {
+      setIsGeneratingVideo(false);
+      setVideoProgress('');
+    }
+  };
+
+  const handleCustomAudioUpload = async (file: File) => {
+    try {
+      if (isTauri && project?.projectPath) {
+        const projectRoot = project.projectPath;
+        const uploadDir = await join(projectRoot, 'audio');
+        if (!(await exists(uploadDir))) {
+          await mkdir(uploadDir, { recursive: true });
+        }
+        const filename = `uploaded_ref_${Date.now()}_${file.name}`;
+        const localPath = await join(uploadDir, filename);
+
+        const reader = new FileReader();
+        const arrayBuffer = await new Promise<ArrayBuffer>((res, rej) => {
+          reader.onload = () => res(reader.result as ArrayBuffer);
+          reader.onerror = () => rej(reader.error);
+          reader.readAsArrayBuffer(file);
+        });
+
+        await writeFile(localPath, new Uint8Array(arrayBuffer));
+        setCustomAudioPath(localPath);
+        setAudioSource('custom');
+      } else {
+        const url = URL.createObjectURL(file);
+        setCustomAudioPath(url);
+        setAudioSource('custom');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Custom audio file import failure.');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-[4px] overflow-y-auto">
+      <div className="bg-[#0e0e12] border border-white/10 w-full max-w-4xl rounded-lg overflow-hidden flex flex-col relative shadow-2xl my-8">
+        
+        {/* Header */}
+        <div className="p-5 border-b border-white/5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded bg-blue-500/10 flex items-center justify-center text-blue-400">
+              <FileVideo className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm tracking-widest uppercase text-white/95">
+                Scene Video Constructor
+              </h3>
+              <p className="text-[9px] text-white/30 tracking-wide font-mono mt-0.5">
+                POWERED BY LTX-2.3 SPATIAL ADAPTIVE MODEL
+              </p>
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={onClose}
+            className="p-1.5 hover:bg-white/5 text-gray-400 hover:text-white rounded transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="p-6 overflow-y-auto max-h-[75vh] space-y-6 custom-scrollbar text-white">
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            {/* Left: Prompts & Generative tools */}
+            <div className="space-y-5">
+              
+              {/* Prompt Textarea */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
+                    Video Generation Prompt (提示词)
+                  </label>
+                  <button
+                    type="button"
+                    disabled={isGeneratingVideo || isHarnessResolving}
+                    onClick={handleResolveHarness}
+                    className="text-[9px] font-bold text-blue-400 uppercase tracking-widest hover:text-white flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded border border-white/5 transition-colors"
+                  >
+                    <Sparkles className="w-2.5 h-2.5 text-blue-400 animate-pulse" />
+                    <span>{isHarnessResolving ? 'Resolving...' : 'Inject Harness (@一致性)'}</span>
+                  </button>
+                </div>
+                <textarea
+                  value={ltxPrompt}
+                  onChange={(e) => setLtxPrompt(e.target.value)}
+                  rows={4}
+                  className="w-full bg-black/40 border border-white/5 rounded p-3 text-xs text-white/90 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 leading-relaxed outline-none transition-all"
+                  placeholder="Describe your scene in detail. For LTX-2.3 dynamic backgrounds, focus on ambient light, texture, movement speed, and camera focus shifts..."
+                />
+              </div>
+
+              {/* Reference Audio selector */}
+              <div className="space-y-2">
+                <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
+                  Reference Audio Selection (参考音频)
+                </label>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setAudioSource('none')}
+                    className={cn(
+                      "py-2 px-3 border rounded text-left transition-all",
+                      audioSource === 'none' ? "border-blue-500 bg-blue-500/5 text-white" : "border-white/5 bg-black/25 text-white/55 hover:text-white"
+                    )}
+                  >
+                    No Reference Audio
+                  </button>
+                  {segment.audioPath && (
+                    <button
+                      type="button"
+                      onClick={() => setAudioSource('scene_audio')}
+                      className={cn(
+                        "py-2 px-3 border rounded text-left transition-all truncate",
+                        audioSource === 'scene_audio' ? "border-blue-500 bg-blue-500/5 text-white" : "border-white/5 bg-black/25 text-white/55 hover:text-white"
+                      )}
+                    >
+                      Scene Speech Voice
+                    </button>
+                  )}
+                  {customData.translatedAudioPath && (
+                    <button
+                      type="button"
+                      onClick={() => setAudioSource('translated_audio')}
+                      className={cn(
+                        "py-2 px-3 border rounded text-left transition-all truncate",
+                        audioSource === 'translated_audio' ? "border-blue-500 bg-blue-500/5 text-white" : "border-white/5 bg-black/25 text-white/55 hover:text-white"
+                      )}
+                    >
+                      Translated Speech Voice
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      "py-2 px-3 border rounded text-left transition-all truncate",
+                      audioSource === 'custom' ? "border-blue-500 bg-blue-500/5 text-white" : "border-white/5 bg-black/25 text-white/55 hover:text-white"
+                    )}
+                  >
+                    {customAudioPath ? 'Custom: ' + customAudioPath.split(/[/\\]/).pop() : 'Upload custom...'}
+                  </button>
+                </div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleCustomAudioUpload(e.target.files[0]);
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Video Generation Strategy selection */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
+                  Video Generation Method (生视频类型)
+                </label>
+                <select
+                  value={generationMethod}
+                  onChange={(e) => setGenerationMethod(e.target.value as any)}
+                  className="w-full bg-black border border-white/5 rounded p-2.5 text-xs text-white/80 focus:border-blue-500 outline-none"
+                >
+                  <option value="text">文生视频 (Text-to-Video)</option>
+                  <option value="image_only">图生视频 (Image-to-Video)</option>
+                  <option value="image_audio">图和音频生成视频 (Image + Audio)</option>
+                  <option value="start_end">首尾帧生图 / 生成视频 (Start & End Frames)</option>
+                </select>
+              </div>
+
+            </div>
+
+            {/* Right: reference image lists & generators */}
+            <div className="space-y-5 bg-black/20 p-4 border border-white/[0.03] rounded-lg">
+              
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider">
+                  Scene Reference Images (参考图管理)
+                </label>
+                
+                {/* Generation tools model switch */}
+                <div className="flex items-center gap-2 bg-black border border-white/5 p-0.5 rounded">
+                  <button
+                    type="button"
+                    onClick={() => setImageModel('z-image-turbo')}
+                    className={cn("px-2 py-1 rounded text-[8px] tracking-wide font-black uppercase transition-all", imageModel === 'z-image-turbo' ? "bg-white/10 text-white" : "text-white/40")}
+                  >
+                    Turbo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageModel('qwen-image-2512')}
+                    className={cn("px-2 py-1 rounded text-[8px] tracking-wide font-black uppercase transition-all", imageModel === 'qwen-image-2512' ? "bg-white/10 text-white" : "text-white/40")}
+                  >
+                    Qwen-HQ
+                  </button>
+                </div>
+              </div>
+
+              {/* Image Grid */}
+              {imagesList.length === 0 ? (
+                <div className="h-32 border border-dashed border-white/5 rounded flex flex-col items-center justify-center text-white/20 text-xs">
+                  <ImageIcon className="w-6 h-6 mb-1 opacity-40" />
+                  No reference images available.
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar p-1">
+                  {imagesList.map((path, idx) => {
+                    const resolved = resolvedThumbnails[path] || '';
+                    const isStart = startFramePath === path;
+                    const isEnd = endFramePath === path;
+
+                    return (
+                      <div 
+                        key={idx}
+                        className={cn(
+                          "aspect-video border rounded overflow-hidden relative group cursor-pointer transition-all",
+                          isStart ? "border-blue-500 scale-95 shadow-md" : isEnd ? "border-purple-500 scale-95 shadow-md" : "border-white/5 hover:border-white/25"
+                        )}
+                        onClick={() => {
+                          if (generationMethod === 'start_end') {
+                            if (!startFramePath) setStartFramePath(path);
+                            else if (!endFramePath) setEndFramePath(path);
+                            else {
+                              setStartFramePath(path);
+                              setEndFramePath('');
+                            }
+                          } else {
+                            setStartFramePath(path);
+                          }
+                        }}
+                      >
+                        {resolved ? (
+                          <img src={resolved} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full bg-zinc-900 animate-pulse flex items-center justify-center">
+                            <Loader2 className="w-4 h-4 animate-spin text-zinc-600" />
+                          </div>
+                        )}
+
+                        {/* Badges */}
+                        {isStart && (
+                          <div className="absolute top-1 left-1 bg-blue-500 text-black text-[7px] font-black tracking-widest px-1 py-0.2 rounded scale-90 uppercase">
+                            First
+                          </div>
+                        )}
+                        {isEnd && (
+                          <div className="absolute top-1 right-1 bg-purple-500 text-white text-[7px] font-black tracking-widest px-1 py-0.2 rounded scale-90 uppercase">
+                            Last
+                          </div>
+                        )}
+
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1 transition-opacity z-10">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStartFramePath(path);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-[7px] font-black uppercase px-1 py-0.5 rounded leading-none"
+                          >
+                            Start
+                          </button>
+                          {generationMethod === 'start_end' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEndFramePath(path);
+                              }}
+                              className="bg-purple-600 hover:bg-purple-700 text-white text-[7px] font-black uppercase px-1 py-0.5 rounded leading-none"
+                            >
+                              End
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Ref Image Generat Button (Multiple triggers) */}
+              <button
+                type="button"
+                disabled={isGeneratingImage || isGeneratingVideo}
+                onClick={handleGenerateRefImage}
+                className="w-full py-2.5 px-4 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 text-[10px] font-bold uppercase tracking-wider rounded flex items-center justify-center gap-2 transition-all"
+              >
+                {isGeneratingImage ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                    <span>{imageProgress || 'Generating Reference Frame...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Generate Scene Reference Image (可以生成多个)</span>
+                  </>
+                )}
+              </button>
+
+            </div>
+
+          </div>
+
+          {/* Video action button or generation logs */}
+          {isGeneratingVideo ? (
+            <div className="p-4 bg-zinc-950 border border-white/5 rounded font-mono text-[9px] leading-relaxed text-[#00FF55] space-y-2 select-text">
+              <div className="flex items-center gap-2 animate-pulse font-bold text-[10px]">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>LTX-2.3 PIPELINE RUNNING...</span>
+              </div>
+              <p className="opacity-85">{videoProgress || 'Connecting to ComfyUI scheduler...'}</p>
+            </div>
+          ) : (
+            <div className="pt-4 border-t border-white/5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="py-2.5 px-5 bg-transparent hover:bg-white/5 text-gray-400 hover:text-white transition-all text-xs font-bold rounded"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartVideoGen}
+                disabled={isGeneratingImage || isGeneratingVideo}
+                className="py-2.5 px-6 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded transition-all border border-blue-500/20 hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] flex items-center gap-2"
+              >
+                <FileVideo className="w-4 h-4" />
+                <span>Render Video with LTX-2.3</span>
+              </button>
+            </div>
+          )}
+
+        </div>
+
+      </div>
     </div>
   );
 }
