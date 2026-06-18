@@ -31,8 +31,11 @@ import { cn, getAssetUrl, useMediaUrl, useLocalImageBase64 } from '@/src/lib/uti
 import { 
   fetchProjectById, 
   fetchVocabularyByProject, 
-  updateProject 
+  updateProject,
+  getSetting,
+  updateVocabulary
 } from '@/src/lib/db';
+import { comfy } from '@/src/lib/comfy';
 import { VideoProject, Vocabulary } from '@/src/types';
 
 interface TimelineClip {
@@ -74,6 +77,11 @@ export function TimelineEditor() {
   const [renderLogs, setRenderLogs] = useState<string[]>([]);
   const [synthesizedVideoUrl, setSynthesizedVideoUrl] = useState<string | null>(null);
   const [renderCount, setRenderCount] = useState(0);
+
+  // Segment Generations Inline Status State
+  const [generatingVocabId, setGeneratingVocabId] = useState<number | null>(null);
+  const [generatingType, setGeneratingType] = useState<'audio' | 'image' | 'video' | null>(null);
+  const [generationMsg, setGenerationMsg] = useState<string>('');
 
   // Settings Simulation
   const [preset, setPreset] = useState<'ultrafast' | 'fast' | 'medium' | 'slow'>('fast');
@@ -500,8 +508,239 @@ export function TimelineEditor() {
     }
   };
 
-  // Run FFmpeg compilation script
-  const handleRunFfmpegRender = () => {
+  // 🔊 TTS Voice generation built directly into the Timeline Editor
+  const handleGenerateVoice = async (segment: Vocabulary) => {
+    if (!projectId) return;
+    setGeneratingVocabId(segment.id);
+    setGeneratingType('audio');
+    setGenerationMsg('正在初始化对话语音合成器 (Initializing voice codec)...');
+    try {
+      const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+      if (!isTauri) {
+        setGenerationMsg('Web Sandbox Mode: 模拟语音合成处理中...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const mockAudioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+        await updateVocabulary(segment.id, { audioPath: mockAudioUrl });
+        await loadProjectData(projectId);
+        
+        // Auto update active tracks
+        const updatedClips = clips.filter(c => c.vocabId !== segment.id || c.trackType !== 'audio');
+        updatedClips.push({
+          id: `clip-${segment.id}-audio`,
+          vocabId: segment.id,
+          trackType: 'audio',
+          title: segment.word ? `${segment.word}_voice.mp3` : `Voice_${segment.id}.mp3`,
+          startTime: segment.id * 4.5, // estimate
+          duration: 4.5,
+          assetPath: mockAudioUrl
+        });
+        setClips(updatedClips);
+        saveClips(updatedClips);
+        return;
+      }
+
+      const { join } = await import('@tauri-apps/api/path');
+      const { exists, mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
+      const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+
+      const projectRoot = await getSetting('workspace_path') || './workspace';
+      const projectDir = await join(projectRoot, projectId);
+      const audioDir = await join(projectDir, 'audio');
+      
+      if (!(await exists(audioDir))) {
+        await mkdir(audioDir, { recursive: true });
+      }
+
+      const fileName = `${segment.word || segment.id}_voice.mp3`;
+      const localAudioPath = await join(audioDir, fileName);
+      setGenerationMsg('正在连接 ComfyUI 并提交 TTS 节点流...');
+
+      const audios = await comfy.runTTS(segment.word || "Vocab", "max.mp3", (msg) => {
+        setGenerationMsg(`ComfyUI: ${msg}`);
+      });
+
+      if (audios.length > 0) {
+        setGenerationMsg('下载生成音频并写入本地数据库目录...');
+        const audioUrl = audios[0];
+        const response = await tauriFetch(audioUrl);
+        if (!response.ok) throw new Error("下载音频文件失败");
+        const buffer = await response.arrayBuffer();
+        await writeFile(localAudioPath, new Uint8Array(buffer));
+
+        await updateVocabulary(segment.id, { audioPath: localAudioPath });
+        await loadProjectData(projectId);
+
+        // Auto insert to timeline clips
+        const freshClips = [...clips].filter(c => !(c.vocabId === segment.id && c.trackType === 'audio'));
+        freshClips.push({
+          id: `clip-${segment.id}-audio`,
+          vocabId: segment.id,
+          trackType: 'audio',
+          title: segment.word ? `${segment.word}_voice.mp3` : `Voice_${segment.id}.mp3`,
+          startTime: segment.id % 10 * 5.0, // spread
+          duration: 5.0,
+          assetPath: localAudioPath
+        });
+        setClips(freshClips);
+        saveClips(freshClips);
+        setGenerationMsg('音频片段合成成功并接入时间轴！');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`配音生成失败: ${err?.toString() || err}`);
+    } finally {
+      setGeneratingVocabId(null);
+      setGeneratingType(null);
+      setGenerationMsg('');
+    }
+  };
+
+  // 🖼️ Image generation built directly into the Timeline Editor
+  const handleGenerateImage = async (segment: Vocabulary) => {
+    if (!projectId) return;
+    setGeneratingVocabId(segment.id);
+    setGeneratingType('image');
+    setGenerationMsg('评估提示词构图 (Preparing prompt canvas)...');
+    try {
+      const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+      if (!isTauri) {
+        setGenerationMsg('Web Sandbox Mode: 模拟高分辨率图像扩散...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const mockImgUrl = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=500';
+        await updateVocabulary(segment.id, { imagePath: mockImgUrl });
+        await loadProjectData(projectId);
+        return;
+      }
+
+      const { join } = await import('@tauri-apps/api/path');
+      const { exists, mkdir } = await import('@tauri-apps/plugin-fs');
+
+      const projectRoot = await getSetting('workspace_path') || './workspace';
+      const projectDir = await join(projectRoot, projectId);
+      const imageDir = await join(projectDir, 'images');
+      
+      if (!(await exists(imageDir))) {
+        await mkdir(imageDir, { recursive: true });
+      }
+
+      const localImgPath = await join(imageDir, `${segment.word || segment.id}_frame.jpg`);
+      setGenerationMsg('提示词提交至 ComfyUI SD-Diffusion 节点队列...');
+
+      const promptText = segment.example || segment.word || "A polished modern vector clip";
+      const savedPath = await comfy.runImageGenerationRust(promptText, localImgPath, true, (msg) => {
+        setGenerationMsg(msg);
+      });
+
+      if (savedPath) {
+        await updateVocabulary(segment.id, { imagePath: savedPath });
+        await loadProjectData(projectId);
+        setGenerationMsg('图像生成完毕并存为本地镜头帧！');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`图像生成失败: ${err?.toString() || err}`);
+    } finally {
+      setGeneratingVocabId(null);
+      setGeneratingType(null);
+      setGenerationMsg('');
+    }
+  };
+
+  // 🎬 Video Generation built directly into the Timeline Editor
+  const handleGenerateVideoFile = async (segment: Vocabulary) => {
+    if (!projectId) return;
+    setGeneratingVocabId(segment.id);
+    setGeneratingType('video');
+    setGenerationMsg('加载 LTX-Video 引擎算力池 (Running camera motions)...');
+    try {
+      const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+      if (!isTauri) {
+        setGenerationMsg('Web Sandbox Mode: 模拟生成3秒动态分镜...');
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        const mockVideoUrl = 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4';
+        await updateVocabulary(segment.id, { videoPath: mockVideoUrl });
+        await loadProjectData(projectId);
+
+        // Auto insert visual track to clips
+        const updatedClips = clips.filter(c => c.vocabId !== segment.id || c.trackType !== 'visual');
+        updatedClips.push({
+          id: `clip-${segment.id}-visual`,
+          vocabId: segment.id,
+          trackType: 'visual',
+          title: segment.word ? `${segment.word}_scene.mp4` : `Scene_${segment.id}.mp4`,
+          startTime: segment.id * 4.5,
+          duration: 4.5,
+          assetPath: mockVideoUrl
+        });
+        setClips(updatedClips);
+        saveClips(updatedClips);
+        return;
+      }
+
+      const { join } = await import('@tauri-apps/api/path');
+      const { exists, mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
+      const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+
+      const projectRoot = await getSetting('workspace_path') || './workspace';
+      const projectDir = await join(projectRoot, projectId);
+      const videoDir = await join(projectDir, 'video');
+      
+      if (!(await exists(videoDir))) {
+        await mkdir(videoDir, { recursive: true });
+      }
+
+      const fileName = `${segment.word || segment.id}_scene.mp4`;
+      const localVideoPath = await join(videoDir, fileName);
+      setGenerationMsg('正在连接 ComfyUI 提交 LTX2.3 空域分镜插值任务...');
+
+      const promptText = segment.example || segment.word || "Cinematic video pan-scene rotation";
+      const videos = await comfy.runVideoGeneration(
+        segment.imagePath || "",
+        segment.audioPath || "",
+        promptText,
+        (msg) => {
+          setGenerationMsg(`ComfyUI: ${msg}`);
+        }
+      );
+
+      if (videos.length > 0) {
+        setGenerationMsg('下载高保真 MP4 卡片写入磁盘中...');
+        const videoUrl = videos[0];
+        const response = await tauriFetch(videoUrl);
+        if (!response.ok) throw new Error("下载视频分镜文件错误");
+        const buffer = await response.arrayBuffer();
+        await writeFile(localVideoPath, new Uint8Array(buffer));
+
+        await updateVocabulary(segment.id, { videoPath: localVideoPath });
+        await loadProjectData(projectId);
+
+        // Auto insert visual track to clips
+        const freshClips = [...clips].filter(c => !(c.vocabId === segment.id && c.trackType === 'visual'));
+        freshClips.push({
+          id: `clip-${segment.id}-visual`,
+          vocabId: segment.id,
+          trackType: 'visual',
+          title: segment.word ? `${segment.word}_scene.mp4` : `Scene_${segment.id}.mp4`,
+          startTime: segment.id % 10 * 5.0,
+          duration: 5.0,
+          assetPath: localVideoPath
+        });
+        setClips(freshClips);
+        saveClips(freshClips);
+        setGenerationMsg('分镜视频生成成功并装载入时间轴轨道！');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`视频分镜生成失败: ${err?.toString() || err}`);
+    } finally {
+      setGeneratingVocabId(null);
+      setGeneratingType(null);
+      setGenerationMsg('');
+    }
+  };
+
+  // Run FFmpeg compilation script (Supports system-configured FFmpeg execution)
+  const handleRunFfmpegRender = async () => {
     setIsRendering(true);
     setRenderProgress(0);
     setActiveTab('render');
@@ -509,42 +748,143 @@ export function TimelineEditor() {
     const totalDuration = clips.length > 0 ? Math.max(...clips.map(c => c.startTime + c.duration)) : 10;
     const finalVideoOutputName = `compiled_output_${projectId}.mp4`;
 
-    const dynamicConcatScript = clips
-      .filter(c => c.trackType === 'visual')
-      .sort((a,b) => a.startTime - b.startTime)
+    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+
+    // Load custom settings
+    const configuredFfmpegPath = await getSetting('ffmpeg_path') || 'ffmpeg';
+    const workspaceRoot = await getSetting('workspace_path') || './workspace';
+
+    const visualClips = [...clips].filter(c => c.trackType === 'visual' && c.assetPath).sort((a,b) => a.startTime - b.startTime);
+    const audioClips = [...clips].filter(c => c.trackType === 'audio' && c.assetPath).sort((a,b) => a.startTime - b.startTime);
+    const subtitleCount = clips.filter(c => c.trackType === 'subtitle').length;
+
+    const dynamicConcatScript = visualClips
       .map((c, idx) => `file '${c.assetPath}' # clip ${idx + 1} duration: ${c.duration.toFixed(1)}s`)
       .join('\n');
 
-    const audioStreams = clips
-      .filter(c => c.trackType === 'audio')
-      .sort((a,b) => a.startTime - b.startTime)
+    const audioStreams = audioClips
       .map((c) => `-i "${c.assetPath}"`)
       .join(' ');
 
-    const subtitleCount = clips.filter(c => c.trackType === 'subtitle').length;
-
     const initialLogs = [
-      "ffmpeg version 6.1.1-static Copyright (c) 2000-2024 FFmpeg Project Developers",
-      "  built with gcc 13.2.0 (Alpine Linux Starter Kit)",
-      "  configuration: --enable-gpl --enable-version3 --enable-static --enable-libass --enable-libmp3lame --enable-libx264 --enable-libx265",
-      "libavutil      58. 29.100 / 58. 29.100",
-      "libavcodec     60. 31.102 / 60. 31.102",
-      "libavformat    60. 16.100 / 60. 16.100",
-      "libswscale      7.  5.100 /  7.  5.100",
-      "libswresample   4. 12.100 /  4. 12.100",
-      "libpostproc    56.  6.100 / 56.  6.100",
+      `[CONFIG] FFmpeg Path settings: ${configuredFfmpegPath}`,
       "----------------------------------------------------------------",
       `[PARSE] Reading local workspace sequence list for project ID: ${projectId}`,
-      `[PARSE] Found ${clips.filter(c => c.trackType === 'visual').length} Visual clips, ${clips.filter(c => c.trackType === 'audio').length} Audio streams, and ${subtitleCount} Subtitles active.`,
+      `[PARSE] Found ${visualClips.length} Visual clips, ${audioClips.length} Audio streams, and ${subtitleCount} Subtitles active.`,
       `[TIMELINE] Dynamic timeline span: 0.0s --> ${totalDuration.toFixed(1)}s`,
       "",
       "--- GENERATING DYNAMIC VIRTUAL CONCAT LIST ---",
       dynamicConcatScript,
       "----------------------------------------------",
-      "",
-      `[CMD] Executing ffmpeg compilation pipeline:`,
+    ];
+
+    setRenderLogs(initialLogs);
+
+    // If running in Tauri workspace, let's run actual FFmpeg!
+    if (isTauri && projectId) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const { join } = await import('@tauri-apps/api/path');
+        const { exists, mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
+
+        setRenderLogs(prev => [...prev, "[TAURI] Resolving project space folders..."]);
+
+        const projectDir = await join(workspaceRoot, projectId);
+        const videoDir = await join(projectDir, 'video');
+
+        // Ensure video directories exist
+        if (!(await exists(videoDir))) {
+          await mkdir(videoDir, { recursive: true });
+        }
+
+        const concatListPath = await join(projectDir, 'concat_list.txt');
+        const finalOutputVideoPath = await join(videoDir, finalVideoOutputName);
+
+        setRenderLogs(prev => [
+          ...prev, 
+          `[TAURI] Writing playlist concat file to: ${concatListPath}`,
+          `[TAURI] Render target destination: ${finalOutputVideoPath}`
+        ]);
+
+        // Format and save concat lists
+        const fileContent = visualClips.map(c => `file '${c.assetPath}'`).join('\n');
+        await writeFile(concatListPath, new TextEncoder().encode(fileContent));
+
+        setRenderProgress(15);
+
+        // Building complete Ffmpeg pipeline command arguments
+        const args: string[] = [];
+        
+        // 1. Concat video stream
+        args.push("-f", "concat", "-safe", "0", "-i", concatListPath);
+
+        // 2. Add extra audio streams
+        audioClips.forEach(c => {
+          args.push("-i", c.assetPath!);
+        });
+
+        // 3. Encoder settings
+        args.push("-c:v", "libx264", "-preset", preset, "-crf", "21");
+
+        // 4. Codec bindings & target bitrate
+        if (audioClips.length > 0) {
+          args.push("-c:a", "aac", "-b:a", audioBitrate);
+        }
+
+        // Overwrite output
+        args.push("-y", finalOutputVideoPath);
+
+        setRenderLogs(prev => [...prev, `[CMD] Executing query: ${configuredFfmpegPath} ${args.join(' ')}`]);
+        setRenderProgress(45);
+
+        const result = await invoke<string>('run_ffmpeg_cmd', { 
+          ffmpegPath: configuredFfmpegPath, 
+          args: args 
+        });
+
+        setRenderProgress(90);
+        setRenderLogs(prev => [
+          ...prev, 
+          result,
+          "",
+          "============================================================",
+          `🏆 SUCCESS: FFMPEG OUTPUT SYNTHESIS FILE WRITTEN PERFECTLY`,
+          `Final Output saved to workspace as: ${finalOutputVideoPath}`,
+          "============================================================",
+        ]);
+
+        setIsRendering(false);
+        setRenderProgress(100);
+        setRenderCount(prev => prev + 1);
+
+        // Save synthesized path to project
+        localStorage.setItem(`project_synthesized_video_${projectId}`, finalOutputVideoPath);
+        setSynthesizedVideoUrl(finalOutputVideoPath);
+        
+        await updateProject(projectId, { 
+          status: 4, // Completed
+          coverImagePath: finalOutputVideoPath 
+        });
+
+      } catch (err: any) {
+        setRenderLogs(prev => [
+          ...prev, 
+          `❌ [ERROR] Render compilation failed: ${err?.toString() || err}`,
+          "FFmpeg was unable to link your media files. Please check file formats, audio track durations, and verify that FFmpeg is properly installed and its executable path is correct in global settings."
+        ]);
+        setIsRendering(false);
+      }
+      return;
+    }
+
+    // WEB SIMULATION MODE
+    setRenderLogs(prev => [
+      ...prev,
+      "ffmpeg version 6.1.1-static Copyright (c) 2000-2024 FFmpeg Project Developers",
+      "  configuration: --enable-gpl --enable-version3 --enable-static --enable-libass --enable-libmp3lame --enable-libx264 --enable-libx265",
+      "----------------------------------------------------------------",
+      `[CMD] Executing ffmpeg compilation pipeline (Web Simulation Mode):`,
       `ffmpeg -f concat -safe 0 -i concat_file_list.txt ${audioStreams} -filter_complex "[0:v]subtitles=burned_subtitles.ass:force_style='FontName=Space Grotesk,FontSize=24,PrimaryColour=&HFF5D22&,Outline=2'[outv]" -map "[outv]" -c:v libx264 -preset ${preset} -crf 20 -c:a aac -b:a ${audioBitrate} -y ${finalVideoOutputName}`,
-      "",
       "----------------------------------------------",
       "== STAGE 1: Demuxing raw digital scene containers ==",
       "Opening input files... Success.",
@@ -553,18 +893,15 @@ export function TimelineEditor() {
       "",
       "== STAGE 2: Transcoding & Burning Subtitles (libass filter) ==",
       `Applying CSS subtitle style matrices... [PresetStyle: ${subtitleStyle === 'burnt' ? 'Burned-In Video Render' : 'Soft-mux Sub-container'}]`,
-    ];
-
-    setRenderLogs(initialLogs);
+    ]);
 
     let progress = 0;
-    const durationInterval = 180; // step ms
+    const durationInterval = 180;
 
     const timer = setInterval(() => {
       progress += 4;
       setRenderProgress(Math.min(100, progress));
 
-      // Append detailed logs as rendering completes stages
       if (progress === 20) {
         setRenderLogs(prev => [
           ...prev,
@@ -593,18 +930,14 @@ export function TimelineEditor() {
       } else if (progress === 100) {
         clearInterval(timer);
         
-        // Finalize
         const finalLogs = [
           ...renderLogs,
           "frame=  980 fps=72.2 q=-1.0 size=  12150kB time=00:00:28.10 bitrate=2340.5kb/s speed=1.68x",
-          "[libx264 @ 0x7ffd58c] frame I:14   Avg QP:15.42  size:189420",
-          "[libx264 @ 0x7ffd58c] frame P:280  Avg QP:18.12  size: 21450",
-          "[libx264 @ 0x7ffd58c] frame B:686  Avg QP:22.84  size:  4810",
           "[libx264 @ 0x7ffd58c] kb/s:1542.4",
           "",
           "============================================================",
           `🏆 SUCCESS: FFMPEG OUTPUT SYNTHESIS FILE WRITTEN PERFECTLY`,
-          `Final Output saved to workspace as: ./${finalVideoOutputName}`,
+          `Final Output saved in workspace as: ./${finalVideoOutputName}`,
           "============================================================",
         ];
         
@@ -612,18 +945,15 @@ export function TimelineEditor() {
         setIsRendering(false);
         setRenderCount(prev => prev + 1);
 
-        // Find a fallback video for synthesized screen
         const firstVideoClip = clips.find(c => c.trackType === 'visual' && c.assetPath);
-        const resolvedPath = firstVideoClip ? firstVideoClip.assetPath : '';
+        const resolvedPath = firstVideoClip ? firstVideoClip.assetPath : 'https://assets.mixkit.co/videos/preview/mixkit-stars-in-space-background-1611-large.mp4';
         
-        // Save synthesized path to project
         if (projectId && resolvedPath) {
           localStorage.setItem(`project_synthesized_video_${projectId}`, resolvedPath);
           setSynthesizedVideoUrl(resolvedPath);
           
-          // Also update cover image or project status in database
           updateProject(projectId, { 
-            status: 4, // Completed
+            status: 4,
             coverImagePath: resolvedPath 
           });
         }
@@ -759,52 +1089,160 @@ export function TimelineEditor() {
                     未检测到当前项目的配置脚本
                   </div>
                 ) : (
-                  vocabulary.map((segment, idx) => (
-                    <div 
-                      key={segment.id} 
-                      onDoubleClick={() => {
-                        if (segment.videoPath) {
-                          handlePreviewVideo(segment.videoPath, segment.word || `视频片段 ${idx + 1}`);
-                        }
-                      }}
-                      className="p-3 bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 hover:border-amber-500/20 rounded duration-200 group flex items-start gap-3 cursor-pointer select-none"
-                      title="💡 点击/双击卡片可实时预览对应的视频片段"
-                    >
+                  vocabulary.map((segment, idx) => {
+                    const isAnyGenerating = generatingVocabId === segment.id;
+                    return (
                       <div 
-                        className="flex-1 min-w-0 flex items-start gap-3 cursor-pointer"
-                        onClick={() => {
-                          if (segment.videoPath) {
-                            handlePreviewVideo(segment.videoPath, segment.word || `视频片段 ${idx + 1}`);
-                          }
-                        }}
+                        key={segment.id} 
+                        className="p-3 bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 hover:border-amber-500/20 rounded duration-200 group flex flex-col gap-3 cursor-pointer select-none"
+                        title="💡 双击卡片可实时预览对应的视频片段"
                       >
-                        <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-[10px] font-mono text-gray-400 mt-0.5">
-                          {idx + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-mono font-black text-gray-200 truncate mb-1">
-                            {segment.word || 'Untitled Segment'}
-                          </p>
-                          <p className="text-[11px] text-gray-400 leading-relaxed mb-1 line-clamp-2">
-                            {segment.example || 'Example sentence not loaded.'}
-                          </p>
-                          {segment.chineseDefinition && (
-                            <p className="text-[10px] text-amber-500/80 italic leading-relaxed truncate">
-                              译: {segment.chineseDefinition}
+                        {/* Title and descriptions */}
+                        <div className="flex items-start gap-3 w-full">
+                          <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-[10px] font-mono text-gray-400 mt-0.5 shrink-0">
+                            {idx + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs font-mono font-black text-gray-200 truncate">
+                                {segment.word || 'Untitled Segment'}
+                              </p>
+                              {/* Subtitle inject action */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAddAssetToTimeline('subtitle', segment);
+                                }}
+                                className="py-[1px] px-1.5 bg-amber-500/10 hover:bg-amber-500/25 text-amber-400 text-[9px] rounded border border-amber-500/20 flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-all font-mono"
+                                title="在播放头位置插入字幕"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>+ 字幕</span>
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-gray-400 leading-relaxed mt-1 mb-1">
+                              {segment.example || 'Example sentence not loaded.'}
                             </p>
-                          )}
+                            {segment.chineseDefinition && (
+                              <p className="text-[10px] text-amber-500/80 italic leading-relaxed">
+                                译: {segment.chineseDefinition}
+                              </p>
+                            )}
+                          </div>
                         </div>
+
+                        {/* Loading progress overlay state if currently generating */}
+                        {isAnyGenerating ? (
+                          <div className="py-2 px-3 bg-white/5 border border-amber-500/25 rounded-md flex flex-col gap-1.5 text-[10px] font-mono text-amber-400 animate-pulse">
+                            <div className="flex items-center gap-1.5">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                              <span className="font-bold uppercase tracking-wider text-amber-400">正在生产媒体资源 ({generatingType === 'audio' ? '配音' : generatingType === 'image' ? '绘图' : '视频'})</span>
+                            </div>
+                            <span className="text-gray-400 truncate pl-5 select-text">{generationMsg || '建立长轮询信道，请稍候...'}</span>
+                          </div>
+                        ) : (
+                          /* Interactive workflow actions */
+                          <div className="mt-1 pt-2 border-t border-white/5 flex flex-wrap items-center gap-2">
+                            {/* SECTION A: TTS Voice Generation */}
+                            {segment.audioPath ? (
+                              <div className="flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1 py-1 px-1.5 bg-emerald-500/10 rounded border border-emerald-500/20 text-[9px] text-emerald-400 font-mono">
+                                  <Volume2 className="w-2.5 h-2.5 text-emerald-400" />
+                                  <span>🔊 已配音</span>
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAddAssetToTimeline('audio', segment);
+                                  }}
+                                  className="py-1 px-1.5 bg-white/5 hover:bg-white/10 text-gray-200 text-[9px] rounded border border-white/10 flex items-center justify-center gap-0.5"
+                                  title="在时间线上新增此音频轨道"
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                  <span>+ 轴</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateVoice(segment);
+                                }}
+                                className="py-1 px-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-[9px] rounded border border-blue-500/20 flex items-center gap-0.5 transition-all font-mono"
+                                title="通过 Edge-TTS 合成流生成此段落声音"
+                              >
+                                <Volume2 className="w-2.5 h-2.5" />
+                                <span>生成音频</span>
+                              </button>
+                            )}
+
+                            {/* SECTION B: SD Diffusion Image Generation */}
+                            {segment.imagePath ? (
+                              <span className="inline-flex items-center gap-1 py-1 px-1.5 bg-yellow-500/10 rounded border border-yellow-500/20 text-[9px] text-yellow-400 font-mono font-black">
+                                <ImageIcon className="w-2.5 h-2.5 text-yellow-400" />
+                                <span>🖼️ 底图就绪</span>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateImage(segment);
+                                }}
+                                className="py-1 px-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 text-[9px] rounded border border-yellow-500/20 flex items-center gap-0.5 transition-all font-mono"
+                                title="根据提示词扩散生成高清背景底图"
+                              >
+                                <ImageIcon className="w-2.5 h-2.5" />
+                                <span>生成图片</span>
+                              </button>
+                            )}
+
+                            {/* SECTION C: Sora-like Video Generation */}
+                            {segment.videoPath ? (
+                              <div className="flex items-center gap-1">
+                                <span className="inline-flex items-center gap-1 py-1 px-1.5 bg-purple-500/10 rounded border border-purple-500/20 text-[9px] text-purple-400 font-mono">
+                                  <Video className="w-2.5 h-2.5 text-purple-400" />
+                                  <span>🎬 分镜就绪</span>
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAddAssetToTimeline('visual', segment);
+                                  }}
+                                  className="py-1 px-1.5 bg-white/5 hover:bg-white/10 text-gray-200 text-[9px] rounded border border-white/10 flex items-center justify-center gap-0.5"
+                                  title="在时间线上新增此画面分镜轨道"
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                  <span>+ 轴</span>
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePreviewVideo(segment.videoPath!, segment.word || "Preview Segment");
+                                  }}
+                                  className="py-1 px-1.5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-[9px] rounded border border-white/10"
+                                  title="预览该导出的分镜片段"
+                                >
+                                  播放
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateVideoFile(segment);
+                                }}
+                                className="py-1 px-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 text-[9px] rounded border border-purple-500/20 flex items-center gap-0.5 transition-all font-mono"
+                                title="结合底画与语音生成 LTX 空域镜头片段"
+                              >
+                                <Video className="w-2.5 h-2.5" />
+                                <span>生成分镜</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <button
-                        onClick={() => handleAddAssetToTimeline('subtitle', segment)}
-                        className="py-1 px-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-[10px] rounded border border-amber-500/20 flex items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition-all"
-                        title="在播放头位置插入字幕轨迹"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>字幕</span>
-                      </button>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}

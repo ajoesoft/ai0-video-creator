@@ -641,7 +641,7 @@ export function VisualsLibrary() {
               className="px-4 py-2 border border-white/10 hover:border-white/25 hover:bg-white/5 text-xs font-bold uppercase tracking-widest rounded-sm transition-all flex items-center gap-2"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Editor (返回编辑)</span>
+              <span>Back to Editor</span>
             </Link>
             
             <button
@@ -650,7 +650,7 @@ export function VisualsLibrary() {
               className="px-4 py-2 bg-brand-primary text-black hover:bg-white hover:text-black hover:scale-[1.02] text-xs font-bold uppercase tracking-widest rounded-sm transition-all flex items-center gap-2 active:scale-95 duration-200"
             >
               <Plus className="w-4 h-4 ml-[-2px] stroke-[3px]" />
-              <span>添加视觉资产 (New Asset)</span>
+              <span>New Asset</span>
             </button>
           </div>
         </div>
@@ -668,7 +668,7 @@ export function VisualsLibrary() {
             )}
           >
             <Palette className="w-4 h-4 text-brand-primary" />
-            <span>视觉资产数据库 ({visualItems.length})</span>
+            <span>Visual Assets Database ({visualItems.length})</span>
             {workspaceTab === 'visual_db' && (
               <motion.div layoutId="tab-underline-ws" className="absolute bottom-0 left-0 right-0 h-[2px] bg-brand-primary" />
             )}
@@ -684,7 +684,7 @@ export function VisualsLibrary() {
             )}
           >
             <Video className="w-4 h-4" />
-            <span>脚本分镜卡片 ({storyboardAssets.length})</span>
+            <span>Storyboard Cards ({storyboardAssets.length})</span>
             {workspaceTab === 'storyboard' && (
               <motion.div layoutId="tab-underline-ws" className="absolute bottom-0 left-0 right-0 h-[2px] bg-brand-primary" />
             )}
@@ -700,7 +700,7 @@ export function VisualsLibrary() {
             )}
           >
             <Sparkles className="w-4 h-4 text-brand-primary" />
-            <span>IP一致性控制台 (Harness System) ({promptHarnesses.length})</span>
+            <span>Consistent IP Console ({promptHarnesses.length})</span>
             {workspaceTab === 'harness' && (
               <motion.div layoutId="tab-underline-ws" className="absolute bottom-0 left-0 right-0 h-[2px] bg-brand-primary" />
             )}
@@ -720,27 +720,36 @@ export function VisualsLibrary() {
               {/* Type Category Filter Badges */}
               <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
                 <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-white/30 mr-2 flex items-center gap-1"><Filter className="w-3 h-3" /> Filter:</span>
-                {['All', 'IP', '环境', '物品', '其它'].map(category => (
-                  <button
-                    key={category}
-                    onClick={() => setSelectedTypeFilter(category)}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all",
-                      selectedTypeFilter === category 
-                        ? "bg-brand-primary text-black" 
-                        : "bg-white/5 border border-white/5 text-white/60 hover:text-white hover:bg-white/10"
-                    )}
-                  >
-                    {category === 'All' ? '全部(All)' : category}
-                  </button>
-                ))}
+                {['All', 'IP', '环境', '物品', '其它'].map(category => {
+                  const translations: Record<string, string> = {
+                    'All': 'All',
+                    'IP': 'IP Character',
+                    '环境': 'Environment',
+                    '物品': 'Props',
+                    '其它': 'Others'
+                  };
+                  return (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedTypeFilter(category)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all",
+                        selectedTypeFilter === category 
+                          ? "bg-brand-primary text-black" 
+                          : "bg-white/5 border border-white/5 text-white/60 hover:text-white hover:bg-white/10"
+                      )}
+                    >
+                      {translations[category] || category}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Instant Search Query Bar */}
               <div className="w-full md:w-80">
                 <input
                   type="text"
-                  placeholder="搜索资产标题/提示词... Search Assets..."
+                  placeholder="Search visual title or prompts..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-black/40 border border-white/10 text-xs text-white placeholder-white/35 rounded-sm px-3.5 py-1.5 focus:outline-none focus:border-brand-primary/55 focus:bg-black transition-all font-mono"
@@ -804,7 +813,11 @@ export function VisualsLibrary() {
                           item.type === '物品' ? "bg-green-500/25 border-green-500/30 text-green-300" :
                           "bg-slate-500/25 border-slate-500/30 text-slate-300"
                         )}>
-                          {item.type || 'Other'}
+                          {item.type === 'IP' ? 'IP Character' :
+                           item.type === '环境' ? 'Environment' :
+                           item.type === '物品' ? 'Props' :
+                           item.type === '其它' ? 'Others' :
+                           item.type || 'Other'}
                         </span>
                       </div>
 
@@ -835,14 +848,14 @@ export function VisualsLibrary() {
                             <button 
                               onClick={() => handleOpenEditModal(item)}
                               className="p-1.5 bg-white/5 hover:bg-brand-primary hover:text-black rounded transition-all"
-                              title="Edit details (编辑项目)"
+                              title="Edit details"
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
                             <button 
                               onClick={(e) => handleDeleteItem(item.id, e)}
                               className="p-1.5 bg-white/5 hover:bg-red-500/20 text-white/60 hover:text-red-400 rounded transition-all"
-                              title="Delete (删除)"
+                              title="Delete"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -893,7 +906,7 @@ export function VisualsLibrary() {
                               ) : (
                                 <>
                                   <Play className="w-2.5 h-2.5 fill-green-400 text-green-400" />
-                                  <span>播放配音 (Audio)</span>
+                                  <span>Audio</span>
                                 </>
                               )}
                             </button>
@@ -910,7 +923,7 @@ export function VisualsLibrary() {
                               className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono text-blue-400 hover:text-white transition-all font-bold"
                             >
                               <Video className="w-3.5 h-3.5" />
-                              <span>播放(Video)</span>
+                              <span>Video</span>
                             </button>
                           ) : (
                             <span className="text-[9px] font-mono text-white/20 select-none">No Motion Video</span>
@@ -1029,10 +1042,9 @@ export function VisualsLibrary() {
             <div className="p-4 bg-brand-primary/5 border border-brand-primary/20 rounded-md flex items-start gap-3">
               <Info className="w-5 h-5 text-brand-primary mt-0.5 flex-shrink-0" />
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-white">IP一致性控制系统 (Consistent Prompt Harness Engine)</h4>
+                <h4 className="text-sm font-bold text-white">Consistent Prompt Harness Engine</h4>
                 <p className="text-xs text-white/60 leading-relaxed">
-                  本系统通过在短剧、故事或多镜分镜脚本中定义 <strong>"触发词" (Trigger Keywords, 例如：@主角)</strong>，在调用AI进行画面绘制或视频渲染时，
-                  <strong>自动提取并拼接</strong> 视觉库中该专属IP的一致性高精提示词，保证角色五官、道具和环境细节在不同画幅、镜头之间具有无可挑剔的连续性。
+                  By defining <strong>"Trigger Keywords" (e.g., @Hero)</strong> in storyboards or screenplay scripts, this system <strong>automatically extracts and appends</strong> highly consistent asset descriptions from the visuals database during AI rendering, guaranteeing immaculate facial features, props, and environment detail continuity across different shots.
                 </p>
               </div>
             </div>
@@ -1043,10 +1055,10 @@ export function VisualsLibrary() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-orange-400 animate-pulse" />
-                    <h3 className="text-base font-bold text-white font-sans tracking-tight">AI 创作一致性工程枢纽 (PCH Solution Center)</h3>
+                    <h3 className="text-base font-bold text-white font-sans tracking-tight">AI Consistency Engineering Hub (PCH Solution Center)</h3>
                   </div>
                   <p className="text-xs text-white/50">
-                    一键注入业界高标准的 Prompt/Context/Harness 工程套件，秒级部署统一的视、听、动多模态协同方案。
+                    Deploy industry-standard Prompt/Context/Harness engineering templates in seconds to establish highly unified visual, audio, and motion multimodal synergy solutions.
                   </p>
                 </div>
                 
@@ -1070,37 +1082,37 @@ export function VisualsLibrary() {
                 <div className="lg:col-span-4 bg-white/[0.01] border border-white/5 rounded-xl p-5 space-y-4">
                   <div className="space-y-1">
                     <span className="text-[9px] font-mono font-bold text-orange-400 uppercase tracking-widest block font-sans">Core Solutions Manual</span>
-                    <h4 className="text-xs font-bold text-white uppercase font-sans">多模态一致性工程核心三原则</h4>
+                    <h4 className="text-xs font-bold text-white uppercase font-sans">Three Principles of Multimodal Consistency</h4>
                   </div>
                   
                   <div className="space-y-3.5 text-xs font-sans">
                     <div className="p-3 bg-black/40 rounded-lg space-y-1">
                       <div className="flex items-center gap-2 text-white">
                         <span className="w-4 h-4 bg-orange-500/15 border border-orange-500/30 text-[10px] font-bold rounded flex items-center justify-center text-orange-400 font-mono">P</span>
-                        <strong className="text-gray-200">1. Prompt 一致性 (画面)</strong>
+                        <strong className="text-gray-200">1. Prompt Consistency (Visuals)</strong>
                       </div>
                       <p className="text-white/40 leading-relaxed text-[11px]">
-                        利用大比例提示词前置规则。在脚本中使用触发词（如 @Ghibli），替换为微距光照、相机型号、特定的色彩描述集。
+                        Leverage detailed prefix prompt rules. Using trigger words (like @Ghibli) replaces them with precise studio lighting, lens models, and targeted color grading description sets.
                       </p>
                     </div>
 
                     <div className="p-3 bg-black/40 rounded-lg space-y-1">
                       <div className="flex items-center gap-2 text-white">
                         <span className="w-4 h-4 bg-blue-500/15 border border-blue-500/30 text-[10px] font-bold rounded flex items-center justify-center text-blue-400 font-mono">C</span>
-                        <strong className="text-gray-200">2. Context 音色锚定 (声音)</strong>
+                        <strong className="text-gray-200">2. Context Voice Anchoring (Audio)</strong>
                       </div>
                       <p className="text-white/40 leading-relaxed text-[11px]">
-                        上传一段 10 至 15 秒恒定的配音朗读切片 (MP3/WAV) 储存在 audio/。生成时作为零拍参考基准，维持一以贯之的声线表情。
+                        Upload a stable 10-15s voice clone excerpt (MP3/WAV) to secure identical vocal timbres and expressions during generation.
                       </p>
                     </div>
 
                     <div className="p-3 bg-black/40 rounded-lg space-y-1">
                       <div className="flex items-center gap-2 text-white">
                         <span className="w-4 h-4 bg-purple-500/15 border border-purple-500/30 text-[10px] font-bold rounded flex items-center justify-center text-purple-400 font-mono">H</span>
-                        <strong className="text-gray-200">3. Harness 运动轨道 (视频)</strong>
+                        <strong className="text-gray-200">3. Harness Motion Path (Video)</strong>
                       </div>
                       <p className="text-white/40 leading-relaxed text-[11px]">
-                        锁定微调强度参数。用缓慢前推 (dolly) 或镜头拉焦 (focus pull) 等平滑指向词束缚运动框架，防止逐帧突变造成的割裂感。
+                        Lock motion strength parameters. Use subtle directions like 'slow dolly forward' or 'focus pull' to anchor frames and prevent jarring frame jitter.
                       </p>
                     </div>
                   </div>
@@ -1112,7 +1124,7 @@ export function VisualsLibrary() {
                     <div className="flex items-center justify-between border-b border-white/5 pb-2">
                       <div className="space-y-0.5">
                         <span className="text-[9px] font-mono font-bold text-brand-primary uppercase tracking-widest block font-sans">Interactive Deployment Deck</span>
-                        <h4 className="text-xs font-bold text-white">一键部署专业级 IP / 艺术画风一致性模版</h4>
+                        <h4 className="text-xs font-bold text-white">1-Click Deploy Premium IP & Art Style Templates</h4>
                       </div>
                       <span className="text-[10px] font-mono text-white/30 uppercase">5 Art Packages</span>
                     </div>
@@ -1145,7 +1157,7 @@ export function VisualsLibrary() {
                           {blueprints[selectedBlueprintIndex].title}
                         </span>
                         <span className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[9px] font-bold rounded font-mono">
-                          触发代号: {blueprints[selectedBlueprintIndex].trigger}
+                          Trigger Tag: {blueprints[selectedBlueprintIndex].trigger}
                         </span>
                       </div>
                       <p className="text-xs text-white/50 leading-relaxed font-sans">
@@ -1153,13 +1165,13 @@ export function VisualsLibrary() {
                       </p>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-white/5 text-[10px]">
                         <div className="space-y-1 font-mono">
-                          <span className="text-white/30 block uppercase tracking-wider font-bold">注入画风高精描述 (Image Prompt):</span>
+                          <span className="text-white/30 block uppercase tracking-wider font-bold">Inject High-Fidelity Style (Image Prompt):</span>
                           <p className="text-white/60 line-clamp-2 leading-relaxed bg-black/40 p-2 rounded border border-white/5">
                             {blueprints[selectedBlueprintIndex].imagePrompt}
                           </p>
                         </div>
                         <div className="space-y-1 font-mono">
-                          <span className="text-white/30 block uppercase tracking-wider font-bold">画面运动平滑指向 (Video Motion):</span>
+                          <span className="text-white/30 block uppercase tracking-wider font-bold">Smooth Video Motion Guidance (Video Prompt):</span>
                           <p className="text-white/60 line-clamp-2 leading-relaxed bg-black/40 p-2 rounded border border-white/5">
                             {blueprints[selectedBlueprintIndex].videoPrompt}
                           </p>
@@ -1179,12 +1191,12 @@ export function VisualsLibrary() {
                       {isDeployingBlueprint ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin text-black" />
-                          <span>正在执行多层注入部署...</span>
+                          <span>Executing multi-layer injection deployment...</span>
                         </>
                       ) : (
                         <>
                           <Sparkles className="w-4 h-4 text-black fill-current" />
-                          <span>一键部署当前风格包 (Deploy Style Pack)</span>
+                          <span>Deploy Style Pack</span>
                         </>
                       )}
                     </button>
@@ -1195,7 +1207,7 @@ export function VisualsLibrary() {
                       </span>
                     ) : (
                       <span className="text-[10px] font-mono text-gray-500 font-sans">
-                        系统将在『视觉数据库』插入一条规范属性，并在『Harness机制』对应绑定该代号触发器。
+                        The system will automatically record an asset in your library database and configure the Harness Mapping trigger.
                       </span>
                     )}
                   </div>
@@ -1213,17 +1225,17 @@ export function VisualsLibrary() {
                 <div className="bg-white/[0.02] border border-white/5 p-6 rounded-md space-y-4">
                   <h3 className="text-sm font-bold font-mono tracking-widest uppercase text-brand-primary flex items-center gap-2 pb-2 border-b border-white/5">
                     <Plus className="w-4 h-4" />
-                    <span>增加一致性关联规则 (Register Mapping)</span>
+                    <span>Register Mapping</span>
                   </h3>
 
                   {visualItems.length === 0 ? (
                     <div className="py-8 text-center space-y-2">
-                      <p className="text-xs text-white/40">视觉资产库为空。请先建立视觉资产！</p>
+                      <p className="text-xs text-white/40">Visual library database is empty. Please register assets first!</p>
                       <button 
                         onClick={() => setWorkspaceTab('visual_db')}
                         className="px-3 py-1 bg-white/10 hover:bg-white/20 text-[10px] font-mono rounded"
                       >
-                        前往创建视觉库资产
+                        Go to Visual DB
                       </button>
                     </div>
                   ) : (
@@ -1231,22 +1243,22 @@ export function VisualsLibrary() {
                       {/* Form trigger word inputs */}
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
-                          1. 脚本触发关键词 (Trigger Token) *
+                          1. Script Trigger Token *
                         </label>
                         <input
                           type="text"
                           value={newHarnessTrigger}
                           onChange={(e) => setNewHarnessTrigger(e.target.value)}
-                          placeholder="e.g. @主角 or @Hero or 钢铁侠"
+                          placeholder="e.g. @Hero or @MainCharacter"
                           className="w-full bg-black border border-white/10 text-xs text-white placeholder-white/20 rounded px-3 py-2 focus:outline-none focus:border-brand-primary font-mono"
                         />
-                        <span className="text-[9px] text-white/30 block leading-tight">当主提示词、剧情脚本中包含此词时，将自动注入关联资产的高精画风描述。</span>
+                        <span className="text-[9px] text-white/30 block leading-tight">When storyboard scripts or main prompt contain this token, details of the mapped asset will automatically be injected.</span>
                       </div>
 
                       {/* Associated asset select selector */}
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
-                          2. 绑定目标视觉资产 (Target Config Asset) *
+                          2. Map Target Visual Asset *
                         </label>
                         <select
                           value={newHarnessAssetId}
@@ -1276,7 +1288,7 @@ export function VisualsLibrary() {
                         ) : (
                           <>
                             <Check className="w-4 h-4 stroke-[3px]" />
-                            <span>建立一致性映射规则 (Create Harness Rule)</span>
+                            <span>Create Harness Rule</span>
                           </>
                         )}
                       </button>
@@ -1287,16 +1299,16 @@ export function VisualsLibrary() {
                 {/* API endpoint document panel for Harness compliance */}
                 <div className="bg-black/40 border border-white/5 p-5 rounded-md space-y-3 font-mono text-[10px]">
                   <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                    <span className="text-white/40 font-bold uppercase tracking-widest text-[9px]">服务 API 终端 / Harness Service endpoints</span>
+                    <span className="text-white/40 font-bold uppercase tracking-widest text-[9px]">Harness Service API Endpoints</span>
                     <span className="text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded text-[8px] font-bold">ACTIVE</span>
                   </div>
                   <div className="space-y-1.5">
                     <p className="text-white/70 font-semibold"><span className="text-brand-primary uppercase font-bold mr-1">[GET]</span> http://localhost:3000/api/harness?projectId={id}</p>
-                    <p className="text-white/40 leading-relaxed pl-3">获取项目所有激活的 IP 一致性 Harness 替换规则集合。</p>
+                    <p className="text-white/40 leading-relaxed pl-3">Retrieve target project's active IP consistency Harness substitution layout rules.</p>
                   </div>
                   <div className="space-y-1.5 pt-1">
                     <p className="text-white/70 font-semibold"><span className="text-brand-primary uppercase font-bold mr-1">[POST]</span> http://localhost:3000/api/harness/update</p>
-                    <p className="text-white/40 leading-relaxed pl-3">更新/重置 Prompt Harness 一致性实体。Payload 支持 <code>id, trigger_keyword, visual_asset_id, active</code> 参数。</p>
+                    <p className="text-white/40 leading-relaxed pl-3">Update or reset Prompt Harness mapping configurations. Payload accepts ID, trigger keyword, and active status.</p>
                   </div>
                 </div>
 
@@ -1309,7 +1321,7 @@ export function VisualsLibrary() {
                 <div className="bg-[#0b0b0d] border border-white/5 p-6 rounded-md space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-white/5">
                     <h3 className="text-xs font-bold font-mono tracking-widest uppercase text-white">
-                      当前已启用的 IP 触发映射 ({promptHarnesses.length})
+                      Active IP Trigger Mappings ({promptHarnesses.length})
                     </h3>
                     <span className="text-[10px] font-mono text-white/30 uppercase">Consistency Harness Rules</span>
                   </div>
@@ -1317,7 +1329,7 @@ export function VisualsLibrary() {
                   {promptHarnesses.length === 0 ? (
                     <div className="py-12 border border-dashed border-white/5 rounded text-center text-white/30 space-y-1">
                       <Sparkles className="w-8 h-8 text-neutral-600 mx-auto animate-pulse" />
-                      <p className="text-xs font-mono">暂无关联规则。请输入关键词和目标资产创建新的一致性控制。</p>
+                      <p className="text-xs font-mono">No rules registered. Enter keywords above and map to target assets to activate character prompt binding.</p>
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
@@ -1361,7 +1373,7 @@ export function VisualsLibrary() {
                                   </span>
                                 </div>
                                 <p className="text-[9px] text-white/30 block truncate max-w-[320px]" title={targetAsset?.imagePrompt}>
-                                  画画细节: {targetAsset?.imagePrompt || '(No image prompt defined)'}
+                                  Details: {targetAsset?.imagePrompt || '(No image prompt defined)'}
                                 </p>
                               </div>
                             </div>
@@ -1378,7 +1390,7 @@ export function VisualsLibrary() {
                                     : "bg-white/5 text-white/40 border border-white/5 hover:bg-white/10"
                                 )}
                               >
-                                {rule.active === 1 ? '已激活 (ACTIVE)' : '未激活 (MUTED)'}
+                                {rule.active === 1 ? 'ACTIVE' : 'MUTED'}
                               </button>
 
                               {/* Delete Rule */}
@@ -1402,16 +1414,16 @@ export function VisualsLibrary() {
                   <div className="space-y-1">
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-brand-primary" />
-                      <span>实时映射测试沙盒 (Prompt Substitution Simulator)</span>
+                      <span>Prompt Substitution Simulator</span>
                     </h3>
                     <p className="text-[10px] text-white/50 leading-relaxed font-mono">
-                      在下方输入测试剧本或提示词。若匹配到已激活的触发词（大小写不敏感），引擎将在运行 Comfy 生成渲染前瞬间将 IP 资产的详细设定注入其中！
+                      Type a draft prompt below. If any active trigger keyword gets matched (case insensitive), the system will replace it with high-fidelity asset descriptions before generating.
                     </p>
                   </div>
 
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-[8px] font-mono text-white/40 tracking-wider block uppercase font-bold">Input Draft Prompt (输入原始提示词模板)</label>
+                      <label className="text-[8px] font-mono text-white/40 tracking-wider block uppercase font-bold">Input Draft Prompt</label>
                       <textarea
                         value={testPlaygroundInput}
                         onChange={(e) => setTestPlaygroundInput(e.target.value)}
@@ -1440,7 +1452,7 @@ export function VisualsLibrary() {
                         ) : (
                           <>
                             <RefreshCcw className="w-3 h-3 text-black font-extrabold" />
-                            <span>注入一致性提示词 (Resolve System Harness)</span>
+                            <span>Resolve System Harness</span>
                           </>
                         )}
                       </button>
@@ -1449,13 +1461,13 @@ export function VisualsLibrary() {
                     {testPlaygroundOutput && (
                       <div className="space-y-1.5 p-4 bg-black border border-brand-primary/15 rounded-md animate-slideUp">
                         <div className="flex items-center justify-between border-b border-light-dark pb-1">
-                          <span className="text-[8px] font-mono text-brand-primary tracking-wider uppercase font-bold">Output Consistent Prompt (经 Harness 引擎解析后的高一致性提示词)</span>
+                          <span className="text-[8px] font-mono text-brand-primary tracking-wider uppercase font-bold">Output Consistent Prompt</span>
                           <span className="text-[8px] font-mono text-white/35">Ready for SDXL / Flux Generation</span>
                         </div>
                         <p className="text-xs text-white/95 font-mono leading-relaxed bg-[#0e0e12] p-3 rounded border border-white/[0.02]">
                           {testPlaygroundOutput}
                         </p>
-                        <p className="text-[9px] text-green-400 font-mono italic">✓ 成功注入！所关联的 IP 特征已被完美继承在括号中，即使切换多个连续镜头也将强制保持该人物与设定的完整一致！</p>
+                        <p className="text-[9px] text-green-400 font-mono italic">✓ Successfully injected! Character metadata traits have been inherited to enforce style consistency across consecutive shots.</p>
                       </div>
                     )}
                   </div>
@@ -1488,7 +1500,7 @@ export function VisualsLibrary() {
                 <div className="flex items-center gap-2.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-brand-primary animate-pulse" />
                   <h3 className="font-bold text-sm tracking-widest uppercase text-white font-mono">
-                    {editingItem.id ? '编辑视觉资产 / Manage Details' : '新建视觉资产 / New Asset Register'}
+                    {editingItem.id ? 'Manage Asset Details' : 'Register New Visual Asset'}
                   </h3>
                 </div>
                 <button 
@@ -1509,30 +1521,30 @@ export function VisualsLibrary() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label id="lbl-title" className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-white/80">
-                        Asset Title (资产标题) *
+                        Asset Title *
                       </label>
                       <input
                         type="text"
                         value={editingItem.title || ''}
                         onChange={(e) => setEditingItem({ ...editingItem, title: e.target.value })}
-                        placeholder="e.g. 钢铁侠盔甲 Model-V"
+                        placeholder="e.g. IronMan armor model V3"
                         className="w-full bg-black border border-white/10 rounded px-3 py-2 text-xs text-white placeholder-white/20 focus:outline-none focus:border-brand-primary font-mono"
                       />
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-white/80">
-                        Asset type Category (资产类型)
+                        Asset Category
                       </label>
                       <select
                         value={editingItem.type || 'IP'}
                         onChange={(e) => setEditingItem({ ...editingItem, type: e.target.value })}
                         className="w-full bg-black border border-white/10 rounded px-3.5 py-2 text-xs text-white focus:outline-none focus:border-brand-primary font-mono"
                       >
-                        <option value="IP">IP (专属人物/关键标志)</option>
-                        <option value="环境">环境 (场景设计/地理概念)</option>
-                        <option value="物品">物品 (道具设计/辅助载具)</option>
-                        <option value="其它">其它 (Other concept)</option>
+                        <option value="IP">IP Character (Concept/Character)</option>
+                        <option value="环境">Environment (Scene/Setting)</option>
+                        <option value="物品">Props (Object/Vehicle)</option>
+                        <option value="其它">Others (General Conceptual concepts)</option>
                       </select>
                     </div>
                   </div>
@@ -1540,7 +1552,7 @@ export function VisualsLibrary() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-white/80">
-                        Scene Identifier / UUID (场景标识码)
+                        Scene Identifier / UUID
                       </label>
                       <input
                         type="text"
@@ -1553,7 +1565,7 @@ export function VisualsLibrary() {
 
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-white/80">
-                        Short Name (资产简短助记名)
+                        Short Code Name
                       </label>
                       <input
                         type="text"
@@ -1578,7 +1590,7 @@ export function VisualsLibrary() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-pink-300">
-                          1) Image generator prompt (生成图片提示词)
+                          1) Image Prompt (Core Visual style)
                         </label>
                         {editingItem.imagePath && (
                           <span className="text-[8px] font-mono text-pink-400 bg-pink-400/10 px-1.5 py-0.5 rounded">Render synced</span>
@@ -1598,7 +1610,7 @@ export function VisualsLibrary() {
                         className="px-3 py-1 bg-pink-500/10 hover:bg-pink-500 text-pink-400 hover:text-black rounded text-[10px] font-bold uppercase tracking-wider transition-all border border-pink-500/25 flex items-center gap-1"
                       >
                         <Sparkles className="w-3 h-3" />
-                        <span>Generate Image (生成图片)</span>
+                        <span>Generate Image</span>
                       </button>
                     </div>
 
@@ -1606,7 +1618,7 @@ export function VisualsLibrary() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-green-300">
-                          2) Audio synthesizer voice prompt (音频及配音提示词)
+                          2) Audio Voice prompt (Synthesis config)
                         </label>
                         {editingItem.audioPath && (
                           <span className="text-[8px] font-mono text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded">Synth synced</span>
@@ -1626,7 +1638,7 @@ export function VisualsLibrary() {
                         className="px-3 py-1 bg-green-500/10 hover:bg-green-500 text-green-400 hover:text-black rounded text-[10px] font-bold uppercase tracking-wider transition-all border border-green-500/25 flex items-center gap-1"
                       >
                         <Music className="w-3 h-3" />
-                        <span>Synthesize Audio (生成音频)</span>
+                        <span>Synthesize Audio</span>
                       </button>
                     </div>
 
@@ -1634,7 +1646,7 @@ export function VisualsLibrary() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <label className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-blue-300">
-                          3) Video dynamic motion prompt (视频运动提示词)
+                          3) Video Motion prompt (Camera control)
                         </label>
                         {editingItem.videoPath && (
                           <span className="text-[8px] font-mono text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded">Video motion synced</span>
@@ -1654,7 +1666,7 @@ export function VisualsLibrary() {
                         className="px-3 py-1 bg-blue-500/10 hover:bg-blue-500 text-blue-400 hover:text-black rounded text-[10px] font-bold uppercase tracking-wider transition-all border border-blue-500/25 flex items-center gap-1"
                       >
                         <Video className="w-3 h-3" />
-                        <span>Animate Video Segment (生成视频)</span>
+                        <span>Animate Video Segment</span>
                       </button>
                     </div>
                   </div>
@@ -1665,7 +1677,7 @@ export function VisualsLibrary() {
                 <div className="lg:col-span-5 space-y-5 flex flex-col justify-between">
                   <div className="space-y-5">
                     <h4 className="text-[10px] font-mono opacity-50 uppercase font-bold tracking-wider block text-white/90">
-                      Live Outputs Container (生成资源即时监控)
+                      Live Outputs Container
                     </h4>
 
                     {/* Live Image render area */}
@@ -1781,7 +1793,7 @@ export function VisualsLibrary() {
                         className="px-4.5 py-2 bg-brand-primary text-black hover:bg-white border border-brand-primary hover:border-white rounded text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1.5"
                       >
                         <Save className="w-3.5 h-3.5" />
-                        <span>Update DB & Return (保存并返回)</span>
+                        <span>Update DB & Return</span>
                       </button>
                     </div>
 

@@ -7,6 +7,36 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function safeConvertFileSrc(filePath: string): string {
+  if (!filePath) return '';
+  
+  // Normalize Windows paths
+  let cleanPath = filePath.replace(/\\/g, '/');
+  
+  // Extract and preserve Windows drive letter if there is one (e.g. "C:/")
+  let driveLetter = '';
+  const driveMatch = cleanPath.match(/^([a-zA-Z]:)\//);
+  if (driveMatch) {
+    driveLetter = driveMatch[1] + '/';
+    cleanPath = cleanPath.slice(driveMatch[0].length);
+  }
+  
+  const hasLeadingSlash = cleanPath.startsWith('/');
+  if (hasLeadingSlash) {
+    cleanPath = cleanPath.slice(1);
+  }
+  
+  const segments = cleanPath.split('/');
+  const encodedSegments = segments.map(seg => encodeURIComponent(seg));
+  const encodedPath = encodedSegments.join('/');
+  
+  const leading = hasLeadingSlash ? '/' : '';
+  const drive = driveLetter ? `${driveLetter}` : '';
+  
+  // For Tauri v2, construct standard "asset://localhost/" with segment-by-segment encoding to protect Webview / AVKit range-requests
+  return `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
+}
+
 export function getAssetUrl(path: string | undefined | null): string {
   if (!path) return '';
 
@@ -48,7 +78,7 @@ export function getAssetUrl(path: string | undefined | null): string {
   const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
   if (isTauri) {
     try {
-      return convertFileSrc(rawPath);
+      return safeConvertFileSrc(rawPath);
     } catch (e) {
       console.warn('Tauri convertFileSrc failed, falling back:', e);
     }
@@ -138,7 +168,7 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
         try {
           // Direct fallback to convertFileSrc for video & audio to support native range-requests / seekable streaming
           if (mediaType === 'video' || mediaType === 'audio') {
-            setUrl(convertFileSrc(cleanPath));
+            setUrl(safeConvertFileSrc(cleanPath));
             return;
           }
 
@@ -229,8 +259,24 @@ export function useLocalImageBase64(path: string | undefined | null): string {
           const fileExists = await exists(cleanPath);
           if (fileExists) {
             const { invoke } = await import('@tauri-apps/api/core');
-            const base64 = await invoke<string>('load_local_image', { path: cleanPath });
+            let base64 = await invoke<string>('load_local_image', { path: cleanPath });
             if (active) {
+              if (base64 && !base64.startsWith('data:')) {
+                const extension = cleanPath.split('.').pop()?.toLowerCase() || 'png';
+                let mimeType = 'image/png';
+                if (extension === 'jpg' || extension === 'jpeg') {
+                  mimeType = 'image/jpeg';
+                } else if (extension === 'gif') {
+                  mimeType = 'image/gif';
+                } else if (extension === 'svg') {
+                  mimeType = 'image/svg+xml';
+                } else if (extension === 'webp') {
+                  mimeType = 'image/webp';
+                } else if (extension === 'ico') {
+                  mimeType = 'image/x-icon';
+                }
+                base64 = `data:${mimeType};base64,${base64}`;
+              }
               setSrc(base64);
               return;
             }

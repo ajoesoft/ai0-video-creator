@@ -22,6 +22,12 @@ export function extractComfyFilename(pathOrUrl: string | undefined): string {
   return base.split('?')[0];
 }
 
+export function isComfyInputDirectory(path: string | undefined | null): boolean {
+  if (!path) return true;
+  const p = path.trim().replace(/\\/g, '/');
+  return p === "" || p.toLowerCase().endsWith("/input") || p.toLowerCase().endsWith("/input/");
+}
+
 export class ComfyService {
   private config: ComfyConfig;
 
@@ -639,6 +645,107 @@ export class ComfyService {
     return savedPath;
   }
 
+  async runLatentSync15ComfyUIBasicRust(
+    videoFilename: string,
+    audioFilename: string,
+    localPath: string,
+    onProgress?: (msg: string) => void
+  ): Promise<string> {
+    onProgress?.("Building LatentSync 1.5 Lip-Sync Workflow...");
+    const workflow = {
+      "40": {
+        "inputs": {
+          "video": videoFilename,
+          "force_rate": 25,
+          "custom_width": 0,
+          "custom_height": 768,
+          "frame_load_cap": 0,
+          "skip_first_frames": 0,
+          "select_every_nth": 1,
+          "format": "AnimateDiff"
+        },
+        "class_type": "VHS_LoadVideo",
+        "_meta": {
+          "title": "VHS Load Video"
+        }
+      },
+      "37": {
+        "inputs": {
+          "audio": audioFilename
+        },
+        "class_type": "LoadAudio",
+        "_meta": {
+          "title": "Load Audio"
+        }
+      },
+      "54": {
+        "inputs": {
+          "images": [
+            "40",
+            0
+          ],
+          "audio": [
+            "37",
+            0
+          ],
+          "seed": 100000 + Math.floor(Math.random() * 10000),
+          "control_after_generate": "randomize"
+        },
+        "class_type": "LatentSyncNode",
+        "_meta": {
+          "title": "LatentSync 1.5 Node"
+        }
+      },
+      "41": {
+        "inputs": {
+          "frame_rate": 25,
+          "loop_count": 0,
+          "filename_prefix": "latentsync",
+          "format": "video/h264-mp4",
+          "pix_fmt": "yuv420p",
+          "crf": 19,
+          "save_metadata": true,
+          "trim_to_audio": false,
+          "pingpong": false,
+          "save_output": true,
+          "images": [
+            "54",
+            0
+          ],
+          "audio": [
+            "54",
+            1
+          ]
+        },
+        "class_type": "VHS_VideoCombine",
+        "_meta": {
+          "title": "VHS Video Combine"
+        }
+      }
+    };
+
+    onProgress?.("Submitting LatentSync 1.5 job (Dispatched)...");
+    const promptId = await invoke<string>("submit_comfy_image_rust", {
+      workflow,
+      serverAddress: this.config.serverAddress
+    });
+    
+    console.log(`Submitted comfy LatentSync 1.5 workflow, got promptId: ${promptId}`);
+    onProgress?.(`LatentSync 1.5 job submitted. Prompt ID: ${promptId}`);
+
+    onProgress?.("Running LatenSync 1.5 (Polling status)...");
+    await this.waitForCompletion(promptId, onProgress);
+
+    onProgress?.("Downloading and saving synchronized video file...");
+    const savedPath = await invoke<string>("save_comfy_audio_rust", {
+      promptId,
+      serverAddress: this.config.serverAddress,
+      localPath
+    });
+
+    return savedPath;
+  }
+
   private getStandardImageWorkflow(prompt: string) {
     const workflow = {
       "60": { "inputs": { "filename_prefix": "animal", "images": ["238:231", 0] }, "class_type": "SaveImage" },
@@ -939,7 +1046,7 @@ export class ComfyService {
       }
 
       // Case 2: Source file path is valid and exists on local system
-      if (pathOrUrl !== destPath && !pathOrUrl.includes("/ai/working/ComfyUI/input/") && (await exists(pathOrUrl))) {
+      if (pathOrUrl !== destPath && !isComfyInputDirectory(pathOrUrl) && (await exists(pathOrUrl))) {
         console.log(`[comfy.ts] Copying from direct source path ${pathOrUrl} to ComfyUI input...`);
         const fileData = await readFile(pathOrUrl);
         await writeFile(destPath, fileData);
@@ -1128,7 +1235,7 @@ export class ComfyService {
         "196": { "inputs": { "Xi": 6, "Xf": 6, "isfloatX": 0 }, "class_type": "mxSlider" },
         "211": { "inputs": { "lora_1": { "on": true, "lora": "ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors", "strength": 0.6 }, "model": ["366", 0], "clip": ["146", 0] }, "class_type": "Power Lora Loader (rgthree)" },
         "217": { "inputs": { "any_04": ["521:522", 0] }, "class_type": "Any Switch (rgthree)" },
-        "218": { "inputs": { "any_04": (audioPath && audioPath.trim() !== "" && audioPath !== "/ai/working/ComfyUI/input/") ? ["5566", 0] : null }, "class_type": "Any Switch (rgthree)" },
+        "218": { "inputs": { "any_04": (audioPath && audioPath.trim() !== "" && !isComfyInputDirectory(audioPath)) ? ["5566", 0] : null }, "class_type": "Any Switch (rgthree)" },
         "366": { "inputs": { "unet_name": "ltx-2.3-22b-dev-Q3_K_M.gguf" }, "class_type": "UnetLoaderGGUF" },
         "591": { "inputs": { "vae_name": "taeltx2_3.safetensors" }, "class_type": "VAELoader" },
         "700": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["211", 0] }, "class_type": "LTXVChunkFeedForward" },
@@ -1144,7 +1251,7 @@ export class ComfyService {
         "5536": { "inputs": { "text": prompt, "clip": ["146", 0] }, "class_type": "CLIPTextEncode" },
         "5537": { "inputs": { "text": "blurry, low quality...", "clip": ["146", 0] }, "class_type": "CLIPTextEncode" },
         "5565": { "inputs": { "image": extractComfyFilename(imagePath) }, "class_type": "LoadImage" },
-        "5566": { "inputs": { "audio": (audioPath && audioPath.trim() !== "") ? extractComfyFilename(audioPath) : "Silverberry-1778409858.mp3", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
+        "5566": { "inputs": { "audio": (audioPath && audioPath.trim() !== "" && !isComfyInputDirectory(audioPath)) ? extractComfyFilename(audioPath) : "Silverberry-1778409858.mp3", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
         "521:465": { "inputs": { "sigmas": "1., 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0" }, "class_type": "ManualSigmas" },
         "521:469": { "inputs": { "value": 0, "width": ["521:473", 0], "height": ["521:473", 1] }, "class_type": "SolidMask" },
         "521:471": { "inputs": { "width": ["521:473", 0], "height": ["521:473", 1], "length": ["521:5511", 0], "batch_size": 1 }, "class_type": "EmptyLTXVLatentVideo" },
@@ -1177,7 +1284,7 @@ export class ComfyService {
         "521:485": { "inputs": { "width": ["5383", 0], "height": ["5382", 0], "batch_size": 1, "color": 0 }, "class_type": "EmptyImage" }
     };
 
-    if (!audioPath || audioPath.trim() === "" || audioPath === "/ai/working/ComfyUI/input/") {
+    if (!audioPath || audioPath.trim() === "" || isComfyInputDirectory(audioPath)) {
       workflow["188"].inputs["audio"] = null;
     }
 
@@ -1222,7 +1329,7 @@ export class ComfyService {
         "class_type": "Power Lora Loader (rgthree)" 
       },
       "217": { "inputs": { "any_04": ["521:522", 0] }, "class_type": "Any Switch (rgthree)" },
-      "218": { "inputs": { "any_04": (params.audio && params.audio.trim() !== "" && params.audio !== "/ai/working/ComfyUI/input/") ? ["5400", 0] : null }, "class_type": "Any Switch (rgthree)" },
+      "218": { "inputs": { "any_04": (params.audio && params.audio.trim() !== "" && !isComfyInputDirectory(params.audio)) ? ["5400", 0] : null }, "class_type": "Any Switch (rgthree)" },
       "366": { "inputs": { "unet_name": "ltx-2.3-22b-dev-Q4_K_S.gguf" }, "class_type": "UnetLoaderGGUF" },
       "591": { "inputs": { "vae_name": "taeltx2_3.safetensors" }, "class_type": "VAELoader" },
       "700": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["211", 0] }, "class_type": "LTXVChunkFeedForward" },
@@ -1242,7 +1349,7 @@ export class ComfyService {
       "5383": { "inputs": { "value": params.width || 1920 }, "class_type": "INTConstant" },
       "5387": { "inputs": { "expression": "a*b+1", "a": ["196", 0], "b": ["5445", 0] }, "class_type": "MathExpression|pysssss" },
       "5392": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["5376", 0] }, "class_type": "LTXVChunkFeedForward" },
-      "5400": { "inputs": { "audio": (params.audio && params.audio.trim() !== "" && params.audio !== "/ai/working/ComfyUI/input/") ? extractComfyFilename(params.audio) : "Silverberry-1778409858.mp3", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
+      "5400": { "inputs": { "audio": (params.audio && params.audio.trim() !== "" && !isComfyInputDirectory(params.audio)) ? extractComfyFilename(params.audio) : "Silverberry-1778409858.mp3", "start_time": 0, "duration": ["5442", 0] }, "class_type": "VHS_LoadAudioUpload" },
       "5401": { "inputs": { "audioUI": "", "audio": ["5400", 0] }, "class_type": "PreviewAudio" },
       "5429": { "inputs": { "resize_type": "scale dimensions", "resize_type.width": ["5383", 0], "resize_type.height": ["5382", 0], "resize_type.crop": "center", "scale_method": "lanczos", "input": ["149", 0] }, "class_type": "ResizeImageMaskNode" },
       "5434": { "inputs": { "resize_type": "scale dimensions", "resize_type.width": ["5383", 0], "resize_type.height": ["5382", 0], "resize_type.crop": "center", "scale_method": "lanczos", "input": ["5437", 0] }, "class_type": "ResizeImageMaskNode" },
@@ -1299,7 +1406,7 @@ export class ComfyService {
       }
     }
 
-    if (!params.audio || params.audio.trim() === "" || params.audio === "/ai/working/ComfyUI/input/") {
+    if (!params.audio || params.audio.trim() === "" || isComfyInputDirectory(params.audio)) {
       workflow["188"].inputs["audio"] = null;
     }
 

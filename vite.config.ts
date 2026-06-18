@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
-       configureServer(server) {
+      configureServer(server) {
         server.middlewares.use((req, res, next) => {
           if (req.url) {
             const rawUrl = decodeURIComponent(req.url);
@@ -47,14 +47,20 @@ export default defineConfig(({ mode }) => {
             }
 
             const cwd = process.cwd();
-            // Search in the local 'workspace' subfolder first, and fall back to root cwd
+            // Search in local workspace folder, then check absolute filesystem root, and default to cwd fallback
             let resolvedPath = path.resolve(cwd, 'workspace', relativePath);
             if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-              resolvedPath = path.resolve(cwd, relativePath);
+              const absSystemPath = '/' + relativePath;
+              if (fs.existsSync(absSystemPath) && fs.statSync(absSystemPath).isFile()) {
+                resolvedPath = absSystemPath;
+              } else {
+                resolvedPath = path.resolve(cwd, relativePath);
+              }
             }
 
-            // Safety check: ensure requested file is inside our workspace or cwd
-            if (resolvedPath.startsWith(cwd)) {
+            // Safety check: ensure requested file is inside our workspace/cwd, or is a system data folder
+            const isSafeSystemPath = resolvedPath.startsWith('/data/') || resolvedPath.startsWith('/data');
+            if (resolvedPath.startsWith(cwd) || isSafeSystemPath) {
               const baseName = path.basename(resolvedPath);
               const sensitiveFiles = ['.env', 'package.json', 'package-lock.json', 'vite.config.ts', 'tsconfig.json', 'metadata.json'];
               if (!sensitiveFiles.includes(baseName) && !resolvedPath.includes('/.') && !resolvedPath.includes('node_modules')) {
@@ -108,7 +114,7 @@ export default defineConfig(({ mode }) => {
           }
           next();
         });
-      }    
+      }
     },
   };
 });

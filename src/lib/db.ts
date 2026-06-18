@@ -41,7 +41,7 @@ export async function getDb() {
         console.warn("Failed to retrieve dynamic database path via get_db_file_path:", err);
       }
       db = await Database.load("sqlite:" + dbPath);
-       // Auto-create visual_library table if missing
+      // Auto-create visual_library table if missing
       try {
         await db.execute(`
           CREATE TABLE IF NOT EXISTS visual_library (
@@ -109,37 +109,37 @@ export async function getDb() {
     } catch (err: any) {
       console.error("Failed to load SQLite via Tauri plugin-sql:", err);
       const errMsg = err?.toString() || "";
-      
+
       // Auto-heal on migration conflicts
       if (errMsg.includes("migration") && (errMsg.includes("modified") || errMsg.includes("previously applied"))) {
         console.warn("Detected SQLite migration discrepancy. Attempting automatic self-healing by removing main.db...");
         try {
           await remove("main.db", { baseDir: BaseDirectory.AppLocalData });
           console.log("Deleted corrupt/outdated main.db from AppLocalData, reloading...");
-          
+
           let dbPath = "main.db";
           try {
             const path = await invoke<string>("get_db_file_path");
             if (path) dbPath = path;
-          } catch (e) {}
-          
+          } catch (e) { }
+
           db = await Database.load("sqlite:" + dbPath);
           dbError = null;
           return db;
         } catch (fsErr: any) {
           console.error("Failed to delete main.db from AppLocalData:", fsErr);
-          
+
           // Try standard AppData location just in case
           try {
             await remove("main.db", { baseDir: BaseDirectory.AppData });
             console.log("Deleted corrupt/outdated main.db from AppData, reloading...");
-            
+
             let dbPath = "main.db";
             try {
               const path = await invoke<string>("get_db_file_path");
               if (path) dbPath = path;
-            } catch (e) {}
-            
+            } catch (e) { }
+
             db = await Database.load("sqlite:" + dbPath);
             dbError = null;
             return db;
@@ -148,7 +148,7 @@ export async function getDb() {
           }
         }
       }
-      
+
       dbError = errMsg || "Unknown SQLite connection load error";
       return null;
     }
@@ -326,7 +326,7 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
   const now = Date.now();
   const current = await fetchProjectById(id);
   if (!current) return null;
-
+  console.log(`## current:` + JSON.stringify(current));
   const updated = { ...current, ...updates, updatedAt: now };
 
   if (isTauri) {
@@ -346,6 +346,8 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
           id
         ]
       );
+      console.log(`## updated: `+JSON.stringify(updated));
+
       return updated;
     }
   }
@@ -473,7 +475,7 @@ export async function updateVocabulary(id: number, updates: Partial<Vocabulary>)
       // Exclude id and projectUuid from potentially being updated
       const { id: _, projectUuid: __, ...rest } = updates;
       const entries = Object.entries(rest);
-      
+
       if (entries.length === 0) return true;
 
       const setClause = entries.map(([key]) => {
@@ -693,7 +695,7 @@ export async function fetchVisualLibraryByProject(projectId: string): Promise<Vi
 
 export async function createVisualLibraryItem(item: Partial<VisualLibraryItem>): Promise<VisualLibraryItem> {
   const now = Date.now();
-  
+
   if (isTauri) {
     const database = await getDb();
     if (database) {
@@ -720,11 +722,11 @@ export async function createVisualLibraryItem(item: Partial<VisualLibraryItem>):
             now
           ]
         );
-        
+
         // Retrive last inserted id in SQLite
         const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
         const insertedId = idResult[0]?.id || now;
-        
+
         return {
           id: insertedId,
           projectId: item.projectId || "",
@@ -781,7 +783,7 @@ export async function updateVisualLibraryItem(id: number, updates: Partial<Visua
       try {
         const { id: _, projectId: __, ...rest } = updates;
         const entries = Object.entries(rest);
-        
+
         if (entries.length === 0) return true;
 
         const setClause = entries.map(([key]) => {
@@ -891,10 +893,10 @@ export async function createPromptHarness(harness: Partial<PromptHarness>): Prom
           ) VALUES (?, ?, ?, ?, ?, ?)`,
           [projectId, triggerKeyword, visualAssetId, active, now, now]
         );
-        
+
         const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
         const insertedId = idResult[0]?.id || now;
-        
+
         return {
           id: insertedId,
           projectId,
@@ -935,7 +937,7 @@ export async function updatePromptHarness(id: number, updates: Partial<PromptHar
       try {
         const { id: _, projectId: __, ...rest } = updates;
         const entries = Object.entries(rest);
-        
+
         if (entries.length === 0) return true;
 
         const setClause = entries.map(([key]) => {
@@ -1017,7 +1019,7 @@ export async function applyPromptHarnessRules(promptText: string, projectId: str
       const trigger = rule.triggerKeyword;
       // Use escape helper to support special characters of keyword e.g. "@主角"
       const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-      
+
       // Match with word bounds or direct boundaries
       const regex = new RegExp(`(${escapedTrigger})`, 'gi');
 

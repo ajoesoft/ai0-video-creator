@@ -106,7 +106,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Video Translation"
   },
   zh: {
-    appName: "AI0 视频工作站",
+    appName: "Tauri 视频工作站",
     system: "系统",
     localNode: "本地节点",
     masterNodeLink: "主节点连接",
@@ -244,7 +244,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Videooversettelse"
   },
   fr: {
-    appName: "AI0 Studio Vidéo",
+    appName: "Tauri Studio Vidéo",
     system: "Système",
     localNode: "Nœud Local",
     masterNodeLink: "Lien Nœud Maître",
@@ -290,7 +290,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Traduction Vidéo"
   },
   es: {
-    appName: "AI0 Studio de Video",
+    appName: "Tauri Studio de Video",
     system: "Sistema",
     localNode: "Nodo Local",
     masterNodeLink: "Enlace Nodo Maestro",
@@ -408,7 +408,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (saved && (saved === 'en' || saved === 'zh' || saved === 'ar' || saved === 'no' || saved === 'fr' || saved === 'es' || saved === 'nl')) {
       return saved as LanguageCode;
     }
-    return 'zh'; // Default to Chinese or fallback to English if preferred
+    return 'en'; // Default to English
   });
 
   const setLanguage = (lang: LanguageCode) => {

@@ -2,16 +2,71 @@ use base64::{engine::general_purpose, Engine as _};
 use log::{error, info};
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
+use std::process::Stdio;
 use std::time::Duration;
+use tauri::{AppHandle, Runtime};
 use tauri_plugin_sql::{Migration, MigrationKind};
+use tokio::process::Command;
+use uuid::Uuid;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
-    info!("[AI0 Video Creator] Hello: {}", name);
     format!(
         "Hello, {}! You've been greeted from AI0 Video Creator!",
         name
     )
+}
+#[tauri::command]
+fn get_fallback_cover_svg_base64() -> String {
+    let svg_raw = r#"<svg xmlns='http://www.w3.org/2000/svg' width='300' height='170' viewBox='0 0 300 170'>
+    <rect width='100%' height='100%' fill='#15151a'/>
+    <text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-family='Space Grotesk, system-ui, sans-serif' font-size='12' fill='#FF5D22'>
+    LATENT SPACE</text></svg>"#;
+    let svg_base64 = general_purpose::STANDARD.encode(svg_raw.as_bytes());
+    format!("data:image/svg+xml;base64,{}", svg_base64)
+}
+
+#[tauri::command]
+fn extract_video_cover(ffmpeg_path: String, video_path: String, output_dir: String) -> Result<String, String> {
+    let path_to_use = if ffmpeg_path.is_empty() {
+        "ffmpeg".to_string()
+    } else {
+        ffmpeg_path
+    };
+
+    let out_path = std::path::Path::new(&output_dir);
+    if let Some(parent) = out_path.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(format!("Failed to create parent directory for cover: {}", e));
+            }
+        }
+    }
+
+    let mut command = std::process::Command::new(&path_to_use);
+    command.arg("-y")
+        .arg("-i")
+        .arg(&video_path)
+        .arg("-ss")
+        .arg("00:00:00.500")
+        .arg("-vframes")
+        .arg("1")
+        .arg(&output_dir);
+
+    let output = command.output();
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if out.status.success() {
+                Ok(output_dir)
+            } else {
+                Err(format!("FFmpeg cover extraction failed: {}\nStderr: {}", stdout, stderr))
+            }
+        }
+        Err(e) => Err(format!("FFmpeg process failed to start: {}", e)),
+    }
 }
 
 #[tauri::command]
@@ -222,6 +277,71 @@ async fn generate_comfy_image_rust(
 }
 
 #[tauri::command]
+fn get_ffmpeg_version(ffmpeg_path: String) -> Result<String, String> {
+    let path_to_use = if ffmpeg_path.is_empty() {
+        "ffmpeg".to_string()
+    } else {
+        ffmpeg_path
+    };
+
+    let output = std::process::Command::new(&path_to_use)
+        .arg("-version")
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if out.status.success() {
+                let first_line = stdout
+                    .lines()
+                    .next()
+                    .unwrap_or("FFmpeg Connected")
+                    .to_string();
+                Ok(first_line)
+            } else {
+                let err_msg = if !stdout.is_empty() { stdout } else { stderr };
+                let first_line = err_msg
+                    .lines()
+                    .next()
+                    .unwrap_or("Error querying ffmpeg")
+                    .to_string();
+                Ok(first_line)
+            }
+        }
+        Err(e) => Err(format!("FFmpeg not accessible: {}", e)),
+    }
+}
+
+#[tauri::command]
+fn run_ffmpeg_cmd(ffmpeg_path: String, args: Vec<String>) -> Result<String, String> {
+    let path_to_use = if ffmpeg_path.is_empty() {
+        "ffmpeg".to_string()
+    } else {
+        ffmpeg_path
+    };
+
+    let mut command = std::process::Command::new(&path_to_use);
+    for arg in args {
+        command.arg(arg);
+    }
+
+    let output = command.output();
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if out.status.success() {
+                Ok(stdout)
+            } else {
+                Err(format!("FFmpeg failed: {}\nStderr: {}", stdout, stderr))
+            }
+        }
+        Err(e) => Err(format!("FFmpeg process failed to start: {}", e)),
+    }
+}
+
+#[tauri::command]
 async fn submit_comfy_image_rust(
     workflow: serde_json::Value,
     server_address: String,
@@ -429,13 +549,8 @@ async fn save_comfy_image_rust(
 
 #[tauri::command]
 async fn load_local_image(path: String) -> Result<String, String> {
-    info!("[tauri] 开始加载图片: {}", path);
-
     let bytes = match fs::read(&path) {
-        Ok(data) => {
-            // info!("[tauri] 图片加载成功 | 大小: {} bytes", data.len());
-            data
-        }
+        Ok(data) => data,
         Err(e) => {
             error!("[tauri] 图片加载失败: {}", e);
             return Err(e.to_string());
@@ -632,8 +747,7 @@ async fn save_comfy_audio_rust(
         let err_text = res.text().await.unwrap_or_default();
         return Err(format!(
             "Failed to retrieve history: HTTP {}: {}",
-            status,
-            err_text
+            status, err_text
         ));
     }
 
@@ -750,6 +864,59 @@ async fn save_comfy_audio_rust(
 }
 
 #[tauri::command]
+fn extract_video_audio(
+    ffmpeg_path: String,
+    video_path: String,
+    output_path: String,
+) -> Result<String, String> {
+    let path_to_use = if ffmpeg_path.is_empty() {
+        "ffmpeg".to_string()
+    } else {
+        ffmpeg_path
+    };
+
+    let out_path = std::path::Path::new(&output_path);
+    if let Some(parent) = out_path.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(format!(
+                    "Failed to create parent directory for audio: {}",
+                    e
+                ));
+            }
+        }
+    }
+
+    let mut command = std::process::Command::new(&path_to_use);
+    command
+        .arg("-y")
+        .arg("-i")
+        .arg(&video_path)
+        .arg("-q:a")
+        .arg("0")
+        .arg("-map")
+        .arg("a")
+        .arg(&output_path);
+
+    let output = command.output();
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if out.status.success() {
+                Ok(output_path)
+            } else {
+                Err(format!(
+                    "FFmpeg audio extraction failed: {}\nStderr: {}",
+                    stdout, stderr
+                ))
+            }
+        }
+        Err(e) => Err(format!("FFmpeg process failed to start: {}", e)),
+    }
+}
+
+#[tauri::command]
 fn get_comfyui_details(comfyui_root: String) -> Result<serde_json::Value, String> {
     use std::collections::HashMap;
     use std::fs;
@@ -845,6 +1012,7 @@ fn traverse_model_files(dir: &std::path::Path, list: &mut Vec<String>, base_dir:
         }
     }
 }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db_path = get_db_file_path().unwrap_or_else(|_| "main.db".to_string());
@@ -1053,6 +1221,90 @@ pub fn run() {
             description: "fix_video_projects_translation_rename",
             sql: "ALTER TABLE video_projects_new RENAME TO video_projects;",
             kind: MigrationKind::Up,
+        },
+        Migration {
+    version: 12,
+    description: "create video multi translation project related tables (video_translation_projects, video_translation_timeline, video_translation_logs)",
+    sql: r#"
+        -- 主表：视频翻译项目核心表
+        CREATE TABLE IF NOT EXISTS video_translation_projects (
+            id TEXT PRIMARY KEY NOT NULL,
+            project_title TEXT NOT NULL,
+            original_video_path TEXT NOT NULL,
+            file_size_mb REAL NOT NULL DEFAULT 0,
+            process_status TEXT NOT NULL DEFAULT 'Idle', -- Idle / Processing / Done / Failed
+            node_host TEXT NOT NULL DEFAULT '127.0.0.1:8188',
+            face_algorithm TEXT NOT NULL DEFAULT 'LTX-2.3 (Pro)',
+            cover_image_path TEXT, -- FFmpeg生成COVER_xxx.jpg完整路径
+            fallback_svg_cover INTEGER NOT NULL DEFAULT 0, -- 0=真实图片 1=兜底SVG
+
+            -- Tab1 EXTRACT 提取阶段
+            extracted_audio_mp3_path TEXT,
+            audio_separated INTEGER NOT NULL DEFAULT 0, -- 0未分离 1已分离
+            asr_subtitle_json TEXT, -- 原始ASR识别字幕时间轴JSON
+            asr_extracted INTEGER NOT NULL DEFAULT 0,
+
+            -- Tab2 TRANSLATION_TIMELINE 翻译阶段
+            target_lang TEXT NOT NULL DEFAULT 'English',
+            translated_subtitle_json TEXT, -- 翻译后字幕时间轴
+            translation_finished INTEGER NOT NULL DEFAULT 0,
+            tts_audio_generated INTEGER NOT NULL DEFAULT 0,
+
+            -- Tab3 VOICE_ACTING 配音克隆阶段
+            voice_preset TEXT NOT NULL DEFAULT 'Zephyr - 阳光亲切男声',
+            voice_speed REAL NOT NULL DEFAULT 1.0,
+            voice_audio_path TEXT,
+            voice_acting_finished INTEGER NOT NULL DEFAULT 0,
+
+            -- Tab4 LIP_SYNC 口型同步渲染阶段
+            lipsync_video_output_path TEXT,
+            lipsync_render_progress REAL NOT NULL DEFAULT 0.0,
+            lipsync_finished INTEGER NOT NULL DEFAULT 0,
+            final_4k_render_path TEXT,
+
+            batch_task INTEGER NOT NULL DEFAULT 0, -- 是否批量任务
+            saved_flag INTEGER NOT NULL DEFAULT 1,
+            create_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            update_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            deleted INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- 子表：字幕时间轴明细（拆分主表大JSON）
+        CREATE TABLE IF NOT EXISTS video_translation_timeline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            source_text TEXT NOT NULL,
+            translated_text TEXT,
+            start_second REAL NOT NULL,
+            end_second REAL NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES video_translation_projects(id) ON DELETE CASCADE
+        );
+
+        -- 子表：FFmpeg/ComfyUI运行日志
+        CREATE TABLE IF NOT EXISTS video_translation_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL,
+            log_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            log_content TEXT NOT NULL,
+            log_level TEXT NOT NULL DEFAULT 'LOG', -- LOG / WARN / ERROR
+            FOREIGN KEY(project_id) REFERENCES video_translation_projects(id) ON DELETE CASCADE
+        );
+
+        -- 触发器：更新项目update_at时间戳
+        CREATE TRIGGER IF NOT EXISTS trigger_update_video_translation_projects
+        AFTER UPDATE ON video_translation_projects
+        FOR EACH ROW
+        BEGIN
+            UPDATE video_translation_projects SET update_at = CURRENT_TIMESTAMP WHERE id = old.id;
+        END;
+
+        -- 索引：加速项目列表查询、批量任务筛选
+        CREATE INDEX idx_video_translation_status ON video_translation_projects(process_status, deleted);
+        CREATE INDEX idx_video_translation_batch ON video_translation_projects(batch_task, deleted);
+        CREATE INDEX idx_timeline_project_id ON video_translation_timeline(project_id);
+        CREATE INDEX idx_logs_project_id ON video_translation_logs(project_id);
+        "#,
+            kind: MigrationKind::Up,
         }
     ];
 
@@ -1093,6 +1345,10 @@ pub fn run() {
             get_db_file_path,
             get_python_version,
             get_cuda_version,
+            get_ffmpeg_version,
+            extract_video_cover,
+            extract_video_audio,
+            run_ffmpeg_cmd,
             get_ollama_version,
             get_comfyui_details
         ])

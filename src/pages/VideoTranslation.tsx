@@ -32,13 +32,17 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from '../contexts/LanguageContext';
+import { videoTranslationTranslations } from '../localization/videoTranslationLocales';
 import { getGeminiClient, translateTextGemini, transcribeAudioGemini, synthesizeSpeechGemini } from '../lib/gemini';
 import { comfy } from '../lib/comfy';
 import { parseSRT, compileDialogueToASS, formatAssTime, SubtitleDialogueLine, DEFAULT_SUBTITLE_STYLE } from '../lib/subtitles';
-import { fetchProjectById, updateProject as updateCoreProject, getSetting, setSetting } from '../lib/db';
+import { fetchProjectById, updateProject as updateCoreProject, getSetting, setSetting, createProject } from '../lib/db';
 import { ProjectStatus, SceneType } from '../types';
 import { useMediaUrl, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { useParams, useNavigate } from 'react-router-dom';
+import { join } from '@tauri-apps/api/path';
+import { exists, mkdir, writeFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
 
 function VideoTranslationCover({ path, className = "w-full h-full object-cover", alt = "cover" }: { path: string | undefined | null, className?: string, alt?: string }) {
   const src = useLocalImageBase64(path);
@@ -52,6 +56,12 @@ function VideoTranslationCover({ path, className = "w-full h-full object-cover",
 }
 
 const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+
+const isVideoFile = (file: File) => {
+  if (file.type && file.type.startsWith('video/')) return true;
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  return ext ? ['mp4', 'mov', 'mkv', 'avi', 'webm', 'wmv', 'flv', '3gp'].includes(ext) : false;
+};
 
 interface TranslationProject {
   id: string;
@@ -73,7 +83,9 @@ interface TranslationProject {
 }
 
 export function VideoTranslation() {
-  const { t, language } = useTranslation();
+  const { t: gT, language } = useTranslation();
+  const vtLocales = videoTranslationTranslations[language] || videoTranslationTranslations['en'];
+  const vt = (key: keyof typeof videoTranslationTranslations['en']) => vtLocales[key];
   const { id: routeProjectId } = useParams();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,7 +95,18 @@ export function VideoTranslation() {
 
   // States
   const [projects, setProjects] = useState<TranslationProject[]>([]);
+  const projectsRef = useRef<TranslationProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+
+  // Keep projectsRef in sync with projects state synchronously
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  // Synchronously fetch the active project to avoid stale React closures
+  const getActiveProjectSync = () => {
+    return projectsRef.current.find(p => p.id === (activeProjectId || '')) || null;
+  };
   const [currentTab, setCurrentTab] = useState<'upload' | 'subtitle' | 'tts' | 'lipsync'>('upload');
   const [consoleExpanded, setConsoleExpanded] = useState(true);
   const [comfyAddress, setComfyAddress] = useState('127.0.0.1:8188');
@@ -270,81 +293,634 @@ export function VideoTranslation() {
   // Helper to add logs to specific project
   const addLog = (projectId: string, message: string) => {
     const timestamp = new Date().toISOString().substring(11, 19);
-    setProjects(prev => prev.map(p => {
-      if (p.id !== projectId) return p;
-      return {
-        ...p,
-        logs: [...p.logs, `[${timestamp}] ${message}`]
-      };
-    }));
+    setProjects(prev => {
+      const nextProjects = prev.map(p => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          logs: [...p.logs, `[${timestamp}] ${message}`]
+        };
+      });
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
   };
 
   // Helper to update specific project state
   const updateProject = (projectId: string, updates: Partial<TranslationProject>) => {
-    setProjects(prev => prev.map(p => {
-      if (p.id !== projectId) return p;
-      return { ...p, ...updates };
-    }));
+    // Get the current list from our syncd ref
+    const existingProj = projectsRef.current.find(p => p.id === projectId);
+    
+    // Construct the updated project synchronously to avoid closure and React state batching timing bugs
+    let latestProj: TranslationProject | null = null;
+    if (existingProj) {
+      latestProj = { ...existingProj, ...updates };
+    }
+
+    setProjects(prev => {
+      const nextProjects = prev.map(p => {
+        if (p.id !== projectId) return p;
+        latestProj = { ...p, ...updates };
+        return latestProj;
+      });
+      projectsRef.current = nextProjects;
+      return nextProjects;
+    });
+
+    // Fallback if projectsRef.current was empty but state already has it (race condition safety)
+    if (!latestProj) {
+      const stateProj = projects.find(p => p.id === projectId);
+      if (stateProj) {
+        latestProj = { ...stateProj, ...updates };
+      }
+    }
+
+    console.log(`##latestProj:` + JSON.stringify(latestProj));
+
+    // Automatically synchronize state updates to internal SQLite DB tables so all downstream views match
+    setTimeout(async () => {
+      if (latestProj) {
+        try {
+          const currentProj: TranslationProject = latestProj;
+          const translationState = {
+            videoName: currentProj.videoName,
+            videoSize: currentProj.videoSize,
+            videoUrl: currentProj.videoUrl,
+            coverUrl: currentProj.coverUrl,
+            audioUrl: currentProj.audioUrl,
+            audioDuration: currentProj.audioDuration,
+            srtOriginal: currentProj.srtOriginal,
+            srtTranslated: currentProj.srtTranslated,
+            dialogues: currentProj.dialogues,
+            translatedDialogues: currentProj.translatedDialogues,
+            synthesizedAudioUrl: currentProj.synthesizedAudioUrl,
+            outputVideoUrl: currentProj.outputVideoUrl,
+            status: currentProj.status,
+            logs: currentProj.logs,
+            selectedVoice,
+            sourceLang,
+            targetLang,
+            ttsSpeed,
+            lipsyncModel
+          };
+          console.log(`##projectId:${projectId}`);
+
+          await setSetting(`video_translation_data_${projectId}`, JSON.stringify(translationState));
+
+          await updateCoreProject(projectId, {
+            coverImagePath: currentProj.coverUrl || undefined,
+            status: currentProj.status === 'completed' ? ProjectStatus.COMPLETED : ProjectStatus.EDITING,
+            prompt: currentProj.srtOriginal 
+              ? currentProj.srtOriginal.substring(0, 150) + "..." 
+              : `Video Translation Project configured with preset Voice [${selectedVoice}].`
+          });
+        } catch (err) {
+          console.error("Autosave in updateProject failed:", err);
+        }
+      }
+    }, 0);
   };
 
-  // Handle video selection (from empty state or add button)
-  const handleVideosSelect = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const ensureNativeVideoUrl = async (projectId: string, url: string): Promise<string> => {
+    if (!isTauri || !url || !url.startsWith('blob:')) {
+      return url;
+    }
+    try {
+      addLog(projectId, `[Tauri Bridge] 检测到浏览器Blob格式资源，正在后台自动缓存至项目本地磁盘分区中...`);
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
+      const workspacePath = await getSetting('workspace_path') || '';
+      const videoDir = await join(workspacePath, projectId, 'video');
+      if (!(await exists(videoDir))) {
+        await mkdir(videoDir, { recursive: true });
+      }
+      const localPath = await join(videoDir, 'original_video.mp4');
+      await writeFile(localPath, new Uint8Array(arrayBuffer));
+      
+      // Update state and DB synchronously
+      updateProject(projectId, { videoUrl: localPath });
+      addLog(projectId, `[Tauri Bridge] 成功缓存二进制流到本地目录: ${localPath}`);
+      return localPath;
+    } catch (err: any) {
+      console.error("Failed to translate blob to native path:", err);
+      addLog(projectId, `[Tauri Bridge] 无法在后台写入视频文件，调用报错: ${err.message || err}`);
+      return url;
+    }
+  };
+
+  const openNativeVideoPicker = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: false,
+        multiple: true,
+        filters: [{
+          name: 'Video',
+          extensions: ['mp4', 'mov', 'mkv', 'avi']
+        }],
+        title: '选择本地视频 (Select Local Videos)'
+      });
+
+      if (!selected) return;
+
+      const filePaths = Array.isArray(selected) ? selected : [selected];
+      if (filePaths.length === 0) return;
+
+      await handleSelectedPaths(filePaths);
+    } catch (err) {
+      console.error("Failed to open tauri video picker:", err);
+    }
+  };
+
+  const handleSelectedPaths = async (paths: string[]) => {
+    const workspacePath = await getSetting('workspace_path') || '';
     
-    // Check if we are running in nested project detail mode
-    const projId = routeProjectId || activeProjectId;
-    if (projId) {
-      const file = files[0];
-      if (!file.type.startsWith('video/')) return;
-      
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-      const url = URL.createObjectURL(file);
-      
-      setProjects(prev => prev.map(p => {
-        if (p.id === projId) {
+    // If routeProjectId is defined, we are in a specific routed project detail view
+    if (routeProjectId) {
+      const routedProject = projects.find(p => p.id === routeProjectId);
+      const isRoutedProjectVideoless = !routedProject || !routedProject.videoUrl;
+
+      const newProjectsToAdd: TranslationProject[] = [];
+
+      for (let i = 0; i < paths.length; i++) {
+        const filePath = paths[i];
+        const videoName = filePath.split(/[/\\]/).pop() || 'video.mp4';
+
+        if (i === 0 && isRoutedProjectVideoless) {
           const timestamp = new Date().toISOString().substring(11, 19);
-          return {
-            ...p,
-            videoName: file.name,
-            videoSize: `${sizeMB} MB`,
-            videoUrl: url,
+          
+          setProjects(prev => {
+            const hasProject = prev.some(p => p.id === routeProjectId);
+            if (!hasProject) {
+              const newProj: TranslationProject = {
+                id: routeProjectId,
+                videoName,
+                videoSize: "Local Disk",
+                videoUrl: filePath,
+                coverUrl: null,
+                audioUrl: null,
+                audioDuration: 0,
+                srtOriginal: "",
+                srtTranslated: "",
+                dialogues: [],
+                translatedDialogues: [],
+                synthesizedAudioUrl: null,
+                outputVideoUrl: null,
+                status: 'idle',
+                logs: [`[${timestamp}] [Tauri] Registered local original video: ${filePath}`]
+              };
+              return [newProj];
+            } else {
+              return prev.map(p => {
+                if (p.id === routeProjectId) {
+                  return {
+                    ...p,
+                    videoName,
+                    videoSize: "Local Disk",
+                    videoUrl: filePath,
+                    status: 'idle',
+                    logs: [...p.logs, `[${timestamp}] [Tauri] Bound local original video path: ${filePath}`]
+                  };
+                }
+                return p;
+              });
+            }
+          });
+
+          // Sync saving to DB first
+          await updateCoreProject(routeProjectId, {
+            projectPath: filePath,
+            name: videoName
+          });
+
+          const translationState = {
+            videoName,
+            videoSize: "Local Disk",
+            videoUrl: filePath,
+            coverUrl: null,
+            audioUrl: null,
+            audioDuration: 0,
+            srtOriginal: "",
+            srtTranslated: "",
+            dialogues: [],
+            translatedDialogues: [],
+            synthesizedAudioUrl: null,
+            outputVideoUrl: null,
             status: 'idle',
-            logs: [...p.logs, `[${timestamp}] [LOG] Loaded local original video: ${file.name} (${sizeMB} MB)`]
+            logs: [`[${timestamp}] [Tauri] Bound local original video path: ${filePath}`],
+            selectedVoice,
+            sourceLang,
+            targetLang,
+            ttsSpeed,
+            lipsyncModel
           };
+
+          await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(translationState));
+          performCoverFrameExtractionOnLoad(routeProjectId, filePath);
+        } else {
+          // Additional files or if routed project already has a video
+          const newId = crypto.randomUUID();
+          try {
+            await createProject(
+              videoName,
+              ProjectStatus.EDITING,
+              `Imported video translation project for ${videoName}.`,
+              SceneType.VIDEO_TRANSLATION,
+              filePath,
+              newId
+            );
+
+            const newProj: TranslationProject = {
+              id: newId,
+              videoName,
+              videoSize: "Local Disk",
+              videoUrl: filePath,
+              coverUrl: null,
+              audioUrl: null,
+              audioDuration: 0,
+              srtOriginal: "",
+              srtTranslated: "",
+              dialogues: [],
+              translatedDialogues: [],
+              synthesizedAudioUrl: null,
+              outputVideoUrl: null,
+              status: 'idle',
+              logs: [`[Tauri] Registered local video: ${filePath}`]
+            };
+
+            const translationState = {
+              videoName,
+              videoSize: "Local Disk",
+              videoUrl: filePath,
+              coverUrl: null,
+              audioUrl: null,
+              audioDuration: 0,
+              srtOriginal: "",
+              srtTranslated: "",
+              dialogues: [],
+              translatedDialogues: [],
+              synthesizedAudioUrl: null,
+              outputVideoUrl: null,
+              status: 'idle',
+              logs: [`[Tauri] Registered local video: ${filePath}`],
+              selectedVoice,
+              sourceLang,
+              targetLang,
+              ttsSpeed,
+              lipsyncModel
+            };
+
+            await setSetting(`video_translation_data_${newId}`, JSON.stringify(translationState));
+            newProjectsToAdd.push(newProj);
+          } catch (createErr) {
+            console.error("Failed to create new project in DB:", createErr);
+          }
         }
-        return p;
-      }));
-      performCoverFrameExtractionOnLoad(projId, url);
+      }
+
+      if (newProjectsToAdd.length > 0) {
+        setProjects(prev => {
+          const combined = [...prev, ...newProjectsToAdd];
+          return combined;
+        });
+        
+        newProjectsToAdd.forEach(p => {
+          performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
+        });
+      }
+
       return;
     }
 
+    // Workstation mode: always ADD these files as new project instances!
+    const newProjects: TranslationProject[] = [];
+    for (const filePath of paths) {
+      const videoName = filePath.split(/[/\\]/).pop() || 'video.mp4';
+      const id = crypto.randomUUID();
+      
+      try {
+        await createProject(
+          videoName,
+          ProjectStatus.EDITING,
+          `Imported video translation project for ${videoName}.`,
+          SceneType.VIDEO_TRANSLATION,
+          filePath,
+          id
+        );
+
+        const newProj: TranslationProject = {
+          id,
+          videoName,
+          videoSize: "Local Disk",
+          videoUrl: filePath,
+          coverUrl: null,
+          audioUrl: null,
+          audioDuration: 0,
+          srtOriginal: "",
+          srtTranslated: "",
+          dialogues: [],
+          translatedDialogues: [],
+          synthesizedAudioUrl: null,
+          outputVideoUrl: null,
+          status: 'idle',
+          logs: [`[Tauri] Registered local video: ${filePath}`]
+        };
+
+        const translationState = {
+          videoName,
+          videoSize: "Local Disk",
+          videoUrl: filePath,
+          coverUrl: null,
+          audioUrl: null,
+          audioDuration: 0,
+          srtOriginal: "",
+          srtTranslated: "",
+          dialogues: [],
+          translatedDialogues: [],
+          synthesizedAudioUrl: null,
+          outputVideoUrl: null,
+          status: 'idle',
+          logs: [`[Tauri] Registered local video: ${filePath}`],
+          selectedVoice,
+          sourceLang,
+          targetLang,
+          ttsSpeed,
+          lipsyncModel
+        };
+
+        await setSetting(`video_translation_data_${id}`, JSON.stringify(translationState));
+        newProjects.push(newProj);
+      } catch (err) {
+        console.error("Failed to register project in workstation mode:", err);
+      }
+    }
+
+    if (newProjects.length > 0) {
+      setProjects(prev => {
+        const combined = [...prev, ...newProjects];
+        if (!activeProjectId) {
+          setActiveProjectId(newProjects[0].id);
+        }
+        return combined;
+      });
+      newProjects.forEach(p => {
+        performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
+      });
+    }
+  };
+
+  const handleImportClick = async () => {
+    if (isTauri) {
+      await openNativeVideoPicker();
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleAddMoreClick = async () => {
+    if (isTauri) {
+      await openNativeVideoPicker();
+    } else {
+      addMoreInputRef.current?.click();
+    }
+  };
+
+  // Handle video selection (from empty state or add button)
+  const handleVideosSelect = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    
+    // If routeProjectId is defined, we are in a specific project's detail view
+    if (routeProjectId) {
+      const routedProject = projects.find(p => p.id === routeProjectId);
+      const isRoutedProjectVideoless = !routedProject || !routedProject.videoUrl;
+
+      const newProjectsToAdd: TranslationProject[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (!isVideoFile(file)) continue;
+
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        let url = URL.createObjectURL(file);
+        if (isTauri && (file as any).path) {
+          url = (file as any).path;
+        }
+
+        if (i === 0 && isRoutedProjectVideoless) {
+          const timestamp = new Date().toISOString().substring(11, 19);
+          
+          setProjects(prev => {
+            const hasProject = prev.some(p => p.id === routeProjectId);
+            if (!hasProject) {
+              const newProj: TranslationProject = {
+                id: routeProjectId,
+                videoName: file.name,
+                videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+                videoUrl: url,
+                coverUrl: null,
+                audioUrl: null,
+                audioDuration: 0,
+                srtOriginal: "",
+                srtTranslated: "",
+                dialogues: [],
+                translatedDialogues: [],
+                synthesizedAudioUrl: null,
+                outputVideoUrl: null,
+                status: 'idle',
+                logs: [`[${timestamp}] [LOG] Initialized video translation project: ${file.name} (${sizeMB} MB)`]
+              };
+              return [newProj];
+            } else {
+              return prev.map(p => {
+                if (p.id === routeProjectId) {
+                  return {
+                    ...p,
+                    videoName: file.name,
+                    videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+                    videoUrl: url,
+                    status: 'idle',
+                    logs: [...p.logs, `[${timestamp}] [LOG] Loaded local original video: ${file.name} (${sizeMB} MB)`]
+                  };
+                }
+                return p;
+              });
+            }
+          });
+
+          // Sync saving to DB first
+          await updateCoreProject(routeProjectId, {
+            name: file.name,
+            projectPath: url
+          });
+
+          const translationState = {
+            videoName: file.name,
+            videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+            videoUrl: url,
+            coverUrl: null,
+            audioUrl: null,
+            audioDuration: 0,
+            srtOriginal: "",
+            srtTranslated: "",
+            dialogues: [],
+            translatedDialogues: [],
+            synthesizedAudioUrl: null,
+            outputVideoUrl: null,
+            status: 'idle',
+            logs: [`[${timestamp}] [LOG] Loaded local original video: ${file.name}`],
+            selectedVoice,
+            sourceLang,
+            targetLang,
+            ttsSpeed,
+            lipsyncModel
+          };
+
+          await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(translationState));
+          performCoverFrameExtractionOnLoad(routeProjectId, url);
+        } else {
+          // Additional files or if routed project already has a video
+          const newId = crypto.randomUUID();
+          try {
+            await createProject(
+              file.name,
+              ProjectStatus.EDITING,
+              `Imported video translation project for ${file.name}.`,
+              SceneType.VIDEO_TRANSLATION,
+              url,
+              newId
+            );
+
+            const newProj: TranslationProject = {
+              id: newId,
+              videoName: file.name,
+              videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+              videoUrl: url,
+              coverUrl: null,
+              audioUrl: null,
+              audioDuration: 0,
+              srtOriginal: "",
+              srtTranslated: "",
+              dialogues: [],
+              translatedDialogues: [],
+              synthesizedAudioUrl: null,
+              outputVideoUrl: null,
+              status: 'idle',
+              logs: [`[LOG] Loaded local video: ${file.name} (${sizeMB} MB)`]
+            };
+
+            const translationState = {
+              videoName: file.name,
+              videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+              videoUrl: url,
+              coverUrl: null,
+              audioUrl: null,
+              audioDuration: 0,
+              srtOriginal: "",
+              srtTranslated: "",
+              dialogues: [],
+              translatedDialogues: [],
+              synthesizedAudioUrl: null,
+              outputVideoUrl: null,
+              status: 'idle',
+              logs: [`[LOG] Loaded local video: ${file.name}`],
+              selectedVoice,
+              sourceLang,
+              targetLang,
+              ttsSpeed,
+              lipsyncModel
+            };
+
+            await setSetting(`video_translation_data_${newId}`, JSON.stringify(translationState));
+            newProjectsToAdd.push(newProj);
+          } catch (createErr) {
+            console.error("Failed to create new project in DB:", createErr);
+          }
+        }
+      }
+
+      if (newProjectsToAdd.length > 0) {
+        setProjects(prev => {
+          const combined = [...prev, ...newProjectsToAdd];
+          return combined;
+        });
+        
+        newProjectsToAdd.forEach(p => {
+          performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
+        });
+      }
+
+      return;
+    }
+
+    // Workstation mode: always ADD these files as new project instances!
     const newProjects: TranslationProject[] = [];
     
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      if (!file.type.startsWith('video/')) continue;
+      if (!isVideoFile(file)) continue;
       
       const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-      const url = URL.createObjectURL(file);
+      let url = URL.createObjectURL(file);
+      if (isTauri && (file as any).path) {
+        url = (file as any).path;
+      }
       const id = crypto.randomUUID();
       
-      newProjects.push({
-        id,
-        videoName: file.name,
-        videoSize: `${sizeMB} MB`,
-        videoUrl: url,
-        coverUrl: null,
-        audioUrl: null,
-        audioDuration: 0,
-        srtOriginal: "",
-        srtTranslated: "",
-        dialogues: [],
-        translatedDialogues: [],
-        synthesizedAudioUrl: null,
-        outputVideoUrl: null,
-        status: 'idle',
-        logs: [`[LOG] Loaded local video: ${file.name} (${sizeMB} MB)`]
-      });
+      try {
+        await createProject(
+          file.name,
+          ProjectStatus.EDITING,
+          `Imported video translation project for ${file.name}.`,
+          SceneType.VIDEO_TRANSLATION,
+          url,
+          id
+        );
+
+        const newProj: TranslationProject = {
+          id,
+          videoName: file.name,
+          videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+          videoUrl: url,
+          coverUrl: null,
+          audioUrl: null,
+          audioDuration: 0,
+          srtOriginal: "",
+          srtTranslated: "",
+          dialogues: [],
+          translatedDialogues: [],
+          synthesizedAudioUrl: null,
+          outputVideoUrl: null,
+          status: 'idle',
+          logs: [`[LOG] Loaded local video: ${file.name} (${sizeMB} MB)`]
+        };
+
+        const translationState = {
+          videoName: file.name,
+          videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+          videoUrl: url,
+          coverUrl: null,
+          audioUrl: null,
+          audioDuration: 0,
+          srtOriginal: "",
+          srtTranslated: "",
+          dialogues: [],
+          translatedDialogues: [],
+          synthesizedAudioUrl: null,
+          outputVideoUrl: null,
+          status: 'idle',
+          logs: [`[LOG] Loaded local video: ${file.name}`],
+          selectedVoice,
+          sourceLang,
+          targetLang,
+          ttsSpeed,
+          lipsyncModel
+        };
+
+        await setSetting(`video_translation_data_${id}`, JSON.stringify(translationState));
+        newProjects.push(newProj);
+      } catch (err) {
+        console.error("Failed to register project in workstation mode:", err);
+      }
     }
 
     if (newProjects.length > 0) {
@@ -365,6 +941,38 @@ export function VideoTranslation() {
 
   // Background cover extraction upon loading
   const performCoverFrameExtractionOnLoad = async (projectId: string, videoUrl: string) => {
+    if (isTauri) {
+      try {
+        const workspacePath = await getSetting('workspace_path') || '';
+        const ffmpegPath = await getSetting('ffmpeg_path') || '';
+        const coverDir = await join(workspacePath, projectId, 'cover');
+        
+        if (!(await exists(coverDir))) {
+          await mkdir(coverDir, { recursive: true });
+        }
+        const coverPath = await join(coverDir, 'cover.jpg');
+
+        let targetVideo = videoUrl;
+        if (targetVideo.startsWith('blob:')) {
+          targetVideo = await ensureNativeVideoUrl(projectId, targetVideo);
+        }
+
+        // Extract with custom Tauri command
+        await invoke('extract_video_cover', {
+          ffmpegPath,
+          videoPath: targetVideo,
+          outputDir: coverPath
+        });
+
+        updateProject(projectId, { coverUrl: coverPath });
+        addLog(projectId, `[Tauri] Extracted frame at 0.5s to cover: ${coverPath}`);
+      } catch (err: any) {
+        console.error("FFmpeg cover extraction failed:", err);
+        addLog(projectId, `[Tauri FFmpeg] Cover extraction failed: ${err.message || err}`);
+      }
+      return;
+    }
+
     try {
       const video = document.createElement('video');
       video.src = getAssetUrl(videoUrl);
@@ -427,12 +1035,34 @@ export function VideoTranslation() {
 
     try {
       if (isTauri) {
-        addLog(activeProject.id, "[Tauri Node] Attempting native ffmpeg capture process...");
-      }
+        addLog(activeProject.id, "[Tauri Command] Executing: ffmpeg -i input.mp4 -ss 00:00:00.500 -vframes 1 output.jpg -y");
+        const workspacePath = await getSetting('workspace_path') || '';
+        const ffmpegPath = await getSetting('ffmpeg_path') || '';
+        const coverDir = await join(workspacePath, activeProject.id, 'cover');
+        
+        if (!(await exists(coverDir))) {
+          await mkdir(coverDir, { recursive: true });
+        }
+        const coverPath = await join(coverDir, 'cover.jpg');
 
-      const coverDataUrl = await performCoverExtraction(activeProject.videoUrl);
-      updateProject(activeProject.id, { coverUrl: coverDataUrl, status: 'idle' });
-      addLog(activeProject.id, `Successfully completed cover frame extraction.`);
+        let targetVideo = activeProject.videoUrl;
+        if (targetVideo.startsWith('blob:')) {
+          targetVideo = await ensureNativeVideoUrl(activeProject.id, targetVideo);
+        }
+
+        await invoke('extract_video_cover', {
+          ffmpegPath,
+          videoPath: targetVideo,
+          outputDir: coverPath
+        });
+
+        updateProject(activeProject.id, { coverUrl: coverPath, status: 'idle' });
+        addLog(activeProject.id, `Successfully completed cover frame extraction. Saved to: ${coverPath}`);
+      } else {
+        const coverDataUrl = await performCoverExtraction(activeProject.videoUrl);
+        updateProject(activeProject.id, { coverUrl: coverDataUrl, status: 'idle' });
+        addLog(activeProject.id, `Successfully completed cover frame extraction.`);
+      }
     } catch (error: any) {
       addLog(activeProject.id, `Cover extraction error: ${error?.message || error}`);
       updateProject(activeProject.id, { status: 'failed' });
@@ -481,19 +1111,46 @@ export function VideoTranslation() {
     try {
       if (isTauri) {
         addLog(activeProject.id, "[Tauri Command] Executing: ffmpeg -i input.mp4 -q:a 0 -map a output.mp3 -y");
+        const workspacePath = await getSetting('workspace_path') || '';
+        const ffmpegPath = await getSetting('ffmpeg_path') || '';
+        const audioDir = await join(workspacePath, activeProject.id, 'audio');
+        
+        if (!(await exists(audioDir))) {
+          await mkdir(audioDir, { recursive: true });
+        }
+        const audioPath = await join(audioDir, 'audio.mp3');
+
+        let targetVideo = activeProject.videoUrl;
+        if (targetVideo.startsWith('blob:')) {
+          targetVideo = await ensureNativeVideoUrl(activeProject.id, targetVideo);
+        }
+
+        // Run custom Tauri command to extract audio track
+        await invoke('extract_video_audio', {
+          ffmpegPath,
+          videoPath: targetVideo,
+          outputPath: audioPath
+        });
+
+        updateProject(activeProject.id, { 
+          audioUrl: audioPath,
+          audioDuration: 15.0,
+          status: 'idle'
+        });
+        addLog(activeProject.id, `[Tauri] MP3 audio track extraction complete. Saved in local folder: ${audioPath}`);
+      } else {
+        addLog(activeProject.id, "Analyzing master audio tracks...");
+        await new Promise(r => setTimeout(r, 2000));
+        
+        const sampleAudioUrl = "https://actions.google.com/sounds/v1/ambiences/morning_birds.ogg"; 
+        updateProject(activeProject.id, { 
+          audioUrl: sampleAudioUrl,
+          audioDuration: 12.4,
+          status: 'idle'
+        });
+
+        addLog(activeProject.id, `MP3 audio track extraction complete. Track Duration: 12.4 seconds.`);
       }
-
-      addLog(activeProject.id, "Analyzing master audio tracks...");
-      await new Promise(r => setTimeout(r, 2000));
-      
-      const sampleAudioUrl = "https://actions.google.com/sounds/v1/ambiences/morning_birds.ogg"; 
-      updateProject(activeProject.id, { 
-        audioUrl: sampleAudioUrl,
-        audioDuration: 12.4,
-        status: 'idle'
-      });
-
-      addLog(activeProject.id, `MP3 audio track extraction complete. Track Duration: 12.4 seconds.`);
     } catch (e: any) {
       addLog(activeProject.id, `Error extracting audio: ${e?.message || e}`);
       updateProject(activeProject.id, { status: 'failed', errorMsg: e?.message });
@@ -511,30 +1168,94 @@ export function VideoTranslation() {
     addLog(activeProject.id, `ComfyUI Node configured: "UnifiedASRTranscribeNode" utilizing Qwen3-TTS Engine (1.7B Model)`);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 2500));
+      if (isTauri) {
+        let audioPath = activeProject.audioUrl;
+        
+        // Auto-extract if missing
+        if (!audioPath || !audioPath.endsWith('audio.mp3')) {
+          addLog(activeProject.id, "Local audio track not detected. Running FFmpeg audio extractor first...");
+          const workspacePath = await getSetting('workspace_path') || '';
+          const ffmpegPath = await getSetting('ffmpeg_path') || '';
+          const audioDir = await join(workspacePath, activeProject.id, 'audio');
+          if (!(await exists(audioDir))) {
+            await mkdir(audioDir, { recursive: true });
+          }
+          audioPath = await join(audioDir, 'audio.mp3');
 
-      const mockChineseSrt = `1
+          let targetVideo = activeProject.videoUrl;
+          if (targetVideo.startsWith('blob:')) {
+            targetVideo = await ensureNativeVideoUrl(activeProject.id, targetVideo);
+          }
+
+          await invoke('extract_video_audio', {
+            ffmpegPath,
+            videoPath: targetVideo,
+            outputPath: audioPath
+          });
+          updateProject(activeProject.id, { audioUrl: audioPath, audioDuration: 15.0 });
+          addLog(activeProject.id, `[Tauri] Automatically extracted MP3 track to: ${audioPath}`);
+        }
+
+        const workspacePath = await getSetting('workspace_path') || '';
+        const { comfy, extractComfyFilename } = await import('../lib/comfy');
+        
+        addLog(activeProject.id, "Synchronizing audio file metadata into ComfyUI workspace input partition...");
+        const inputAudioFile = await comfy.ensureLocalFileInComfyInput(audioPath, 'audio.mp3');
+        const finalFilename = extractComfyFilename(inputAudioFile);
+
+        addLog(activeProject.id, `Triggering Qwen3-ASR model transcription. Payload: ${finalFilename}`);
+        const transcribedSrt = await comfy.runASRQwen(finalFilename, (msg) => {
+          addLog(activeProject.id, `[ComfyUI ASR] ${msg}`);
+        });
+
+        // Save SRT to script folder!
+        const scriptDir = await join(workspacePath, activeProject.id, 'script');
+        if (!(await exists(scriptDir))) {
+          await mkdir(scriptDir, { recursive: true });
+        }
+        const srtPath = await join(scriptDir, 'timeline.srt');
+        await writeFile(srtPath, new TextEncoder().encode(transcribedSrt));
+        addLog(activeProject.id, `[Tauri] Dialogue timeline saved to: ${srtPath}`);
+
+        const parsedOrig = parseSRT(transcribedSrt);
+        updateProject(activeProject.id, { 
+          srtOriginal: transcribedSrt,
+          dialogues: parsedOrig,
+          status: 'idle'
+        });
+
+        addLog(activeProject.id, `Qwen3-ASR transcription successful. Identified ${parsedOrig.length} narrative segments.`);
+        setCurrentTab('subtitle');
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+
+        const welcomeText = vt('welcomeBatchWelcome');
+        const ltxText = vt('notificationLtxDesc');
+        const fastenText = vt('notificationFasten');
+
+        const mockLocalSrt = `1
 00:00:00,100 --> 00:00:02,800
-欢迎来到智能视频多轨翻译与合并工作站。
+${welcomeText}
 
 2
 00:00:03,100 --> 00:00:07,400
-我们将使用业界最先进的 LTX2.3 模型进行逼真的面部口型合成。
+${ltxText}
 
 3
 00:00:07,900 --> 00:00:11,500
-请系好安全带，马上为您呈现电影级别的翻译短片。`;
+${fastenText}`;
 
-      const parsedOrig = parseSRT(mockChineseSrt);
+        const parsedOrig = parseSRT(mockLocalSrt);
 
-      updateProject(activeProject.id, { 
-        srtOriginal: mockChineseSrt,
-        dialogues: parsedOrig,
-        status: 'idle'
-      });
+        updateProject(activeProject.id, { 
+          srtOriginal: mockLocalSrt,
+          dialogues: parsedOrig,
+          status: 'idle'
+        });
 
-      addLog(activeProject.id, "Qwen3-ASR transcription successful. Identified 3 narrative segments.");
-      setCurrentTab('subtitle');
+        addLog(activeProject.id, "Qwen3-ASR transcription successful. Identified 3 narrative segments.");
+        setCurrentTab('subtitle');
+      }
     } catch (e: any) {
       addLog(activeProject.id, `ASR compilation error: ${e?.message || e}`);
       updateProject(activeProject.id, { status: 'failed', errorMsg: e?.message });
@@ -545,16 +1266,20 @@ export function VideoTranslation() {
 
   // 5. Translate Subtitles to English
   const translateSubtitles = async () => {
-    if (!activeProject || activeProject.dialogues.length === 0) return;
+    const freshProject = getActiveProjectSync();
+    if (!freshProject || freshProject.dialogues.length === 0) {
+      alert(vt('alertGenerateOriginal'));
+      return;
+    }
     setIsProcessing(true);
-    updateProject(activeProject.id, { status: 'translating' });
-    addLog(activeProject.id, `Translating text segments to ${targetLang} using Gemini-3.5-Flash...`);
+    updateProject(freshProject.id, { status: 'translating' });
+    addLog(freshProject.id, `Translating text segments to ${targetLang} using Gemini-3.5-Flash...`);
 
     try {
       const updatedLines: SubtitleDialogueLine[] = [];
       
-      for (const line of activeProject.dialogues) {
-        addLog(activeProject.id, `Translating segment ${line.index}: "${line.text}"`);
+      for (const line of freshProject.dialogues) {
+        addLog(freshProject.id, `Translating segment ${line.index}: "${line.text}"`);
         const result = await translateTextGemini(line.text, targetLang);
         updatedLines.push({
           ...line,
@@ -568,25 +1293,27 @@ export function VideoTranslation() {
         return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
       }).join('\n');
 
-      updateProject(activeProject.id, { 
+      updateProject(freshProject.id, { 
         srtTranslated: compiledSrt,
         translatedDialogues: updatedLines,
         status: 'idle'
       });
 
-      addLog(activeProject.id, "Successfully finalized target translation and structured localized subtitles.");
+      addLog(freshProject.id, "Successfully finalized target translation and structured localized subtitles.");
     } catch (e: any) {
-      addLog(activeProject.id, `Translation failed, loading fallback: ${e?.message}`);
-      const fallbackEnglish = [
-        { index: 1, startSec: 0.1, endSec: 2.8, text: "Welcome to the Intelligent Video Multi-track Translation and merging workstation." },
-        { index: 2, startSec: 3.1, endSec: 7.4, text: "We will use the industry's most advanced LTX 2.3 model for realistic facial lip synchronization." },
-        { index: 3, startSec: 7.9, endSec: 11.5, text: "Fasten your seatbelts, we are about to present you a cinematic translated short video." }
-      ];
-      updateProject(activeProject.id, { 
-        translatedDialogues: fallbackEnglish,
-        srtTranslated: fallbackEnglish.map(d => `${d.index}\n${formatSRTTime(d.startSec)} --> ${formatSRTTime(d.endSec)}\n${d.text}`).join('\n\n'),
-        status: 'idle'
-      });
+      if (freshProject) {
+        addLog(freshProject.id, `Translation failed, loading fallback: ${e?.message}`);
+        const fallbackEnglish = [
+          { index: 1, startSec: 0.1, endSec: 2.8, text: "Welcome to the Intelligent Video Multi-track Translation and merging workstation." },
+          { index: 2, startSec: 3.1, endSec: 7.4, text: "We will use the industry's most advanced LTX 2.3 model for realistic facial lip synchronization." },
+          { index: 3, startSec: 7.9, endSec: 11.5, text: "Fasten your seatbelts, we are about to present you a cinematic translated short video." }
+        ];
+        updateProject(freshProject.id, { 
+          translatedDialogues: fallbackEnglish,
+          srtTranslated: fallbackEnglish.map(d => `${d.index}\n${formatSRTTime(d.startSec)} --> ${formatSRTTime(d.endSec)}\n${d.text}`).join('\n\n'),
+          status: 'idle'
+        });
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -602,38 +1329,71 @@ export function VideoTranslation() {
 
   // 6. Generate New Audio Stream using Qwen3-TTS
   const generateNewTTSAudio = async () => {
-    if (!activeProject || activeProject.translatedDialogues.length === 0) return;
+    const freshProject = getActiveProjectSync();
+    if (!freshProject || freshProject.translatedDialogues.length === 0) {
+      alert(vt('alertGenerateTranslation'));
+      return;
+    }
     setIsProcessing(true);
-    updateProject(activeProject.id, { status: 'synthesizing_tts' });
-    addLog(activeProject.id, `Synthesizing translations to speech using voice preset [${selectedVoice}]...`);
+    updateProject(freshProject.id, { status: 'synthesizing_tts' });
+    addLog(freshProject.id, `Synthesizing translations to speech using voice preset [${selectedVoice}]...`);
 
     try {
-      addLog(activeProject.id, "Aggregating dialogues into single narration sequence...");
-      const textToSynthesize = activeProject.translatedDialogues.map(d => d.text).join(' ');
+      addLog(freshProject.id, "Aggregating dialogues into single narration sequence...");
+      const textToSynthesize = freshProject.translatedDialogues.map(d => d.text).join(' ');
       
-      if (selectedVoice === 'Volcengine-Clone') {
-        addLog(activeProject.id, `[Volcengine Call] Sending speech task to Volcengine Voice Clone App...`);
-        addLog(activeProject.id, `[Volcengine Call] Accessing Endpoint: ${volcEndpointId || 'ep-default'}, appid: ${volcAppId || 'V_01'}`);
-        addLog(activeProject.id, `[Volcengine Call] Invoking premium voice identity: ${volcVoiceId || 'custom-voice-1'}`);
+      if (isTauri) {
+        addLog(freshProject.id, "Constructing native paths and ensuring audio workspace folders...");
+        const workspacePath = await getSetting('workspace_path') || '';
+        const audioDir = await join(workspacePath, freshProject.id, 'audio');
+        
+        if (!(await exists(audioDir))) {
+          await mkdir(audioDir, { recursive: true });
+        }
+        const audioPath = await join(audioDir, 'audio_translated.mp3');
+ 
+        addLog(freshProject.id, `Dispatching Comfy Qwen3-TTS job for text: "${textToSynthesize.substring(0, 80)}..."`);
+        const { comfy } = await import('../lib/comfy');
+        const savedFile = await comfy.runQwenTTSVoiceAllInOneRust(
+          textToSynthesize,
+          "vibrant expressive voice speaker", // voice design prompt
+          audioPath,
+          targetLang || "English",
+          (msg) => { addLog(freshProject.id, `[Qwen3-TTS] ${msg}`); }
+        );
+ 
+        updateProject(freshProject.id, { 
+          synthesizedAudioUrl: savedFile,
+          status: 'idle'
+        });
+ 
+        addLog(freshProject.id, `Successfully generated translated voice file Qwen TTS: ${savedFile}.`);
+        setCurrentTab('tts');
       } else {
-        addLog(activeProject.id, `Sending to Qwen3-TTS (Qwen3TTSVoiceClone model)...`);
+        if (selectedVoice === 'Volcengine-Clone') {
+          addLog(freshProject.id, `[Volcengine Call] Sending speech task to Volcengine Voice Clone App...`);
+          addLog(freshProject.id, `[Volcengine Call] Accessing Endpoint: ${volcEndpointId || 'ep-default'}, appid: ${volcAppId || 'V_01'}`);
+          addLog(freshProject.id, `[Volcengine Call] Invoking premium voice identity: ${volcVoiceId || 'custom-voice-1'}`);
+        } else {
+          addLog(freshProject.id, `Sending to Qwen3-TTS (Qwen3TTSVoiceClone model)...`);
+        }
+        
+        const base64Audio = await synthesizeSpeechGemini(textToSynthesize, selectedVoice === 'Volcengine-Clone' ? 'Kore' : selectedVoice);
+        const audioBlob = new Blob([Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0))], { type: 'audio/mp3' });
+        const synthesizedUrl = URL.createObjectURL(audioBlob);
+ 
+        updateProject(freshProject.id, { 
+          synthesizedAudioUrl: synthesizedUrl,
+          status: 'idle'
+        });
+ 
+        addLog(freshProject.id, "Successfully generated translated voice file voice_translated.mp3.");
+        setCurrentTab('tts');
       }
-      
-      const base64Audio = await synthesizeSpeechGemini(textToSynthesize, selectedVoice === 'Volcengine-Clone' ? 'Kore' : selectedVoice);
-      const audioBlob = new Blob([Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0))], { type: 'audio/mp3' });
-      const synthesizedUrl = URL.createObjectURL(audioBlob);
-
-      updateProject(activeProject.id, { 
-        synthesizedAudioUrl: synthesizedUrl,
-        status: 'idle'
-      });
-
-      addLog(activeProject.id, "Successfully generated translated voice file voice_translated.mp3.");
-      setCurrentTab('tts');
     } catch (e: any) {
-      addLog(activeProject.id, `TTS Audio generation failed, loading local cloner fallback: ${e?.message}`);
+      addLog(freshProject.id, `TTS Audio generation failed, loading local cloner fallback: ${e?.message}`);
       const sampleTTS = "https://actions.google.com/sounds/v1/ambiences/coffee_shop_ambience.ogg";
-      updateProject(activeProject.id, { 
+      updateProject(freshProject.id, { 
         synthesizedAudioUrl: sampleTTS, 
         status: 'idle' 
       });
@@ -644,37 +1404,81 @@ export function VideoTranslation() {
 
   // 7. LTX 2.3 LipSync Video Synthesis
   const runLTXLipsync = async () => {
-    if (!activeProject) return;
+    const freshProject = getActiveProjectSync();
+    if (!freshProject) return;
     setIsProcessing(true);
-    updateProject(activeProject.id, { status: 'lipsyncing' });
-    addLog(activeProject.id, `Initializing LTX2.3 Spatial Video LipSync Pipeline with audio cloner...`);
-    addLog(activeProject.id, `Targeting ComfyUI server address: ${comfyAddress}`);
+    updateProject(freshProject.id, { status: 'lipsyncing' });
+    addLog(freshProject.id, `Initializing LatenSync 1.5 LipSync Pipeline...`);
+    addLog(freshProject.id, `Targeting ComfyUI server address: ${comfyAddress}`);
 
     try {
-      addLog(activeProject.id, "Compiling translated timestamps into ASS (Advanced SubStation Alpha) format...");
-      const assSubtitlesContent = compileDialogueToASS(activeProject.translatedDialogues, {
-        ...DEFAULT_SUBTITLE_STYLE,
-        fontSize: 48,
-        primaryColor: '#FFFFFF',
-        secondaryColor: '#FF5D22'
-      });
-      addLog(activeProject.id, "ASS file successfully compiled and package manifest created.");
+      if (isTauri) {
+        const workspacePath = await getSetting('workspace_path') || '';
+        const { comfy, extractComfyFilename } = await import('../lib/comfy');
+        
+        let videoFile = freshProject.videoUrl;
+        let audioFile = freshProject.synthesizedAudioUrl;
 
-      addLog(activeProject.id, "Sending payload parameters to LTX2.3 Sampling Decoder...");
-      addLog(activeProject.id, `Applying IC-LoRA union control node with strength parameters.`);
-      
-      await new Promise(resolve => setTimeout(resolve, 3500));
+        if (!audioFile) {
+          throw new Error("No synthesized audio narration found! Please generate TTS vocals first.");
+        }
 
-      updateProject(activeProject.id, {
-        outputVideoUrl: activeProject.videoUrl, 
-        status: 'completed'
-      });
+        if (videoFile.startsWith('blob:')) {
+          videoFile = await ensureNativeVideoUrl(freshProject.id, videoFile);
+        }
 
-      addLog(activeProject.id, "Cinematic rendering queue complete! Video translation successfully synchronized with original lips.");
-      setCurrentTab('lipsync');
+        addLog(freshProject.id, "Ensuring video file layout in ComfyUI workspace input partition...");
+        const inputVideo = await comfy.ensureLocalFileInComfyInput(videoFile, 'video.mp4');
+        const finalVideoName = extractComfyFilename(inputVideo);
+
+        addLog(freshProject.id, "Ensuring translated audio layout in ComfyUI workspace input partition...");
+        const inputAudio = await comfy.ensureLocalFileInComfyInput(audioFile, 'audio_translated.mp3');
+        const finalAudioName = extractComfyFilename(inputAudio);
+
+        const outPath = await join(workspacePath, freshProject.id, 'output_lipsync.mp4');
+        addLog(freshProject.id, `Invoking latensync1.5_comfyui_basic pipeline node in ComfyUI workspace...`);
+        addLog(freshProject.id, `Target native save path configured: ${outPath}`);
+
+        const savedResultVideo = await comfy.runLatentSync15ComfyUIBasicRust(
+          finalVideoName,
+          finalAudioName,
+          outPath,
+          (msg) => { addLog(freshProject.id, `[LatenSync 1.5] ${msg}`); }
+        );
+
+        updateProject(freshProject.id, {
+          outputVideoUrl: savedResultVideo, 
+          status: 'completed'
+        });
+
+        addLog(freshProject.id, "Cinematic rendering queue complete! Video translation successfully synchronized with original lips via LatenSync 1.5.");
+        setCurrentTab('lipsync');
+      } else {
+        addLog(freshProject.id, "Compiling translated timestamps into ASS (Advanced SubStation Alpha) format...");
+        const assSubtitlesContent = compileDialogueToASS(freshProject.translatedDialogues, {
+          ...DEFAULT_SUBTITLE_STYLE,
+          fontSize: 48,
+          primaryColor: '#FFFFFF',
+          secondaryColor: '#FF5D22'
+        });
+        addLog(freshProject.id, "ASS file successfully compiled and package manifest created.");
+
+        addLog(freshProject.id, "Sending payload parameters to LTX2.3 Sampling Decoder...");
+        addLog(freshProject.id, `Applying IC-LoRA union control node with strength parameters.`);
+        
+        await new Promise(resolve => setTimeout(resolve, 3500));
+
+        updateProject(freshProject.id, {
+          outputVideoUrl: freshProject.videoUrl, 
+          status: 'completed'
+        });
+
+        addLog(freshProject.id, "Cinematic rendering queue complete! Video translation successfully synchronized with original lips.");
+        setCurrentTab('lipsync');
+      }
     } catch (e: any) {
-      addLog(activeProject.id, `Lipsync rendering error: ${e?.message}`);
-      updateProject(activeProject.id, { status: 'failed', errorMsg: e?.message });
+      addLog(freshProject.id, `Lipsync rendering error: ${e?.message || e}`);
+      updateProject(freshProject.id, { status: 'failed', errorMsg: e?.message });
     } finally {
       setIsProcessing(false);
     }
@@ -712,7 +1516,9 @@ export function VideoTranslation() {
         updateProject(proj.id, { status: 'transcribing' });
         addLog(proj.id, "BATCH QUEUE: Dispatching voice tracks to Qwen3-ASR model...");
         await new Promise(r => setTimeout(r, 2000));
-        const mockChineseSrt = `1\n00:00:00,100 --> 00:00:04,500\n欢迎使用批量智能视频口型同步翻译。\n\n2\n00:00:04,800 --> 00:00:10,200\n系统将会全自动衔接翻译与配音。`;
+        const welcomeBatch = vt('welcomeBatchWelcome');
+        const welcomeSubtitle = vt('welcomeBatchSubtitle');
+        const mockChineseSrt = `1\n00:00:00,100 --> 00:00:04,500\n${welcomeBatch}\n\n2\n00:00:04,800 --> 00:00:10,200\n${welcomeSubtitle}`;
         const dialogues = parseSRT(mockChineseSrt);
         updateProject(proj.id, { srtOriginal: mockChineseSrt, dialogues });
 
@@ -791,8 +1597,8 @@ export function VideoTranslation() {
             <Sparkles className="w-4 h-4 text-brand-primary" />
             <span>AI Core Suite</span>
           </div>
-          <h2 className="editorial-title text-5xl mb-3">多视频翻译工作站</h2>
-          <p className="text-gray-500 font-medium tracking-tight">导入多视频通过 Qwen3 语音识别及翻译，运用 LTX-2.3 LipSync 合成高保真翻译影片。</p>
+          <h2 className="editorial-title text-5xl mb-3">{vt('timelineTitle')}</h2>
+          <p className="text-gray-500 font-medium tracking-tight">{vt('timelineDesc')}</p>
         </div>
         <div className="flex items-center gap-3">
           {activeProject && (
@@ -801,7 +1607,7 @@ export function VideoTranslation() {
               className="desktop-button-primary bg-emerald-600 hover:bg-emerald-700 border-none py-2.5 text-black flex items-center gap-2 shadow-lg hover:scale-[1.02] active:scale-95 transition-all text-xs font-bold"
             >
               <Save className="w-4 h-4 text-black" />
-              保存到 AI CORE SUITE
+              {vt('saveToSuite')}
             </button>
           )}
           {projects.length > 0 && (
@@ -816,7 +1622,7 @@ export function VideoTranslation() {
                 ) : (
                   <PlayCircle className="w-4 h-4 text-black" />
                 )}
-                一键批量运行整个队列
+                {vt('runBatchQueue')}
               </button>
               <button 
                 onClick={() => {
@@ -827,7 +1633,7 @@ export function VideoTranslation() {
                 className="desktop-button-secondary py-2.5"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                清空队列
+                {vt('clearQueue')}
               </button>
             </>
           )}
@@ -837,7 +1643,7 @@ export function VideoTranslation() {
       {projects.length === 0 ? (
         // Empty State File Drag & Drop Trigger Area
         <div 
-          onClick={() => fileInputRef.current?.click()}
+          onClick={handleImportClick}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -858,9 +1664,9 @@ export function VideoTranslation() {
           <div className="p-6 bg-brand-primary/10 rounded-full mb-6">
             <Upload className="w-12 h-12 text-brand-primary animate-pulse" />
           </div>
-          <h3 className="font-semibold text-xl text-white mb-2">选择或拖拽多个本地视频</h3>
+          <h3 className="font-semibold text-xl text-white mb-2">{vt('dragAndDropTitle')}</h3>
           <p className="text-gray-500 text-sm max-w-lg text-center leading-relaxed">
-            支持拖入多个 MP4, MOV, MKV 后期视频轨。系统将在后台为每部视频自动进行首帧智能材质提取，并支持大批量的全流程自动翻译与口型覆盖。
+            {vt('dragAndDropDesc')}
           </p>
         </div>
       ) : (
@@ -872,14 +1678,14 @@ export function VideoTranslation() {
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
               <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
                 <FileVideo className="w-4 h-4 text-brand-primary" />
-                导入视频队列 ({projects.length})
+                {vt('importQueue')} ({projects.length})
               </h3>
               
               {/* Simple Add button */}
               <button 
-                onClick={() => addMoreInputRef.current?.click()}
+                onClick={handleAddMoreClick}
                 className="p-1 hover:bg-white/10 rounded text-brand-primary transition-all"
-                title="导入更多视频"
+                title={vt('importMore')}
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -936,7 +1742,7 @@ export function VideoTranslation() {
                       <button
                         onClick={(e) => removeProject(proj.id, e)}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                        title="移出队列"
+                        title={vt('removeFromQueue')}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -957,7 +1763,7 @@ export function VideoTranslation() {
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${currentTab === 'upload' ? 'bg-brand-primary text-black' : 'text-gray-400 hover:text-white'}`}
               >
                 <Video className="w-3.5 h-3.5" />
-                提取分离
+                {vt('btnExtractSplit')}
               </button>
               <ChevronRight className="w-3.5 h-3.5 text-white/5" />
               <button 
@@ -965,7 +1771,7 @@ export function VideoTranslation() {
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${currentTab === 'subtitle' ? 'bg-brand-primary text-black' : 'text-gray-400 hover:text-white'}`}
               >
                 <Languages className="w-3.5 h-3.5" />
-                翻译时间线
+                {vt('btnTransTimeline')}
               </button>
               <ChevronRight className="w-3.5 h-3.5 text-white/5" />
               <button 
@@ -973,7 +1779,7 @@ export function VideoTranslation() {
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${currentTab === 'tts' ? 'bg-brand-primary text-black' : 'text-gray-400 hover:text-white'}`}
               >
                 <Music className="w-3.5 h-3.5" />
-                配音声音
+                {vt('btnDubbingVoice')}
               </button>
               <ChevronRight className="w-3.5 h-3.5 text-white/5" />
               <button 
@@ -981,7 +1787,7 @@ export function VideoTranslation() {
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded text-[10px] font-bold uppercase tracking-wider transition-all ${currentTab === 'lipsync' ? 'bg-brand-primary text-black' : 'text-gray-400 hover:text-white'}`}
               >
                 <FileVideo className="w-3.5 h-3.5" />
-                口型同步
+                {vt('btnLipsync')}
               </button>
             </div>
 
@@ -996,13 +1802,13 @@ export function VideoTranslation() {
                   {/* Left video playback area */}
                   <div className="space-y-3">
                     <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-                      <span>原始输入视频</span>
+                      <span>{vt('originalInputMovie')}</span>
                       {activeProject.videoUrl && (
                         <button 
-                          onClick={() => fileInputRef.current?.click()}
+                          onClick={handleImportClick}
                           className="text-[10px] text-brand-primary hover:underline flex items-center gap-1 font-bold tracking-wider"
                         >
-                          <RefreshCw className="w-3 h-3" /> 重新上传/更换视频 RE-UPLOAD
+                          <RefreshCw className="w-3 h-3" /> {vt('reUploadVideo')}
                         </button>
                       )}
                     </h3>
@@ -1018,14 +1824,14 @@ export function VideoTranslation() {
                       </div>
                     ) : (
                       <div 
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={handleImportClick}
                         className="aspect-video border-2 border-dashed border-white/10 hover:border-brand-primary/30 bg-black/40 rounded-lg flex flex-col items-center justify-center p-8 text-center cursor-pointer group transition-all"
                       >
                         <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mb-3 group-hover:scale-105 group-hover:bg-brand-primary/10 transition-all">
                           <Upload className="w-5 h-5 text-gray-400 group-hover:text-brand-primary" />
                         </div>
-                        <p className="text-xs font-bold text-white mb-1">点击本区域，上传此项目的待翻译原始视频</p>
-                        <p className="text-[10px] text-gray-500">支持 MP4, MOV, MKV 视频格式</p>
+                        <p className="text-xs font-bold text-white mb-1">{vt('uploadRawDesc')}</p>
+                        <p className="text-[10px] text-gray-500">{vt('supportsFormats')}</p>
                       </div>
                     )}
                     <div className="flex items-center justify-between bg-white/5 p-3 rounded border border-white/5 text-[11px]">
@@ -1037,9 +1843,9 @@ export function VideoTranslation() {
                   {/* Extraction Operations List info */}
                   <div className="space-y-4">
                     <div className="border-t border-white/5 pt-4">
-                      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">音视频分离流水线</h3>
+                      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">{vt('pipelineTitle')}</h3>
                       <p className="text-gray-400 text-xs leading-relaxed">
-                        在运行多语言转录与翻译前，我们需要先将此视频的首帧画面进行抽取，并剥离出高保真 MP3 声轨。
+                        {vt('pipelineDesc')}
                       </p>
                     </div>
 
@@ -1048,20 +1854,20 @@ export function VideoTranslation() {
                       <div className="flex flex-col justify-between p-4 bg-black/40 border border-white/5 rounded-lg space-y-4">
                         <div className="flex items-center gap-3">
                           <ImageIcon className="w-4 h-4 text-purple-400" />
-                          <span className="text-xs text-white font-medium">1. 第一帧封面抽取</span>
+                          <span className="text-xs text-white font-medium">{vt('firstFrameCover')}</span>
                         </div>
                         <div className="flex items-center justify-between mt-auto">
                           {activeProject.coverUrl ? (
                             <VideoTranslationCover path={activeProject.coverUrl} className="w-20 h-12 object-cover rounded border border-white/10" alt="Cover preview" />
                           ) : (
-                            <span className="text-xs italic text-gray-600">无封面</span>
+                            <span className="text-xs italic text-gray-600">{vt('noCover')}</span>
                           )}
                           <button 
                             onClick={extractCoverFrame}
                             disabled={isProcessing}
                             className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] uppercase font-bold text-gray-300 transition-all"
                           >
-                            提取
+                            {vt('extract')}
                           </button>
                         </div>
                       </div>
@@ -1070,7 +1876,7 @@ export function VideoTranslation() {
                       <div className="flex flex-col justify-between p-4 bg-black/40 border border-white/5 rounded-lg space-y-4">
                         <div className="flex items-center gap-3">
                           <Music className="w-4 h-4 text-blue-400" />
-                          <span className="text-xs text-white font-medium">2. MP3声轨提取</span>
+                          <span className="text-xs text-white font-medium">{vt('mp3AudioExtract')}</span>
                         </div>
                         <div className="flex items-center justify-between mt-auto">
                           {activeProject.audioUrl ? (
@@ -1078,14 +1884,14 @@ export function VideoTranslation() {
                               <CheckCircle className="w-4 h-4" /> 12.4s
                             </span>
                           ) : (
-                            <span className="text-xs italic text-gray-600">未分离</span>
+                            <span className="text-xs italic text-gray-600">{vt('notSplit')}</span>
                           )}
                           <button 
                             onClick={extractAudioTrack}
                             disabled={isProcessing}
                             className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[10px] uppercase font-bold text-gray-300 transition-all"
                           >
-                            分离
+                            {vt('split')}
                           </button>
                         </div>
                       </div>
@@ -1097,7 +1903,7 @@ export function VideoTranslation() {
                       className="w-full flex items-center justify-center gap-2 py-3 bg-brand-primary disabled:bg-white/5 disabled:text-white/20 text-black font-bold uppercase tracking-wider rounded text-xs transition-all hover:opacity-90"
                     >
                       <Sparkles className="w-4 h-4" />
-                      运行 Qwen3-ASR 提取字幕 (进入下个阶段)
+                      {vt('btnRunAsr')}
                     </button>
                   </div>
                 </div>
@@ -1114,8 +1920,8 @@ export function VideoTranslation() {
                 <div className="bg-black/30 border border-border-subtle rounded-lg p-6">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                     <div>
-                      <h3 className="font-semibold text-base text-white mb-1">翻译与时间线编辑器</h3>
-                      <p className="text-xs text-gray-500">多视频时间线，可实时校准原音中录入的词库语句。</p>
+                      <h3 className="font-semibold text-base text-white mb-1">{vt('timelineEditorTitle')}</h3>
+                      <p className="text-xs text-gray-500">{vt('timelineEditorDesc')}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <select 
@@ -1123,10 +1929,10 @@ export function VideoTranslation() {
                         onChange={(e) => setTargetLang(e.target.value)}
                         className="bg-black border border-white/15 px-3 py-1.5 rounded text-xs text-gray-300 outline-none focus:border-brand-primary"
                       >
-                        <option value="English">英文 (English)</option>
-                        <option value="Spanish">西班牙语 (Español)</option>
-                        <option value="French">法语 (Français)</option>
-                        <option value="German">德语 (Deutsch)</option>
+                        <option value="English">{vt('langEnglish')}</option>
+                        <option value="Spanish">{vt('langSpanish')}</option>
+                        <option value="French">{vt('langFrench')}</option>
+                        <option value="German">{vt('langGerman')}</option>
                       </select>
                       <button
                         onClick={translateSubtitles}
@@ -1134,7 +1940,7 @@ export function VideoTranslation() {
                         className="px-3.5 py-1.5 bg-brand-primary text-black text-xs font-bold uppercase rounded hover:opacity-90 transition-all flex items-center gap-1.5"
                       >
                         <RefreshCw className="w-3.5 h-3.5 text-black" />
-                        翻译
+                        {vt('translate')}
                       </button>
                     </div>
                   </div>
@@ -1143,7 +1949,7 @@ export function VideoTranslation() {
                     {activeProject.dialogues.length === 0 ? (
                       <div className="py-12 text-center text-gray-600 border border-dashed border-white/5 rounded-lg flex flex-col items-center justify-center">
                         <FileText className="w-8 h-8 mb-2" />
-                        <p className="text-xs">无可用字幕轨，请先在第一步中点击运行 ASR 提取</p>
+                        <p className="text-xs">{vt('noSubtitleTrack')}</p>
                       </div>
                     ) : (
                       activeProject.dialogues.map((line, idx) => {
@@ -1159,12 +1965,12 @@ export function VideoTranslation() {
                             
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               <div className="space-y-1">
-                                <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">原始文本 ({sourceLang})</span>
+                                <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">{vt('originalText')} ({sourceLang})</span>
                                 <p className="text-xs text-gray-300 leading-relaxed font-medium">{line.text}</p>
                               </div>
 
                               <div className="space-y-1">
-                                <span className="text-[9px] text-brand-primary uppercase font-bold tracking-wider">目标翻译 ({targetLang})</span>
+                                <span className="text-[9px] text-brand-primary uppercase font-bold tracking-wider">{vt('targetTranslation')} ({targetLang})</span>
                                 {translatedLine ? (
                                   <textarea 
                                     value={translatedLine.text}
@@ -1179,7 +1985,7 @@ export function VideoTranslation() {
                                     className="w-full text-xs bg-black/40 text-white border border-white/10 focus:border-brand-primary/40 rounded p-1.5 outline-none resize-none h-12"
                                   />
                                 ) : (
-                                  <p className="text-xs italic text-gray-500">等待翻译...</p>
+                                  <p className="text-xs italic text-gray-500">{vt('waitingTranslation')}</p>
                                 )}
                               </div>
                             </div>
@@ -1196,7 +2002,7 @@ export function VideoTranslation() {
                       className="px-5 py-2.5 bg-brand-primary text-black text-xs font-bold uppercase tracking-wider rounded hover:opacity-90 transition-all flex items-center gap-2"
                     >
                       <Music className="w-4 h-4 text-black" />
-                      运行 Qwen3-TTS 合成配音轨
+                      {vt('btnRunTts')}
                     </button>
                   </div>
                 </div>
@@ -1212,29 +2018,29 @@ export function VideoTranslation() {
               >
                 <div className="bg-black/30 border border-border-subtle rounded-lg p-6 space-y-6">
                   <div className="space-y-2">
-                    <h3 className="font-semibold text-lg text-white">配音语音克隆参数</h3>
-                    <p className="text-xs text-gray-500">使用预置音高以及音频控制，生成最真实的口型重构音频流。</p>
+                    <h3 className="font-semibold text-lg text-white">{vt('cloningParamsTitle')}</h3>
+                    <p className="text-xs text-gray-500">{vt('cloningParamsDesc')}</p>
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     {/* Voice Selection */}
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">音色角色选择 (Qwen3 Preset)</label>
+                      <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{vt('voiceSelectLabel')}</label>
                       <select 
                         value={selectedVoice}
                         onChange={(e) => setSelectedVoice(e.target.value)}
                         className="w-full bg-black border border-white/10 rounded px-3 py-2 text-xs outline-none text-white focus:border-brand-primary/50"
                       >
-                        <option value="Kore">Kore - 温暖磁性男声 (推荐)</option>
-                        <option value="Zephyr">Zephyr - 阳光亲切男声</option>
-                        <option value="Puck">Puck - 甜美纯真女声</option>
-                        <option value="Charon">Charon - 知性沉稳女声</option>
-                        <option value="Fenrir">Fenrir - 机械科技预制</option>
+                        <option value="Kore">{vt('presetKore')}</option>
+                        <option value="Zephyr">{vt('presetZephyr')}</option>
+                        <option value="Puck">{vt('presetPuck')}</option>
+                        <option value="Charon">{vt('presetCharon')}</option>
+                        <option value="Fenrir">{vt('presetFenrir')}</option>
                         {volcVoiceId ? (
-                          <option value="Volcengine-Clone">🌋 火山定制音频克隆 (ID: {volcVoiceId})</option>
+                          <option value="Volcengine-Clone">{vt('volcengineCustom').replace('{id}', volcVoiceId || '')}</option>
                         ) : (
                           <option value="Volcengine-Clone-Disabled" disabled>
-                            🌋 火山定制音频克隆 (一键快捷配置 &rarr;)
+                            {vt('volcengineSetupQuick')}
                           </option>
                         )}
                       </select>
@@ -1243,7 +2049,7 @@ export function VideoTranslation() {
                     {/* Speed Config */}
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">配音语速系数</label>
+                        <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{vt('ttsSpeedLabel')}</label>
                         <span className="text-xs font-mono font-bold text-brand-primary">{ttsSpeed}x</span>
                       </div>
                       <input 
@@ -1260,7 +2066,7 @@ export function VideoTranslation() {
 
                   {/* Audio segment player */}
                   <div className="bg-black/40 border border-white/5 rounded-lg p-5 space-y-4">
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">克隆生成配音轨</span>
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">{vt('btnCloneDub')}</span>
                     {activeProject.synthesizedAudioUrl ? (
                       <div className="space-y-4">
                         <div className="flex items-center gap-3">
@@ -1279,7 +2085,7 @@ export function VideoTranslation() {
                     ) : (
                       <div className="py-6 flex flex-col items-center justify-center text-gray-600">
                         <Music className="w-7 h-7 mb-1" />
-                        <span className="text-xs">等待生成英语配音轨道</span>
+                        <span className="text-xs">{vt('waitingForDubbing')}</span>
                       </div>
                     )}
                   </div>
@@ -1290,7 +2096,7 @@ export function VideoTranslation() {
                     className="w-full flex items-center justify-center gap-2 py-3 bg-brand-primary text-black font-bold uppercase tracking-wider rounded text-xs transition-all hover:opacity-90 disabled:bg-white/5 disabled:text-white/20"
                   >
                     <Sparkles className="w-4 h-4 text-black" />
-                    运行 LTX2.3 口型同步视频渲染
+                    {vt('btnRunLipsync')}
                   </button>
                 </div>
               </motion.div>
@@ -1312,9 +2118,9 @@ export function VideoTranslation() {
                       </div>
                       
                       <div className="text-center space-y-2">
-                        <h3 className="font-semibold text-base text-white">正在合成 LTX-2.3 LipSync 双向口型同步视频...</h3>
+                        <h3 className="font-semibold text-base text-white">{vt('lipSyncingTitle')}</h3>
                         <p className="text-xs text-gray-500 max-w-sm mx-auto leading-relaxed">
-                          LTX2.3 高保真神经解码。合并新配音轨，利用光流、深度评估、重映射技术智能调整面部肌群活动。
+                          {vt('lipSyncingDesc')}
                         </p>
                       </div>
 
@@ -1333,7 +2139,7 @@ export function VideoTranslation() {
                     <div className="space-y-6">
                       {/* Video Output section */}
                       <div className="space-y-2">
-                        <h3 className="font-semibold text-xs text-gray-400 uppercase tracking-wider">最终影视重构结果</h3>
+                        <h3 className="font-semibold text-xs text-gray-400 uppercase tracking-wider">{vt('finalResultTitle')}</h3>
                         <div className="aspect-video bg-black rounded-lg border border-white/10 overflow-hidden relative shadow-2xl">
                           <video 
                             ref={outputPlayerRef}
@@ -1348,16 +2154,16 @@ export function VideoTranslation() {
                       <div className="space-y-4">
                         <div className="p-4 bg-white/5 border border-white/5 rounded-lg space-y-2.5 text-xs">
                           <div className="flex justify-between">
-                            <span className="text-gray-500">输出口型模型</span>
+                            <span className="text-gray-500">{vt('labelLipSyncModel')}</span>
                             <span className="font-semibold text-white">{lipsyncModel}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-500">合成配音预设置</span>
+                            <span className="text-gray-500">{vt('labelVoicePreset')}</span>
                             <span className="font-semibold text-white">{selectedVoice} (Qwen3 Preset)</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-500">卡拉OK字幕配置</span>
-                            <span className="font-semibold text-brand-primary">ASS 渲染内嵌</span>
+                            <span className="text-gray-500">{vt('labelKaraokeConfig')}</span>
+                            <span className="font-semibold text-brand-primary">{vt('burnedInSubtitle')}</span>
                           </div>
                         </div>
 
@@ -1368,7 +2174,7 @@ export function VideoTranslation() {
                             className="flex items-center justify-center gap-2 py-3 bg-brand-primary text-black font-bold uppercase tracking-wider rounded text-xs hover:opacity-90 transition-all cursor-pointer"
                           >
                             <Download className="w-4 h-4 text-black" />
-                            下载最终视频
+                            {vt('btnDownloadResult')}
                           </a>
                           
                           <button
@@ -1384,7 +2190,7 @@ export function VideoTranslation() {
                             className="flex items-center justify-center gap-2 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold uppercase tracking-wider rounded text-xs transition-all"
                           >
                             <FileText className="w-4 h-4 text-white" />
-                            导出 ASS 字幕
+                            {vt('btnExportAss')}
                           </button>
                         </div>
                       </div>
@@ -1392,13 +2198,13 @@ export function VideoTranslation() {
                   ) : (
                     <div className="py-16 text-center flex flex-col items-center justify-center">
                       <FileVideo className="w-10 h-10 text-gray-600 mb-3 animate-bounce" />
-                      <h4 className="font-semibold text-white text-sm mb-1">等待渲染口型同步</h4>
-                      <p className="text-xs text-gray-500 max-w-xs mb-4">要在该视频中触发 lipsync, 请分别完成翻译并点击点击生成 Qwen3 英语配音轨道。</p>
+                      <h4 className="font-semibold text-white text-sm mb-1">{vt('awaitingLipsyncTitle')}</h4>
+                      <p className="text-xs text-gray-500 max-w-xs mb-4">{vt('awaitingLipsyncDesc')}</p>
                       <button 
                         onClick={() => setCurrentTab('upload')}
                         className="desktop-button-primary h-9 px-4 rounded text-xs"
                       >
-                        回到第一步
+                        {vt('backToStep1')}
                       </button>
                     </div>
                   )}
@@ -1415,28 +2221,28 @@ export function VideoTranslation() {
             <div className="bg-black/30 border border-border-subtle rounded-lg p-5 space-y-4">
               <h3 className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 text-gray-400">
                 <Sliders className="w-4 h-4 text-brand-primary" />
-                项目控制全局
+                {vt('globalControlTitle')}
               </h3>
 
               <div className="space-y-3.5 pt-2 text-xs">
                 {activeProject ? (
                   <>
                     <div className="space-y-1">
-                      <span className="text-[10px] text-gray-500 uppercase font-mono block">当前编辑视频</span>
+                      <span className="text-[10px] text-gray-500 uppercase font-mono block">{vt('activeFileLabel')}</span>
                       <p className="font-semibold text-white truncate">{activeProject.videoName}</p>
                     </div>
 
                     <div className="flex justify-between items-center bg-black/40 p-2.5 rounded border border-white/5">
-                      <span className="text-gray-400">当前步骤状态</span>
+                      <span className="text-gray-400">{vt('activePhaseLabel')}</span>
                       {getStatusBadge(activeProject.status)}
                     </div>
                   </>
                 ) : (
-                  <span className="italic text-gray-600 text-xs">请先在左侧选择或导入视频文件</span>
+                  <span className="italic text-gray-600 text-xs">{vt('noActiveProject')}</span>
                 )}
 
                 <div className="flex justify-between items-center bg-black/40 p-2.5 rounded border border-white/5">
-                  <span className="text-gray-400">面部采样算法</span>
+                  <span className="text-gray-400">{vt('sampleAlgorithm')}</span>
                   <span className="text-gray-300 font-mono tracking-tighter">LTX-2.3 (Pro)</span>
                 </div>
 
@@ -1444,7 +2250,7 @@ export function VideoTranslation() {
                 <div className="space-y-2 pt-2 border-t border-white/5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] uppercase font-bold text-gray-500">Local Node Host</span>
-                    <span className="w-2 h-2 rounded-full bg-green-500" title="在线" />
+                    <span className="w-2 h-2 rounded-full bg-green-500" title={vt('statusOnline')} />
                   </div>
                   <input 
                     type="text"
@@ -1461,10 +2267,10 @@ export function VideoTranslation() {
             <div className="bg-brand-primary/5 border border-brand-primary/10 rounded-lg p-5 space-y-3">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-brand-primary flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-brand-primary" />
-                多文件处理优点
+                {vt('batchHighlights')}
               </h4>
               <p className="text-[11px] text-gray-400 leading-relaxed">
-                导入所有目标短片后，您可以通过上方 <strong className="text-brand-primary font-medium">一键批量运行</strong> 自动运行所有步骤。每个影片都拥有独立并存的时间线。
+                {vt('batchHighlightsDesc')}
               </p>
             </div>
 
@@ -1478,9 +2284,9 @@ export function VideoTranslation() {
             >
               <div className="flex items-center gap-2">
                 <Terminal className="w-4.5 h-4.5 animate-pulse text-brand-primary" />
-                <span>FFMPEG & COMFYUI 编译日志终端 {activeProject ? `[${activeProject.videoName}]` : ''}</span>
+                <span>{vt('consoleLogsTitle')} {activeProject ? `[${activeProject.videoName}]` : ''}</span>
               </div>
-              <span className="text-[10px] text-gray-500 uppercase">{consoleExpanded ? '折叠' : '展开'}</span>
+              <span className="text-[10px] text-gray-500 uppercase">{consoleExpanded ? vt('collapse') : vt('expand')}</span>
             </button>
             
             <AnimatePresence>
@@ -1493,9 +2299,9 @@ export function VideoTranslation() {
                 >
                   <div className="max-h-[160px] overflow-y-auto p-6 font-mono text-[11px] text-gray-400 bg-black/95 space-y-1.5 scrollbar-thin">
                     {!activeProject ? (
-                      <span className="italic text-gray-600">请选择视频查看其对应的核心编译与合成日志数据。</span>
+                      <span className="italic text-gray-600">{vt('noLogActiveSelect')}</span>
                     ) : activeProject.logs.length === 0 ? (
-                      <span className="italic text-gray-600">系统尚无关于此视频的编译日志事件。</span>
+                      <span className="italic text-gray-600">{vt('noLogsRecorded')}</span>
                     ) : (
                       activeProject.logs.map((log, index) => (
                         <div key={index} className="leading-5 whitespace-pre-wrap font-mono">{log}</div>

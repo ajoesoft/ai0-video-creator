@@ -29,17 +29,21 @@ export function GlobalSettings() {
   const [pythonPath, setPythonPath] = useState('');
   const [cudaDevice, setCudaDevice] = useState('0');
   const [threadLimit, setThreadLimit] = useState('4');
+  
+  const [ffmpegPath, setFfmpegPath] = useState('');
+  const [ffmpegVer, setFfmpegVer] = useState<string>('Detecting (检测中)...');
 
   const [pythonVer, setPythonVer] = useState<string>('Detecting (检测中)...');
   const [cudaVer, setCudaVer] = useState<string>('Detecting (检测中)...');
   const [ollamaVer, setOllamaVer] = useState<string>('Detecting (检测中)...');
 
-  const fetchVersions = async (pyPath: string) => {
+  const fetchVersions = async (pyPath: string, ffPath: string) => {
     const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
     
     if (!isTauri) {
       setPythonVer('Web Mode (Sandbox Environment: Python N/A)');
       setCudaVer('Web Mode (GPU Accelerated via Iframe Sandbox)');
+      setFfmpegVer('Web Mode (FFmpeg Webassembly Simulation Active)');
       
       try {
         const response = await fetch('http://127.0.0.1:11434/api/version');
@@ -64,6 +68,14 @@ export function GlobalSettings() {
         setPythonVer(pyResult);
       } catch (err: any) {
         setPythonVer(`Not Accessible: ${err?.toString() || 'Executable not found'}`);
+      }
+
+      setFfmpegVer('Querying (正在查询)...');
+      try {
+        const ffResult = await invoke<string>('get_ffmpeg_version', { ffmpegPath: ffPath });
+        setFfmpegVer(ffResult);
+      } catch (err: any) {
+        setFfmpegVer(`Not Accessible: ${err?.toString() || 'Executable not found'}`);
       }
 
       setCudaVer('Querying (正在查询)...');
@@ -95,6 +107,7 @@ export function GlobalSettings() {
     } catch (e) {
       console.error('Failed to import tauri core invoke:', e);
       setPythonVer('Error loading Tauri interface');
+      setFfmpegVer('Error');
       setCudaVer('Error');
       setOllamaVer('Error');
     }
@@ -112,6 +125,10 @@ export function GlobalSettings() {
       const resolvedPyPath = pyPath || 'C:\\Program Files\\Python310\\python.exe';
       setPythonPath(resolvedPyPath);
 
+      const ffPath = await getSetting('ffmpeg_path');
+      const resolvedFfPath = ffPath || 'ffmpeg';
+      setFfmpegPath(resolvedFfPath);
+
       const cuda = await getSetting('python_cuda_device');
       setCudaDevice(cuda || '0');
 
@@ -119,7 +136,7 @@ export function GlobalSettings() {
       setThreadLimit(threads || '4');
 
       // Fetch dynamic version tags
-      await fetchVersions(resolvedPyPath);
+      await fetchVersions(resolvedPyPath, resolvedFfPath);
     }
     loadSettings();
   }, []);
@@ -165,10 +182,28 @@ export function GlobalSettings() {
       if (selected && typeof selected === 'string') {
         setPythonPath(selected);
         await setSetting('python_path', selected);
-        await fetchVersions(selected);
+        await fetchVersions(selected, ffmpegPath);
       }
     } catch (e) {
       console.error('Failed to select Python path:', e);
+    }
+  };
+
+  const handleSelectFfmpegPath = async () => {
+    try {
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        title: 'Select FFmpeg Executable (选择 FFmpeg 可执行文件)'
+      });
+
+      if (selected && typeof selected === 'string') {
+        setFfmpegPath(selected);
+        await setSetting('ffmpeg_path', selected);
+        await fetchVersions(pythonPath, selected);
+      }
+    } catch (e) {
+      console.error('Failed to select FFmpeg path:', e);
     }
   };
 
@@ -177,10 +212,11 @@ export function GlobalSettings() {
     try {
       await setSetting('workspace_path', workspacePath);
       await setSetting('python_path', pythonPath);
+      await setSetting('ffmpeg_path', ffmpegPath);
       await setSetting('python_cuda_device', cudaDevice);
       await setSetting('python_thread_limit', threadLimit);
       setSaveStatus('saved');
-      await fetchVersions(pythonPath);
+      await fetchVersions(pythonPath, ffmpegPath);
     } catch (e) {
       console.error('Failed to save settings:', e);
       setSaveStatus('idle');
@@ -190,6 +226,7 @@ export function GlobalSettings() {
 
   const sections = [
     { id: 'python', label: 'Python Env', icon: Terminal },
+    { id: 'ffmpeg', label: 'FFmpeg Env', icon: RefreshCcw },
     { id: 'ollama', label: 'Ollama AI', icon: Cpu },
     { id: 'comfyui', label: 'ComfyUI', icon: Database },
     { id: 'storage', label: 'Storage', icon: HardDrive },
@@ -295,6 +332,47 @@ export function GlobalSettings() {
                   <div className="flex justify-between items-center text-xs border-t border-white/5 pt-3">
                     <span className="text-gray-400 font-medium">CUDA Acceleration Support (显卡加速版本):</span>
                     <span className="font-mono text-brand-primary font-bold bg-brand-primary/10 px-2.5 py-1 rounded-md">{cudaVer}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="desktop-card p-6 space-y-6">
+              <h3 className="font-bold flex items-center gap-2 border-b border-border-subtle pb-4">
+                <RefreshCcw className="w-4 h-4 text-brand-primary animate-spin-slow" />
+                FFmpeg Environment (FFmpeg 视频核心渲染引擎)
+              </h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">FFmpeg Executable Path (FFmpeg 程序路径)</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={ffmpegPath} 
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        setFfmpegPath(val);
+                        await setSetting('ffmpeg_path', val);
+                      }}
+                      className="desktop-input flex-1 bg-white/5 font-mono text-xs" 
+                      placeholder="e.g. ffmpeg or C:\ffmpeg\bin\ffmpeg.exe"
+                    />
+                    <button 
+                      onClick={handleSelectFfmpegPath}
+                      className="desktop-button-ghost py-1 text-xs"
+                    >
+                      Browse
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400">
+                    If configured as standard 'ffmpeg', it will be searched across system global PATH variables. (默认：'ffmpeg'，将自系统全局 PATH 中加载)
+                  </p>
+                </div>
+
+                <div className="p-4 bg-white/5 border border-white/5 rounded-xl space-y-3 mt-4">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-gray-400 font-medium">FFmpeg Connection Info (对接详情):</span>
+                    <span className="font-mono text-brand-primary font-bold bg-brand-primary/10 px-2.5 py-1 rounded-md max-w-xs truncate" title={ffmpegVer}>{ffmpegVer}</span>
                   </div>
                 </div>
               </div>
