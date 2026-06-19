@@ -65,7 +65,6 @@ import {
   cleanNarrationText,
   formatAssTime
 } from '../lib/subtitles';
-import { useLocalImageBase64 } from '../lib/utils';
 
 const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
 
@@ -103,7 +102,6 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
   useEffect(() => {
     async function resolveVideo() {
       if (segment.videoPath) {
-        console.log(`## segment.videoPath: ${segment.videoPath}`);
         try {
           if (isTauri) {
             if (segment.videoPath.startsWith('http') || segment.videoPath.startsWith('data:')) {
@@ -111,8 +109,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
             } else {
               const fileExists = await exists(segment.videoPath);
               if (fileExists) {
-                const base64 = useLocalImageBase64(segment.videoPath);
-                //await invoke<string>('load_local_image', { path: segment.videoPath });
+                const base64 = await invoke<string>('load_local_image', { path: segment.videoPath });
                 if (base64 && !base64.startsWith('data:')) {
                   setVideoSrc(`data:video/mp4;base64,${base64}`);
                 } else {
@@ -150,10 +147,9 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
               setImageSrc(segment.imagePath);
             } else {
               const fileExists = await exists(segment.imagePath);
-              if (fileExists) {                
-                
+              if (fileExists) {
                 const base64 = await invoke<string>('load_local_image', { path: segment.imagePath });
-                setImageSrc(`data:image/png;base64,${base64}`);
+                setImageSrc(base64);
               } else {
                 setImageSrc(null);
               }
@@ -316,7 +312,6 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
 
   return (
     <div className="flex flex-col gap-3 h-full justify-center">
-     
       <div className="aspect-video w-full bg-[#0a0a0c] border border-white/5 overflow-hidden relative rounded group/cover flex items-center justify-center">
         {isGenerating && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-2">
@@ -325,7 +320,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
             <p className="text-[8px] mono-text opacity-40 text-center px-2">{progress}</p>
           </div>
         )}
-        
+
         {videoSrc ? (
           <div className="w-full h-full relative group/video">
             <video 
@@ -915,7 +910,8 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         const uploadedFilename = await comfy.uploadFile(file);
         
         // Run ComfyUI Qwen3-ASR Workflow
-        transcribedText = await comfy.runASRQwen(uploadedFilename);
+        const asrRes = await comfy.runASRQwen(uploadedFilename);
+        transcribedText = asrRes.plainText;
       } else {
         // Fallback to Gemini cloud transcription
         const reader = new FileReader();
@@ -1088,7 +1084,8 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                 // Determine audio filename from full path
                 const parts = audioPath.split(/[/\\]/);
                 const filename = parts[parts.length - 1];
-                scriptText = await comfy.runASRQwen(filename);
+                const asrRes = await comfy.runASRQwen(filename);
+                scriptText = asrRes.plainText;
                 if (scriptText) {
                   const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
                   currentCustomData.asrText = scriptText;
@@ -2288,7 +2285,7 @@ export function VideoGenModal({
               const existsFile = await exists(p);
               if (existsFile) {
                 const b64 = await invoke<string>('load_local_image', { path: p });
-                thumbs[p] = `data:image/png;base64,${b64}`;
+                thumbs[p] = b64;
               }
             }
           } else {
@@ -2553,7 +2550,7 @@ export function VideoGenModal({
               {/* Reference Audio selector */}
               <div className="space-y-2">
                 <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
-                  Reference Audio Selection
+                  Reference Audio Selection (参考音频)
                 </label>
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
                   <button
@@ -2617,7 +2614,7 @@ export function VideoGenModal({
               {/* Video Generation Strategy selection */}
               <div className="space-y-1.5">
                 <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
-                  Video Generation Method 
+                  Video Generation Method (生视频类型)
                 </label>
                 <select
                   value={generationMethod}
@@ -2638,7 +2635,7 @@ export function VideoGenModal({
               
               <div className="flex items-center justify-between">
                 <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider">
-                  Scene Reference Images 
+                  Scene Reference Images (参考图管理)
                 </label>
                 
                 {/* Generation tools model switch */}
@@ -2758,7 +2755,7 @@ export function VideoGenModal({
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Generate Scene Reference Image (Multiple images)</span>
+                    <span>Generate Scene Reference Image (可以生成多个)</span>
                   </>
                 )}
               </button>

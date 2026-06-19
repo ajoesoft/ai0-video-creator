@@ -33,7 +33,8 @@ import {
   fetchVocabularyByProject, 
   updateProject,
   getSetting,
-  updateVocabulary
+  updateVocabulary,
+  applyPromptHarnessRules
 } from '@/src/lib/db';
 import { comfy } from '@/src/lib/comfy';
 import { VideoProject, Vocabulary } from '@/src/types';
@@ -626,7 +627,8 @@ export function TimelineEditor() {
       const localImgPath = await join(imageDir, `${segment.word || segment.id}_frame.jpg`);
       setGenerationMsg('提示词提交至 ComfyUI SD-Diffusion 节点队列...');
 
-      const promptText = segment.example || segment.word || "A polished modern vector clip";
+      const basePromptText = segment.example || segment.word || "A polished modern vector clip";
+      const promptText = await applyPromptHarnessRules(basePromptText, projectId);
       const savedPath = await comfy.runImageGenerationRust(promptText, localImgPath, true, (msg) => {
         setGenerationMsg(msg);
       });
@@ -693,7 +695,8 @@ export function TimelineEditor() {
       const localVideoPath = await join(videoDir, fileName);
       setGenerationMsg('正在连接 ComfyUI 提交 LTX2.3 空域分镜插值任务...');
 
-      const promptText = segment.example || segment.word || "Cinematic video pan-scene rotation";
+      const basePromptText = segment.example || segment.word || "Cinematic video pan-scene rotation";
+      const promptText = await applyPromptHarnessRules(basePromptText, projectId);
       const videos = await comfy.runVideoGeneration(
         segment.imagePath || "",
         segment.audioPath || "",

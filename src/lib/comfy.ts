@@ -7,6 +7,201 @@ export interface ComfyConfig {
   serverAddress: string; // e.g. "127.0.0.1:8188"
 }
 
+export function applyValueToWorkflow(workflow: any, nodeKey: string, propertyKey: string, value: any): void {
+  if (!nodeKey || !propertyKey || !workflow) return;
+  
+  const nKey = nodeKey.trim();
+  const pProp = propertyKey.trim();
+
+  // 1. Direct match (e.g. "2")
+  if (workflow[nKey]) {
+    if (!workflow[nKey].inputs) {
+      workflow[nKey].inputs = {};
+    }
+    workflow[nKey].inputs[pProp] = value;
+    return;
+  }
+  
+  // 2. Colon separator match (e.g. "57:27" -> node ID "57")
+  if (nKey.includes(':')) {
+    const parts = nKey.split(':');
+    const firstPart = parts[0].trim();
+    if (workflow[firstPart]) {
+      if (!workflow[firstPart].inputs) {
+        workflow[firstPart].inputs = {};
+      }
+      workflow[firstPart].inputs[pProp] = value;
+      return;
+    }
+  }
+
+  // 3. Case-insensitive match fallback
+  const lowerNodeKey = nKey.toLowerCase();
+  for (const k of Object.keys(workflow)) {
+    if (k.toLowerCase() === lowerNodeKey) {
+      if (!workflow[k].inputs) {
+        workflow[k].inputs = {};
+      }
+      workflow[k].inputs[pProp] = value;
+      return;
+    }
+  }
+}
+
+export function autoConfigureWorkflow(
+  workflow: any,
+  inputs: {
+    prompt?: string;
+    image?: string;
+    audio?: string;
+    width?: number;
+    height?: number;
+  }
+): void {
+  if (!workflow) return;
+
+  for (const nodeId of Object.keys(workflow)) {
+    const node = workflow[nodeId];
+    if (!node) continue;
+    
+    const title = node._meta?.title || nodeId;
+    if (typeof title !== "string") continue;
+
+    // Matches e.g. INPUT(TEXT) or INPUT(Audio文件)
+    const inputMatch = title.match(/INPUT\s*\(([^)]+)\)/i);
+    if (inputMatch) {
+      const typeStr = inputMatch[1].trim().toLowerCase();
+      if (!node.inputs) {
+        node.inputs = {};
+      }
+
+      if (typeStr.includes('text') || typeStr.includes('prompt') || typeStr.includes('文本') || typeStr.includes('文字')) {
+        if (inputs.prompt !== undefined) {
+          const keys = Object.keys(node.inputs);
+          const targetKey = keys.find(k => /text|文本|提示词|prompt|string|value/i.test(k)) || 'text';
+          node.inputs[targetKey] = inputs.prompt;
+          console.log(`[comfy.ts] Auto-mapped INPUT(TEXT) on node ${nodeId} using prop '${targetKey}'`);
+        }
+      } else if (typeStr.includes('audio') || typeStr.includes('音频')) {
+        if (inputs.audio !== undefined) {
+          const keys = Object.keys(node.inputs);
+          const targetKey = keys.find(k => /audio|音频|filename|voice/i.test(k)) || 'audio';
+          const cleanedVal = extractComfyFilename(inputs.audio) || inputs.audio;
+          node.inputs[targetKey] = cleanedVal;
+          console.log(`[comfy.ts] Auto-mapped INPUT(AUDIO) on node ${nodeId} using prop '${targetKey}' = ${cleanedVal}`);
+        }
+      } else if (typeStr.includes('video') || typeStr.includes('视频') || typeStr.includes('image') || typeStr.includes('图片')) {
+        if (inputs.image !== undefined) {
+          const keys = Object.keys(node.inputs);
+          const targetKey = keys.find(k => /video|image|视频|图片|filename/i.test(k)) || 'image';
+          const cleanedVal = extractComfyFilename(inputs.image) || inputs.image;
+          node.inputs[targetKey] = cleanedVal;
+          console.log(`[comfy.ts] Auto-mapped INPUT(VIDEO/IMAGE) on node ${nodeId} using prop '${targetKey}' = ${cleanedVal}`);
+        }
+      } else if (typeStr.includes('srt') || typeStr.includes('时间线')) {
+        if (inputs.prompt !== undefined) {
+          const keys = Object.keys(node.inputs);
+          const targetKey = keys.find(k => /srt|text|string|value/i.test(k)) || 'text';
+          node.inputs[targetKey] = inputs.prompt;
+          console.log(`[comfy.ts] Auto-mapped INPUT(SRT) on node ${nodeId} using prop '${targetKey}'`);
+        }
+      }
+    }
+  }
+}
+
+export interface OutputNodesMapping {
+  textNodeId?: string;
+  srtNodeId?: string;
+  audioNodeId?: string;
+  videoNodeId?: string;
+  imageNodeId?: string;
+}
+
+export function findOutputNodes(workflow: any): OutputNodesMapping {
+  const result: OutputNodesMapping = {};
+  if (!workflow) return result;
+
+  for (const nodeId of Object.keys(workflow)) {
+    const node = workflow[nodeId];
+    if (!node) continue;
+
+    const title = node._meta?.title || nodeId;
+    if (typeof title !== "string") continue;
+
+    const outputMatch = title.match(/OUTPUT\s*\(([^)]+)\)/i);
+    if (outputMatch) {
+      const typeStr = outputMatch[1].trim().toLowerCase();
+      if (typeStr.includes('text') || typeStr.includes('文本') || typeStr.includes('文字')) {
+        result.textNodeId = nodeId;
+      } else if (typeStr.includes('srt') || typeStr.includes('时间线')) {
+        result.srtNodeId = nodeId;
+      } else if (typeStr.includes('audio') || typeStr.includes('音频')) {
+        result.audioNodeId = nodeId;
+      } else if (typeStr.includes('video') || typeStr.includes('视频')) {
+        result.videoNodeId = nodeId;
+      } else if (typeStr.includes('image') || typeStr.includes('图片')) {
+        result.imageNodeId = nodeId;
+      }
+    }
+  }
+  return result;
+}
+
+export async function resolveWorkflow(
+  category: 'text_to_image' | 'video_generation' | 'tts' | 'lipsync' | 'asr' | 'translation',
+  inputs: {
+    prompt?: string;
+    image?: string;
+    audio?: string;
+    width?: number;
+    height?: number;
+  },
+  defaultWorkflow: any
+): Promise<any> {
+  const registryKey = `comfy_wf_${category}`;
+  let workflow: any;
+  
+  try {
+    const { getSetting } = await import("./db");
+    const customJsonStr = await getSetting(`${registryKey}_json`);
+    const customMappingStr = await getSetting(`${registryKey}_mapping`);
+    
+    if (customJsonStr) {
+      workflow = JSON.parse(customJsonStr);
+      const mapping = customMappingStr ? JSON.parse(customMappingStr) : {};
+      console.log(`[comfy.ts] Custom workflow successfully loaded and compiled for pipeline: [${category}]`);
+
+      if (inputs.prompt && mapping.inputPromptNode && mapping.inputPromptProp) {
+        applyValueToWorkflow(workflow, mapping.inputPromptNode, mapping.inputPromptProp, inputs.prompt);
+      }
+      if (inputs.image && mapping.inputImageNode && mapping.inputImageProp) {
+        applyValueToWorkflow(workflow, mapping.inputImageNode, mapping.inputImageProp, inputs.image);
+      }
+      if (inputs.audio && mapping.inputAudioNode && mapping.inputAudioProp) {
+        applyValueToWorkflow(workflow, mapping.inputAudioNode, mapping.inputAudioProp, inputs.audio);
+      }
+      if (inputs.width !== undefined && mapping.widthNode && mapping.widthProp) {
+        applyValueToWorkflow(workflow, mapping.widthNode, mapping.widthProp, inputs.width);
+      }
+      if (inputs.height !== undefined && mapping.heightNode && mapping.heightProp) {
+        applyValueToWorkflow(workflow, mapping.heightNode, mapping.heightProp, inputs.height);
+      }
+    } else {
+      console.log(`[comfy.ts] No custom workflow JSON found for and mapped under '${category}'. Running with factory-preset configurations.`);
+      workflow = JSON.parse(JSON.stringify(defaultWorkflow));
+    }
+    
+    // Always apply automatic dynamic configurations on title/name matching (INPUT/OUTPUT)
+    autoConfigureWorkflow(workflow, inputs);
+
+    return workflow;
+  } catch (err) {
+    console.error(`[comfy.ts] Failed to load/parse custom workflow settings for category ${category}. Falling back to default:`, err);
+    return JSON.parse(JSON.stringify(defaultWorkflow));
+  }
+}
+
 export function extractComfyFilename(pathOrUrl: string | undefined): string {
   if (!pathOrUrl) return "";
   try {
@@ -143,7 +338,8 @@ export class ComfyService {
   // Workflows
   async runImageGenerationRust(promptText: string, localPath: string, isTurbo: boolean = false, onProgress?: (msg: string) => void): Promise<string> {
     onProgress?.("Building workflow...");
-    const workflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
+    const defaultWorkflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
+    const workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
     
     try {
       // Step 1: Issue the submit generation command to get prompt_id
@@ -175,22 +371,24 @@ export class ComfyService {
   }
 
   async runImageGeneration(promptText: string, isTurbo: boolean = false, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
+    const defaultWorkflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
+    const workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     
+    const outMapping = findOutputNodes(workflow);
+    const imageNodeId = outMapping.imageNodeId || outMapping.videoNodeId;
+
     const images: string[] = [];
     if (result.outputs) {
       console.log("ComfyUI Outputs:", result.outputs);
-      for (const nodeId in result.outputs) {
-        const output = result.outputs[nodeId];
-        // Standard images
+      if (imageNodeId && result.outputs[imageNodeId]) {
+        const output = result.outputs[imageNodeId];
         if (output.images) {
-           for (const img of output.images) {
-             images.push(`http://${this.config.serverAddress}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`);
-           }
+          for (const img of output.images) {
+            images.push(`http://${this.config.serverAddress}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`);
+          }
         }
-        // Some nodes use 'gifs' or 'videos'
         const altImages = output.gifs || output.videos || output.output || output.images_output;
         if (altImages && Array.isArray(altImages)) {
           for (const item of altImages) {
@@ -200,20 +398,44 @@ export class ComfyService {
           }
         }
       }
+
+      if (images.length === 0) {
+        for (const nodeId in result.outputs) {
+          const output = result.outputs[nodeId];
+          // Standard images
+          if (output.images) {
+             for (const img of output.images) {
+               images.push(`http://${this.config.serverAddress}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`);
+             }
+          }
+          // Some nodes use 'gifs' or 'videos'
+          const altImages = output.gifs || output.videos || output.output || output.images_output;
+          if (altImages && Array.isArray(altImages)) {
+            for (const item of altImages) {
+              if (item.filename) {
+                images.push(`http://${this.config.serverAddress}/view?filename=${item.filename}&subfolder=${item.subfolder || ''}&type=${item.type || 'output'}`);
+              }
+            }
+          }
+        }
+      }
     }
     return images;
   }
 
   async runTTS(text: string, referenceAudio: string, onProgress?: (msg: string) => void): Promise<string[]> {
-    const workflow = this.getTTSWorkflow(text, referenceAudio);
+    const defaultWorkflow = this.getTTSWorkflow(text, referenceAudio);
+    const workflow = await resolveWorkflow('tts', { prompt: text, audio: referenceAudio }, defaultWorkflow);
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     
+    const outMapping = findOutputNodes(workflow);
+    const audioNodeId = outMapping.audioNodeId;
+
     const audios: string[] = [];
     if (result.outputs) {
-      for (const nodeId in result.outputs) {
-        const output = result.outputs[nodeId];
-        // Handle SaveAudioMP3 or other audio nodes
+      if (audioNodeId && result.outputs[audioNodeId]) {
+        const output = result.outputs[audioNodeId];
         const audioItems = output.audio || output.images || output.output; 
         if (audioItems && Array.isArray(audioItems)) {
            for (const aud of audioItems) {
@@ -221,6 +443,21 @@ export class ComfyService {
                audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
              }
            }
+        }
+      }
+
+      if (audios.length === 0) {
+        for (const nodeId in result.outputs) {
+          const output = result.outputs[nodeId];
+          // Handle SaveAudioMP3 or other audio nodes
+          const audioItems = output.audio || output.images || output.output; 
+          if (audioItems && Array.isArray(audioItems)) {
+             for (const aud of audioItems) {
+               if (aud.filename) {
+                 audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+               }
+             }
+          }
         }
       }
     }
@@ -241,14 +478,18 @@ export class ComfyService {
     }
 
     onProgress?.("Configuring video generation workflow...");
-    const workflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt);
+    const defaultWorkflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt);
+    const workflow = await resolveWorkflow('video_generation', { prompt, image: uploadedImage, audio: uploadedAudio }, defaultWorkflow);
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     
+    const outMapping = findOutputNodes(workflow);
+    const videoNodeId = outMapping.videoNodeId || outMapping.imageNodeId;
+
     const videos: string[] = [];
     if (result.outputs) {
-      for (const nodeId in result.outputs) {
-        const output = result.outputs[nodeId];
+      if (videoNodeId && result.outputs[videoNodeId]) {
+        const output = result.outputs[videoNodeId];
         const videoItems = output.gifs || output.images || output.videos || output.output;
         if (videoItems && Array.isArray(videoItems)) {
            for (const vid of videoItems) {
@@ -258,127 +499,288 @@ export class ComfyService {
            }
         }
       }
+
+      if (videos.length === 0) {
+        for (const nodeId in result.outputs) {
+          const output = result.outputs[nodeId];
+          const videoItems = output.gifs || output.images || output.videos || output.output;
+          if (videoItems && Array.isArray(videoItems)) {
+             for (const vid of videoItems) {
+               if (vid.filename) {
+                 videos.push(`http://${this.config.serverAddress}/view?filename=${vid.filename}&subfolder=${vid.subfolder || ''}&type=${vid.type || 'output'}`);
+               }
+             }
+          }
+        }
+      }
     }
     return videos;
   }
 
-  async runASRQwen(audioFilename: string, onProgress?: (msg: string) => void): Promise<string> {
-    onProgress?.("Building Qwen3-ASR Workflow...");
-    const workflow = {
-      "6": {
-        "inputs": {
-          "audio": audioFilename
-        },
-        "class_type": "LoadAudio",
-        "_meta": {
-          "title": "Load Audio"
+  private extractTextsFromOutput(output: any): string[] {
+    const texts: string[] = [];
+    if (!output) return texts;
+
+    // Helper to recursively collect all valid strings or arrays of strings
+    const collect = (val: any) => {
+      if (val === null || val === undefined) return;
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed) texts.push(trimmed);
+      } else if (Array.isArray(val)) {
+        for (const item of val) {
+          if (typeof item === 'string') {
+            const trimmed = item.trim();
+            if (trimmed) texts.push(trimmed);
+          } else if (item && typeof item === 'object') {
+            collect(item);
+          }
         }
-      },
-      "9": {
+      } else if (typeof val === 'object') {
+        // Look for targeted fields first
+        const fields = ['text', 'string', 'texts', 'strings', 'output', 'preview_text', 'texts_out', 'srt', 'translated_text'];
+        let foundField = false;
+        for (const field of fields) {
+          if (field in val) {
+            collect(val[field]);
+            foundField = true;
+          }
+        }
+        // If no pre-defined target fields are at this level, collect from other key-values recursively
+        if (!foundField) {
+          for (const key in val) {
+            if (key !== 'class_type' && key !== '_meta' && key !== 'inputs') {
+              collect(val[key]);
+            }
+          }
+        }
+      }
+    };
+
+    collect(output);
+    return texts;
+  }
+
+  async runASRQwen(audioFilename: string, onProgress?: (msg: string) => void): Promise<{ srtText: string; plainText: string; rawJson?: string; dialogues?: any[] }> {
+    onProgress?.("Building Qwen3-ASR 3.0 Workflow...");
+    const defaultWorkflow = {
+      "2": {
         "inputs": {
-          "model": "Qwen/Qwen3-ASR-1.7B",
-          "precision": "bf16",
-          "attention": "auto",
-          "forced_aligner": "Qwen/Qwen3-ForcedAligner-0.6B",
-          "language": "auto",
-          "hints": "Important terms: ComfyUI, Qwen3-ASR\nUse exact casing for these terms.",
-          "output_format": "srt",
-          "output_path": "",
-          "split_mode": "split_by_punctuation_or_pause_or_length",
-          "max_gap_sec": 0.6,
-          "max_chars": 40,
-          "max_inference_batch_size": 32,
-          "max_new_tokens": 256,
-          "unload_models": true,
+          "language": "Auto",
+          "task": "transcribe",
+          "timestamps": "word",
+          "chunk_size": 30,
+          "overlap": 2,
+          "enable_asr_cache": false,
+          "engine": [
+            "4",
+            0
+          ],
           "audio": [
-            "6",
+            "24",
             0
           ]
         },
-        "class_type": "AILab_Qwen3ASRSubtitle",
+        "class_type": "UnifiedASRTranscribeNode",
         "_meta": {
-          "title": "Subtitle (QwenASR)"
+          "title": "✏️ ASR Transcribe"
         }
       },
-      "1": {
+      "4": {
         "inputs": {
-          "source": [
-            "9",
-            3
+          "model_size": "1.7B",
+          "device": "auto",
+          "voice_preset": "None (Zero-shot / Custom)",
+          "language": "Auto",
+          "instruct": "",
+          "top_k": 50,
+          "top_p": 1,
+          "temperature": 0.9,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 2048,
+          "dtype": "auto",
+          "attn_implementation": "sage_attn",
+          "x_vector_only_mode": false,
+          "use_torch_compile": false,
+          "use_cuda_graphs": false,
+          "compile_mode": "default",
+          "asr_use_forced_aligner": true,
+          "asr_translate_target_language": "English",
+          "asr_translate_instruction_override": "Translate the speech from {source_language} into {target_language} text. Return only the translated text.",
+          "runtime_mode": "Main Environment"
+        },
+        "class_type": "Qwen3TTSEngineNode",
+        "_meta": {
+          "title": "⚙️ Qwen3-TTS Engine"
+        }
+      },
+      "17": {
+        "inputs": {
+          "audio": [
+            "24",
+            0
           ]
         },
-        "class_type": "PreviewAny",
+        "class_type": "PreviewAudio",
         "_meta": {
-          "title": "Preview as Text"
+          "title": "Preview Audio"
         }
       },
-      "2": {
+      "24": {
+        "inputs": {
+          "audio": audioFilename,
+          "start_time": 0,
+          "duration": 0
+        },
+        "class_type": "VHS_LoadAudioUpload",
+        "_meta": {
+          "title": "INPUT(AUDIO)"
+        }
+      },
+      "25": {
         "inputs": {
           "source": [
-            "9",
+            "2",
             1
           ]
         },
         "class_type": "PreviewAny",
         "_meta": {
-          "title": "Preview as Text"
+          "title": "OUTPUT(TEXT)"
         }
       },
-      "3": {
+      "26": {
         "inputs": {
           "source": [
-            "9",
-            2
-          ]
-        },
-        "class_type": "PreviewAny",
-        "_meta": {
-          "title": "Preview as Text"
-        }
-      },
-      "4": {
-        "inputs": {
-          "source": [
-            "9",
+            "2",
             0
           ]
         },
         "class_type": "PreviewAny",
         "_meta": {
-          "title": "Preview as Text"
+          "title": "OUTPUT(SRT)"
         }
       }
     };
+
+    const workflow = await resolveWorkflow('asr', { audio: audioFilename }, defaultWorkflow);
 
     onProgress?.("Submitting ASR job to ComfyUI...");
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
 
-    let transcribedText = "";
+    const outMapping = findOutputNodes(workflow);
+    const srtNodeId = outMapping.srtNodeId || "26";
+    const textNodeId = outMapping.textNodeId || "25";
+
+    let srtText = "";
+    let plainText = "";
+    let rawJson: string | undefined = undefined;
+    let dialogues: any[] | undefined = undefined;
+
     if (result.outputs) {
-      for (const nodeKey of ["4", "2", "1", "3"]) {
-        const output = result.outputs[nodeKey];
-        if (output && output.text && Array.isArray(output.text) && output.text.length > 0) {
-          const val = output.text.join("\n").trim();
-          if (val) {
-            transcribedText = val;
-            break;
+      // 1. Try to find the ASR structured JSON output first
+      const structuredData = findASRStructuredData(result.outputs);
+      if (structuredData) {
+        console.log("Found ASR structured data in ComfyUI outputs!");
+        rawJson = JSON.stringify(structuredData);
+        
+        const text = typeof structuredData.text === 'string' ? structuredData.text : "";
+        plainText = text.trim();
+        
+        const rawSegments = structuredData.segments || [];
+        if (text && rawSegments.length > 0) {
+          const aligned = alignSentencesWithRawSegments(text, rawSegments);
+          if (aligned && aligned.length > 0) {
+            dialogues = aligned;
+            srtText = aligned.map((d: any) => {
+              const start = formatSRTTimeStandalone(d.startSec);
+              const end = formatSRTTimeStandalone(d.endSec);
+              return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
+            }).join('\n');
+          }
+        }
+      }
+
+      // If we didn't find structured data or alignment failed, fallback to node extraction
+      const cleanTexts = (arr: string[]) => {
+        return arr.filter(str => {
+          const s = str.trim().toLowerCase();
+          if (s.includes("comfyui_temp")) return false;
+          if (/^temp\d+/.test(s)) return false;
+          if (s.endsWith(".flac") || s.endsWith(".mp3") || s.endsWith(".wav") || s.endsWith(".mp4") || s.endsWith(".png") || s.endsWith(".jpg") || s.endsWith(".jpeg") || s.endsWith(".txt") || s.endsWith(".srt")) {
+            return false;
+          }
+          return true;
+        });
+      };
+
+      if (!srtText) {
+        // 1. Try dynamic/default node for SRT
+        const outSrt = result.outputs[srtNodeId];
+        if (outSrt) {
+          const extracted = this.extractTextsFromOutput(outSrt);
+          const srtCandidates = extracted.filter(s => s.includes("-->"));
+          if (srtCandidates.length > 0) {
+            srtText = srtCandidates.join("\n").trim();
+          } else {
+            const cleaned = cleanTexts(extracted);
+            if (cleaned.length > 0) {
+              srtText = cleaned.join("\n").trim();
+            }
+          }
+        }
+      }
+
+      if (!plainText) {
+        // 2. Try dynamic/default node for plain text
+        const outText = result.outputs[textNodeId];
+        if (outText) {
+          const extracted = this.extractTextsFromOutput(outText);
+          const cleaned = cleanTexts(extracted);
+          if (cleaned.length > 0) {
+            plainText = cleaned.join("\n").trim();
+          }
+        }
+      }
+
+      // Fallback: Scan other nodes ONLY if srtText or plainText remains missing
+      if (!srtText || !plainText) {
+        for (const nodeId in result.outputs) {
+          const output = result.outputs[nodeId];
+          const extracted = this.extractTextsFromOutput(output);
+          const cleaned = cleanTexts(extracted);
+          if (cleaned.length > 0) {
+            const merged = cleaned.join("\n").trim();
+            if (merged.includes("-->")) {
+              if (!srtText) srtText = merged;
+            } else {
+              if (nodeId !== "4" && nodeId !== "17" && nodeId !== "24" && nodeId !== srtNodeId && nodeId !== textNodeId) { // Skip config, input, preview audio, and output nodes
+                if (!plainText) plainText = merged;
+                else if (merged.length > plainText.length && !merged.includes("-->")) {
+                  plainText = merged;
+                }
+              }
+            }
           }
         }
       }
     }
 
-    if (!transcribedText) {
-      console.warn("Comfy ASR returned empty text.");
-      transcribedText = "Qwen3-ASR Auto-Transcribed speech output.";
+    if (!srtText) {
+      console.warn("Comfy ASR returned empty SRT text.");
+      srtText = "Qwen3-ASR Auto-Transcribed speech output.";
+    }
+    if (!plainText) {
+      plainText = srtText.replace(/\d+\r?\n\d\d:\d\d:\d\d([,.]\d+)? --> \d\d:\d\d:\d\d([,.]\d+)?\r?\n/g, "").trim();
     }
 
-    return transcribedText;
+    return { srtText, plainText, rawJson, dialogues };
   }
 
   async runTranslationHYMT(text: string, targetLanguage: string = "en | 英语", onProgress?: (msg: string) => void): Promise<string> {
     onProgress?.("Building HY-MT Translation Workflow...");
-    const workflow = {
+    const defaultWorkflow = {
       "1": {
         "inputs": {
           "model": "Hy-MT2-7B"
@@ -404,11 +806,12 @@ export class ComfyService {
         },
         "class_type": "HY-MT Translator",
         "_meta": {
-          "title": "HY-MT Translator"
+          "title": "INPUT(TEXT)"
         }
       },
       "3": {
         "inputs": {
+          "text": "",
           "anything": [
             "2",
             0
@@ -416,20 +819,63 @@ export class ComfyService {
         },
         "class_type": "easy showAnything",
         "_meta": {
-          "title": "Show Any"
+          "title": "OUTPUT(TEXT)"
         }
       }
     };
+
+    const workflow = await resolveWorkflow('translation', { prompt: text }, defaultWorkflow);
+
+    // Smart override of target language if the mapped node is present and supports target_language
+    try {
+      const { getSetting } = await import("./db");
+      const customMappingStr = await getSetting(`comfy_wf_translation_mapping`);
+      if (customMappingStr) {
+        const mapping = JSON.parse(customMappingStr);
+        if (mapping.inputPromptNode && workflow[mapping.inputPromptNode]) {
+          const targetNode = workflow[mapping.inputPromptNode];
+          if (targetNode.inputs && targetNode.inputs.target_language !== undefined) {
+            targetNode.inputs.target_language = targetLanguage;
+          }
+        }
+      } else {
+        // Fallback for default workflow structure
+        if (workflow["2"] && workflow["2"].inputs) {
+          workflow["2"].inputs.target_language = targetLanguage;
+        }
+      }
+    } catch (langErr) {
+      console.warn("Failed to dynamically set targetLanguage on resolved translator node:", langErr);
+    }
 
     onProgress?.("Submitting Translation job to ComfyUI...");
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
 
+    const outMapping = findOutputNodes(workflow);
+    const textNodeId = outMapping.textNodeId || "3";
+
     let translatedText = "";
-    if (result.outputs && result.outputs["3"]) {
-      const output = result.outputs["3"];
-      if (output.text && Array.isArray(output.text) && output.text.length > 0) {
-        translatedText = output.text[0].trim();
+    if (result.outputs) {
+      const output = result.outputs[textNodeId];
+      if (output) {
+        const extracted = this.extractTextsFromOutput(output);
+        if (extracted.length > 0) {
+          translatedText = extracted.join("\n").trim();
+        }
+      }
+
+      if (!translatedText) {
+        for (const nodeId in result.outputs) {
+          const out = result.outputs[nodeId];
+          if (out && (nodeId === textNodeId || nodeId === "OUTPUT(TEXT)")) {
+            const extracted = this.extractTextsFromOutput(out);
+            if (extracted.length > 0) {
+              translatedText = extracted.join("\n").trim();
+              break;
+            }
+          }
+        }
       }
     }
 
@@ -487,7 +933,7 @@ export class ComfyService {
   async runQwenTTSVoiceAllInOne(text: string, whisperPrompt: string, language: string = "中文", onProgress?: (msg: string) => void): Promise<string[]> {
     onProgress?.("Building Qwen3-TTS All-In-One Workflow...");
     const mappedLanguage = this.mapLanguageToQwen3(language);
-    const workflow = {
+    const defaultWorkflow = {
       "1": {
         "inputs": {
           "模型名称": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
@@ -541,18 +987,39 @@ export class ComfyService {
       }
     };
 
+    const workflow = await resolveWorkflow('tts', { prompt: text }, defaultWorkflow);
+
     onProgress?.("Submitting Qwen3-TTS job to ComfyUI...");
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
 
+    const outMapping = findOutputNodes(workflow);
+    const audioNodeId = outMapping.audioNodeId;
+
     const audios: string[] = [];
-    if (result.outputs && result.outputs["6"]) {
-      const output = result.outputs["6"];
-      const audioItems = output.audio || output.images || output.output; 
-      if (audioItems && Array.isArray(audioItems)) {
-        for (const aud of audioItems) {
-          if (aud.filename) {
-            audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+    if (result.outputs) {
+      if (audioNodeId && result.outputs[audioNodeId]) {
+        const output = result.outputs[audioNodeId];
+        const audioItems = output.audio || output.images || output.output; 
+        if (audioItems && Array.isArray(audioItems)) {
+          for (const aud of audioItems) {
+            if (aud.filename) {
+              audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+            }
+          }
+        }
+      }
+
+      if (audios.length === 0) {
+        for (const nodeId in result.outputs) {
+          const output = result.outputs[nodeId];
+          const audioItems = output.audio || output.images || output.output; 
+          if (audioItems && Array.isArray(audioItems)) {
+            for (const aud of audioItems) {
+              if (aud.filename) {
+                audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+              }
+            }
           }
         }
       }
@@ -569,7 +1036,7 @@ export class ComfyService {
   ): Promise<string> {
     onProgress?.("Building Qwen3-TTS All-In-One Workflow...");
     const mappedLanguage = this.mapLanguageToQwen3(language);
-    const workflow = {
+    const defaultWorkflow = {
       "1": {
         "inputs": {
           "模型名称": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
@@ -622,6 +1089,8 @@ export class ComfyService {
         }
       }
     };
+
+    const workflow = await resolveWorkflow('tts', { prompt: text }, defaultWorkflow);
 
     onProgress?.("Submitting Qwen3-TTS design job (Dispatched)...");
     const promptId = await invoke<string>("submit_comfy_image_rust", {
@@ -652,7 +1121,7 @@ export class ComfyService {
     onProgress?: (msg: string) => void
   ): Promise<string> {
     onProgress?.("Building LatentSync 1.5 Lip-Sync Workflow...");
-    const workflow = {
+    const defaultWorkflow = {
       "40": {
         "inputs": {
           "video": videoFilename,
@@ -723,6 +1192,8 @@ export class ComfyService {
         }
       }
     };
+
+    const workflow = await resolveWorkflow('lipsync', { image: videoFilename, audio: audioFilename }, defaultWorkflow);
 
     onProgress?.("Submitting LatentSync 1.5 job (Dispatched)...");
     const promptId = await invoke<string>("submit_comfy_image_rust", {
@@ -1168,19 +1639,40 @@ export class ComfyService {
     if (referenceAudio) {
       uploadedRefAudio = await this.ensureUploaded(referenceAudio, `ref_audio_${Date.now()}.mp3`, onProgress);
     }
-    const workflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+    const defaultWorkflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+    const workflow = await resolveWorkflow('tts', { prompt: text, audio: uploadedRefAudio }, defaultWorkflow);
+
     onProgress?.("Submitting VoxCPM2 job to ComfyUI...");
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
 
+    const outMapping = findOutputNodes(workflow);
+    const audioNodeId = outMapping.audioNodeId;
+
     const audios: string[] = [];
-    if (result.outputs && result.outputs["30"]) {
-      const output = result.outputs["30"];
-      const audioItems = output.audio || output.images || output.output; 
-      if (audioItems && Array.isArray(audioItems)) {
-        for (const aud of audioItems) {
-          if (aud.filename) {
-            audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+    if (result.outputs) {
+      if (audioNodeId && result.outputs[audioNodeId]) {
+        const output = result.outputs[audioNodeId];
+        const audioItems = output.audio || output.images || output.output; 
+        if (audioItems && Array.isArray(audioItems)) {
+          for (const aud of audioItems) {
+            if (aud.filename) {
+              audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+            }
+          }
+        }
+      }
+
+      if (audios.length === 0) {
+        for (const nodeId in result.outputs) {
+          const output = result.outputs[nodeId];
+          const audioItems = output.audio || output.images || output.output; 
+          if (audioItems && Array.isArray(audioItems)) {
+            for (const aud of audioItems) {
+              if (aud.filename) {
+                audios.push(`http://${this.config.serverAddress}/view?filename=${aud.filename}&subfolder=${aud.subfolder || ''}&type=${aud.type || 'output'}`);
+              }
+            }
           }
         }
       }
@@ -1199,7 +1691,8 @@ export class ComfyService {
     if (referenceAudio) {
       uploadedRefAudio = await this.ensureUploaded(referenceAudio, `ref_audio_${Date.now()}.mp3`, onProgress);
     }
-    const workflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+    const defaultWorkflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+    const workflow = await resolveWorkflow('tts', { prompt: text, audio: uploadedRefAudio }, defaultWorkflow);
     
     onProgress?.("Submitting VoxCPM2 job (Dispatched)...");
     const promptId = await invoke<string>("submit_comfy_image_rust", {
@@ -1595,5 +2088,193 @@ export class ComfyService {
   }
 }
 
+// Global ASR JSON parser and Text Alignment Utilities
+function findASRStructuredData(obj: any): { text: string; segments: any[]; [key: string]: any } | null {
+  if (!obj) return null;
+  if (typeof obj === 'string') {
+    const trimmed = obj.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') {
+          if ('segments' in parsed || ('text' in parsed && Array.isArray(parsed.segments))) {
+            return parsed;
+          }
+        }
+      } catch (_) {}
+    }
+  } else if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const found = findASRStructuredData(item);
+      if (found) return found;
+    }
+  } else if (typeof obj === 'object') {
+    if (Array.isArray(obj.segments) && (typeof obj.text === 'string' || typeof obj.text === 'object')) {
+      const textVal = typeof obj.text === 'string' ? obj.text : JSON.stringify(obj.text);
+      return { ...obj, text: textVal };
+    }
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      const found = findASRStructuredData(val);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function formatSRTTimeStandalone(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+function alignSentencesWithRawSegments(fullText: string, rawSegments: any[]): any[] | null {
+  if (!fullText || !rawSegments || rawSegments.length === 0) return null;
+
+  const parsedSubSegs: { start: number; end: number; text: string }[] = [];
+  for (let i = 0; i < rawSegments.length; i++) {
+    const item = rawSegments[i];
+    if (item && typeof item === 'object') {
+      let startSec = 0;
+      if ('start' in item) startSec = Number(item.start);
+      else if ('start_sec' in item) startSec = Number(item.start_sec);
+      else if ('startSec' in item) startSec = Number(item.startSec);
+      else if ('startTime' in item) startSec = Number(item.startTime);
+      else if ('start_time' in item) startSec = Number(item.start_time);
+      else if ('time_start' in item) startSec = Number(item.time_start);
+
+      let endSec = 0;
+      if ('end' in item) endSec = Number(item.end);
+      else if ('end_sec' in item) endSec = Number(item.end_sec);
+      else if ('endSec' in item) endSec = Number(item.endSec);
+      else if ('endTime' in item) endSec = Number(item.endTime);
+      else if ('end_time' in item) endSec = Number(item.end_time);
+      else if ('time_end' in item) endSec = Number(item.time_end);
+
+      let textVal = "";
+      if ('text' in item) textVal = String(item.text);
+      else if ('string' in item) textVal = String(item.string);
+      else if ('content' in item) textVal = String(item.content);
+      else if ('words' in item) textVal = String(item.words);
+
+      if (textVal) {
+        parsedSubSegs.push({
+          start: Number.isNaN(startSec) ? 0 : startSec,
+          end: Number.isNaN(endSec) ? 0 : endSec,
+          text: textVal.trim()
+        });
+      }
+    }
+  }
+
+  if (parsedSubSegs.length === 0) return null;
+
+  const regex = /[^。！？!?\n\r]+[。！？!?\n\r]*/g;
+  const sentenceStrings = fullText.match(regex);
+  if (!sentenceStrings) return null;
+
+  const sentences = sentenceStrings
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  if (sentences.length === 0) return null;
+
+  const cleanStr = (s: string) => s.replace(/[^\w\s\u4e00-\u9fa5]/g, "").replace(/\s+/g, "");
+
+  const cleanedSubSegs = parsedSubSegs.map(seg => ({
+    original: seg,
+    cleanedText: cleanStr(seg.text)
+  })).filter(seg => seg.cleanedText.length > 0);
+
+  if (cleanedSubSegs.length === 0) {
+    const totalDuration = parsedSubSegs[parsedSubSegs.length - 1].end || 10.0;
+    const durPerSent = totalDuration / sentences.length;
+    return sentences.map((sent, i) => ({
+      index: i + 1,
+      startSec: Number((i * durPerSent).toFixed(2)),
+      endSec: Number(((i + 1) * durPerSent).toFixed(2)),
+      text: sent
+    }));
+  }
+
+  const result: any[] = [];
+  let segIdx = 0;
+
+  for (let s = 0; s < sentences.length; s++) {
+    const rawSent = sentences[s];
+    const cleanedSent = cleanStr(rawSent);
+
+    if (cleanedSent.length === 0) {
+      const prevEnd = result.length > 0 ? result[result.length - 1].endSec : 0;
+      result.push({
+        index: s + 1,
+        startSec: prevEnd,
+        endSec: Number((prevEnd + 1.0).toFixed(2)),
+        text: rawSent
+      });
+      continue;
+    }
+
+    let matchedLen = 0;
+    const targetLen = cleanedSent.length;
+    let firstSeg: typeof cleanedSubSegs[0] | null = null;
+    let lastSeg: typeof cleanedSubSegs[0] | null = null;
+
+    while (segIdx < cleanedSubSegs.length && matchedLen < targetLen) {
+      const seg = cleanedSubSegs[segIdx];
+      if (!firstSeg) firstSeg = seg;
+      lastSeg = seg;
+
+      matchedLen += seg.cleanedText.length;
+      segIdx++;
+    }
+
+    if (firstSeg && lastSeg) {
+      let startSec = firstSeg.original.start;
+      let endSec = lastSeg.original.end;
+
+      if (endSec < startSec) {
+        endSec = startSec + 1.0;
+      }
+
+      result.push({
+        index: s + 1,
+        startSec: Number(startSec.toFixed(2)),
+        endSec: Number(endSec.toFixed(2)),
+        text: rawSent
+      });
+    } else {
+      const prevEnd = result.length > 0 ? result[result.length - 1].endSec : 0;
+      result.push({
+        index: s + 1,
+        startSec: prevEnd,
+        endSec: Number((prevEnd + 2.0).toFixed(2)),
+        text: rawSent
+      });
+    }
+  }
+
+  for (let i = 0; i < result.length; i++) {
+    const cur = result[i];
+    if (cur.startSec >= cur.endSec) {
+      cur.endSec = Number((cur.startSec + 1.5).toFixed(2));
+    }
+    if (i > 0) {
+      const prev = result[i - 1];
+      if (cur.startSec < prev.endSec) {
+        if (cur.startSec < prev.startSec) {
+          cur.startSec = prev.endSec;
+        }
+      }
+      if (cur.endSec <= cur.startSec) {
+        cur.endSec = Number((cur.startSec + 1.0).toFixed(2));
+      }
+    }
+  }
+
+  return result;
+}
 
 export const comfy = new ComfyService();

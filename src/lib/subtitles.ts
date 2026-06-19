@@ -53,19 +53,21 @@ export interface SubtitleDialogueLine {
  * Parse standard SRT string to Dialogue array
  */
 export function parseSRT(srt: string): SubtitleDialogueLine[] {
-  const lines = srt.replace(/\r/g, "").split("\n");
+  const cleanSrt = srt.replace(/^\uFEFF/, "").replace(/\r/g, "");
+  const lines = cleanSrt.split("\n");
   const result: SubtitleDialogueLine[] = [];
   let currentBlock: string[] = [];
 
   for (const line of lines) {
-    if (line.trim() === "") {
+    const trimmed = line.trim();
+    if (trimmed === "") {
       if (currentBlock.length >= 2) {
         const dialog = parseSRTBlock(currentBlock);
         if (dialog) result.push(dialog);
       }
       currentBlock = [];
     } else {
-      currentBlock.push(line);
+      currentBlock.push(trimmed);
     }
   }
 
@@ -79,22 +81,42 @@ export function parseSRT(srt: string): SubtitleDialogueLine[] {
 
 function parseSRTBlock(block: string[]): SubtitleDialogueLine | null {
   try {
-    const index = parseInt(block[0].trim());
-    const timingLine = block[1];
-    const match = timingLine.match(/(\d+):(\d+):(\d+)[,.](\d+)\s*-->\s*(\d+):(\d+):(\d+)[,.](\d+)/);
-    if (!match) return null;
+    const indexStr = block[0].trim();
+    const index = parseInt(indexStr, 10);
+    if (isNaN(index)) return null;
 
-    const startSec = 
-      parseInt(match[1]) * 3600 + 
-      parseInt(match[2]) * 60 + 
-      parseInt(match[3]) + 
-      parseInt(match[4]) / 1000;
+    const timingLine = block[1].trim();
+    const parts = timingLine.split(/\s*-->\s*/);
+    if (parts.length < 2) return null;
 
-    const endSec = 
-      parseInt(match[5]) * 3600 + 
-      parseInt(match[6]) * 60 + 
-      parseInt(match[7]) + 
-      parseInt(match[8]) / 1000;
+    const parseTime = (timeStr: string): number | null => {
+      const clean = timeStr.trim().replace(',', '.');
+      const timeParts = clean.split(':');
+      if (timeParts.length === 3) {
+        const h = parseFloat(timeParts[0]);
+        const m = parseFloat(timeParts[1]);
+        const s = parseFloat(timeParts[2]);
+        if (!isNaN(h) && !isNaN(m) && !isNaN(s)) {
+          return h * 3600 + m * 60 + s;
+        }
+      } else if (timeParts.length === 2) {
+        const m = parseFloat(timeParts[0]);
+        const s = parseFloat(timeParts[1]);
+        if (!isNaN(m) && !isNaN(s)) {
+          return m * 60 + s;
+        }
+      } else if (timeParts.length === 1) {
+        const s = parseFloat(timeParts[0]);
+        if (!isNaN(s)) {
+          return s;
+        }
+      }
+      return null;
+    };
+
+    const startSec = parseTime(parts[0]);
+    const endSec = parseTime(parts[1]);
+    if (startSec === null || endSec === null) return null;
 
     const text = block.slice(2).join(" ").trim();
     return { index, startSec, endSec, text };

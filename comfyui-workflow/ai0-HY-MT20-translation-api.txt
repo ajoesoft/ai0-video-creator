@@ -10,7 +10,7 @@
   },
   "2": {
     "inputs": {
-      "text": "核心画面：唯美奇幻国风故事封面，全景仙气山林场景，一只灵动可爱的棕色小猴子，蹲落在青翠山林青苔草地上，乖巧注视着身旁刚刚痊愈的金色小龙\n角色细节：小龙身形小巧俊秀，通体鎏金流光鳞甲，龙鳞泛着柔和霞光，龙须纤细飘逸，眼眸温润澄澈，周身萦绕淡淡祥瑞云雾，姿态温顺柔和；小猴子绒毛蓬松圆润，眼神天真灵动，模样俏皮可爱，肢体轻盈灵巧\n场景氛围：青峰山林古木参天，翠绿藤蔓缠绕，林间晨光穿透层层枝叶，洒落细碎金光，山间薄雾缭绕、仙气飘飘，地面铺满柔软落叶与青苔，整体画面清新治愈、梦幻唯美，国风仙侠意境浓厚\n构图画质：居中主体构图，画面干净通透，色彩柔和通透，光影细腻治愈，高清超清，8K质感，手绘国风插画风格，细节饱满精致，适配故事封面，氛围感拉满，无多余杂物\n辅助关键词：奇幻治愈、古风仙侠、祥云微光、自然光影、灵动唯美、童话奇幻、高饱和度柔和配色、全景氛围感",
+      "text": "要升级这个环境里的 transformers。重启 ComfyUI 后就能看到新节点和新模型选项",
       "target_language": "en | 英语",
       "max_new_tokens": 512,
       "temperature": 0.7,
@@ -24,12 +24,12 @@
     },
     "class_type": "HY-MT Translator",
     "_meta": {
-      "title": "HY-MT Translator"
+      "title": "INPUT(TEXT)"
     }
   },
   "3": {
     "inputs": {
-      "text": "Core image: A cover featuring a beautiful, fantasy-themed story in Chinese artistic style; it shows a panoramic view of a mystical forest, with a cute and lively brown monkey perched on the mossy grass in the green woods, looking affectionately at a golden dragon that has just recovered.  \nCharacter details: The dragon is small and delicate, covered in golden scales that emit a soft glow; its whiskers are fine and graceful, its eyes are gentle and clear. A faint aura of auspicious mist surrounds it, giving it a gentle and soothing appearance. The monkey has fluffy, round fur, innocent and lively eyes, and appears playful and cute; its movements are light and agile.  \nScene atmosphere: The forest is filled with tall ancient trees, with green vines creeping up their trunks. Morning light filters through the branches, casting delicate beams of gold light. A light mist lingers in the air, creating a mystical atmosphere. The ground is covered with soft leaves and moss. The overall scene is fresh, soothing, and dreamlike, with a strong sense of Chinese artistic style.  \nImage quality: The main subject is placed in the center of the frame; the image is clean and clear, with soft colors and delicate lighting. It’s high-definition, 8K quality, in the style of hand-drawn Chinese illustrations, with detailed and exquisite elements. It’s perfect for story covers, with a strong atmospheric feel and no unnecessary elements.  \nAdditional keywords: Fantasy and soothing atmosphere, Chinese artistic style, auspicious mist and soft light, natural lighting, beautiful and delicate aesthetics, fairy-tale-like fantasy, high saturation with soft colors, panoramic atmospheric effect.",
+      "text": "To upgrade the transformers in this environment, restart ComfyUI – then you will see the new nodes and model options.",
       "anything": [
         "2",
         0
@@ -37,7 +37,7 @@
     },
     "class_type": "easy showAnything",
     "_meta": {
-      "title": "Show Any"
+      "title": "OUTPUT(TEXT)"
     }
   }
 }

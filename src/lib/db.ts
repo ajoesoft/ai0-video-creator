@@ -1,12 +1,10 @@
 import Database from "@tauri-apps/plugin-sql";
 import { remove, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType } from "../types";
-
 import { invoke } from "@tauri-apps/api/core";
 
 let db: Database | null = null;
 let dbError: string | null = null;
-const PROMPT_HARNESS_LOCAL_STORAGE_KEY = 'ai_prompt_harnesses_fallback';
 
 const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 
@@ -31,16 +29,27 @@ export async function getDb() {
   if (!db) {
     try {
       let dbPath = "main.db";
-      try {
-        const path = await invoke<string>("get_db_file_path");
-        console.log("Invoked get_db_file_path, got:", path);
-        if (path) {
-          dbPath = path;
-        }
-      } catch (err) {
-        console.warn("Failed to retrieve dynamic database path via get_db_file_path:", err);
+      const path = await invoke<string>("get_db_file_path");
+      console.log("Invoked get_db_file_path, got:", path);
+      if (path) {
+        dbPath = path;
       }
       db = await Database.load("sqlite:" + dbPath);
+
+      // Auto-alter video_projects to support width, height, aspect_ratio, visual_style
+      try {
+        await db.execute("ALTER TABLE video_projects ADD COLUMN width INTEGER DEFAULT 1920");
+      } catch (_) { }
+      try {
+        await db.execute("ALTER TABLE video_projects ADD COLUMN height INTEGER DEFAULT 1080");
+      } catch (_) { }
+      try {
+        await db.execute("ALTER TABLE video_projects ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'");
+      } catch (_) { }
+      try {
+        await db.execute("ALTER TABLE video_projects ADD COLUMN visual_style TEXT DEFAULT 'Cinematic'");
+      } catch (_) { }
+
       // Auto-create visual_library table if missing
       try {
         await db.execute(`
@@ -106,6 +115,193 @@ export async function getDb() {
       } catch (errTasksTable) {
         console.error("Failed to create background_tasks table:", errTasksTable);
       }
+
+      // Safe check and auto-creation / migration for video_translation_projects with v2 schema check to clear foreign key constraints
+      try {
+        let isMigrated = false;
+        try {
+          const res = await db.select<any[]>("SELECT value FROM app_settings WHERE key = 'video_translation_schema_v2' LIMIT 1");
+          if (res && res.length > 0 && res[0].value === "true") {
+            isMigrated = true;
+          }
+        } catch (_) { }
+
+        if (!isMigrated) {
+          console.warn("video_translation_schema_v2 not yet active. Purging old video_translation_ tables to resolve any legacy foreign key mismatches...");
+          await db.execute("PRAGMA foreign_keys = OFF;");
+          await db.execute("DROP TABLE IF EXISTS video_translation_timeline;");
+          await db.execute("DROP TABLE IF EXISTS video_translation_logs;");
+          await db.execute("DROP TABLE IF EXISTS video_translation_projects;");
+          await db.execute("PRAGMA foreign_keys = ON;");
+
+          try {
+            await db.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+            await db.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('video_translation_schema_v2', 'true', CURRENT_TIMESTAMP);");
+          } catch (settErr) {
+            console.error("Failed to mark video_translation_schema_v2 in app_settings:", settErr);
+          }
+        }
+      } catch (errMigrate) {
+        console.error("Failed to execute video_translation schema check/migration:", errMigrate);
+      }
+
+      // Recreate video_translation_projects table
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS video_translation_projects (
+            project_id TEXT PRIMARY KEY,
+            name TEXT,
+            video_url TEXT,
+            cover_url TEXT,
+            audio_url TEXT,
+            audio_duration REAL,
+            srt_original TEXT,
+            text_original TEXT,
+            detected_language TEXT,
+            status TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+          );
+        `);
+      } catch (err) {
+        console.error("Failed to create video_translation_projects table:", err);
+      }
+
+      // Recreate video_translation_timeline table
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS video_translation_timeline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT,
+            segment_index INTEGER,
+            start_sec REAL,
+            end_sec REAL,
+            text TEXT,
+            translated_text TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+          );
+        `);
+      } catch (err) {
+        console.error("Failed to create video_translation_timeline table:", err);
+      }
+
+      // Recreate video_translation_logs table
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS video_translation_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT,
+            log_type TEXT,
+            message TEXT,
+            timestamp INTEGER
+          );
+        `);
+      } catch (err) {
+        console.error("Failed to create video_translation_logs table:", err);
+      }
+
+      // Self-migration: Merge all unique translation projects inside video_translation_projects table into unified video_projects table
+      try {
+        console.log("[Migration] Merging video_translation_projects rows into video_projects...");
+        const transProjects = await db.select<any[]>("SELECT * FROM video_translation_projects");
+        if (transProjects && transProjects.length > 0) {
+          console.log(`[Migration] Found ${transProjects.length} candidate translation projects to migrate.`);
+          for (const tp of transProjects) {
+            const uuid = tp.project_id;
+            const existing = await db.select<any[]>("SELECT project_uuid FROM video_projects WHERE project_uuid = ? LIMIT 1", [uuid]);
+            if (!existing || existing.length === 0) {
+              console.log(`[Migration] Migrating Translation Project: [${tp.name}] (UUID: ${uuid}) into video_projects.`);
+              const statusVal = tp.status === 'completed' ? 4 : 2; // ProjectStatus.COMPLETED = 4, EDITING = 2
+              const now = Date.now();
+              await db.execute(
+                `INSERT INTO video_projects (
+                  project_uuid, project_name, project_status, create_time, update_time, 
+                  project_prompt, scene_type, cover_image_path, project_path, 
+                  width, height, aspect_ratio, visual_style
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  uuid,
+                  tp.name || "Untitled Translation",
+                  statusVal,
+                  tp.created_at || now,
+                  tp.updated_at || now,
+                  tp.srt_original ? (tp.srt_original.substring(0, 150) + "...") : "Video Translation Project configured.",
+                  "video_translation",
+                  tp.cover_url || null,
+                  null,
+                  1920,
+                  1080,
+                  "16:9",
+                  "Cinematic"
+                ]
+              );
+            }
+
+            // Construct state setting video_translation_data_${uuid} inside app_settings if not present
+            const settingKey = `video_translation_data_${uuid}`;
+            const existingSetting = await db.select<any[]>("SELECT value FROM app_settings WHERE key = ? LIMIT 1", [settingKey]);
+            if (!existingSetting || existingSetting.length === 0) {
+              console.log(`[Migration] Constructing translation state setting data for project ${uuid}...`);
+              // Fetch timeline segment rows
+              const segments = await db.select<any[]>(
+                "SELECT * FROM video_translation_timeline WHERE project_id = ? ORDER BY segment_index ASC",
+                [uuid]
+              );
+              const mappedDialogues = segments.map(s => ({
+                index: s.segment_index,
+                startSec: s.start_sec,
+                endSec: s.end_sec,
+                text: s.text,
+              }));
+              const mappedTranslatedDialogues = segments.map(s => ({
+                index: s.segment_index,
+                startSec: s.start_sec,
+                endSec: s.end_sec,
+                text: s.translated_text || "",
+              })).filter(s => s.text !== "");
+
+              const logsRows = await db.select<any[]>(
+                "SELECT message FROM video_translation_logs WHERE project_id = ? ORDER BY timestamp ASC",
+                [uuid]
+              );
+              const mappedLogs = logsRows.length > 0 ? logsRows.map(l => l.message) : [`[LOG] Loaded project from storage: ${tp.name}`];
+
+              const translationState = {
+                videoName: tp.name,
+                videoSize: "Unknown Size",
+                videoUrl: tp.video_url || "",
+                coverUrl: tp.cover_url || null,
+                audioUrl: tp.audio_url || null,
+                audioDuration: tp.audio_duration || 0,
+                srtOriginal: tp.srt_original || "",
+                srtTranslated: "",
+                textOriginal: tp.text_original || "",
+                textTranslated: "",
+                dialogues: mappedDialogues,
+                translatedDialogues: mappedTranslatedDialogues,
+                synthesizedAudioUrl: null,
+                outputVideoUrl: null,
+                status: tp.status || 'idle',
+                logs: mappedLogs,
+                selectedVoice: 'Kore',
+                sourceLang: 'Chinese',
+                targetLang: 'English',
+                ttsSpeed: 1.0,
+                lipsyncModel: 'LTX2.3 + LipSync-1.0'
+              };
+
+              await db.execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
+                [settingKey, JSON.stringify(translationState)]
+              );
+              console.log(`[Migration] Successfully constructed translation State inside app_settings for ${uuid}.`);
+            }
+          }
+        }
+      } catch (migrateErr) {
+        console.error("Failed to run video_translation merge self-migration:", migrateErr);
+      }
     } catch (err: any) {
       console.error("Failed to load SQLite via Tauri plugin-sql:", err);
       const errMsg = err?.toString() || "";
@@ -118,11 +314,6 @@ export async function getDb() {
           console.log("Deleted corrupt/outdated main.db from AppLocalData, reloading...");
 
           let dbPath = "main.db";
-          try {
-            const path = await invoke<string>("get_db_file_path");
-            if (path) dbPath = path;
-          } catch (e) { }
-
           db = await Database.load("sqlite:" + dbPath);
           dbError = null;
           return db;
@@ -135,11 +326,6 @@ export async function getDb() {
             console.log("Deleted corrupt/outdated main.db from AppData, reloading...");
 
             let dbPath = "main.db";
-            try {
-              const path = await invoke<string>("get_db_file_path");
-              if (path) dbPath = path;
-            } catch (e) { }
-
             db = await Database.load("sqlite:" + dbPath);
             dbError = null;
             return db;
@@ -185,6 +371,10 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
             sceneType: p.scene_type || 'short_video',
             createdAt: p.create_time,
             updatedAt: p.update_time,
+            width: p.width || 1920,
+            height: p.height || 1080,
+            aspectRatio: p.aspect_ratio || '16:9',
+            visualStyle: p.visual_style || 'Cinematic',
           }));
         }
 
@@ -202,7 +392,104 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
     }
   }
   const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-  return data ? JSON.parse(data) : [];
+  const standardProjects: VideoProject[] = data ? JSON.parse(data) : [];
+
+  // Browser local storage self-migration check
+  try {
+    const transKey = "fallback_video_translation_projects";
+    const transProjectsStr = localStorage.getItem(transKey);
+    if (transProjectsStr) {
+      const transProjects: any[] = JSON.parse(transProjectsStr);
+      if (transProjects.length > 0) {
+        let modified = false;
+        for (const tp of transProjects) {
+          const uuid = tp.project_id;
+          const exist = standardProjects.find(sp => sp.id === uuid);
+          if (!exist) {
+            console.log(`[Migration] Migrating local storage translation project: ${tp.name} (${uuid})`);
+            const statusVal = tp.status === 'completed' ? 4 : 2; // ProjectStatus.COMPLETED = 4, EDITING = 2
+            const now = Date.now();
+            standardProjects.push({
+              id: uuid,
+              name: tp.name || "Untitled Translation",
+              prompt: tp.srt_original ? (tp.srt_original.substring(0, 150) + "...") : "Video Translation Project configured.",
+              coverImagePath: tp.cover_url || null,
+              createdAt: tp.created_at || now,
+              updatedAt: tp.updated_at || now,
+              status: statusVal,
+              sceneType: "video_translation" as any,
+              width: 1920,
+              height: 1080,
+              aspectRatio: "16:9",
+              visualStyle: "Cinematic"
+            });
+            modified = true;
+          }
+
+          // Generate detailed translation state JSON setting for this fallback project if missing
+          const settingKey = `video_translation_data_${uuid}`;
+          if (!localStorage.getItem(settingKey)) {
+            const timelineKey = "fallback_video_translation_timeline";
+            const timelineStr = localStorage.getItem(timelineKey);
+            const allSegments: any[] = timelineStr ? JSON.parse(timelineStr) : [];
+            const segments = allSegments.filter(s => s.project_id === uuid);
+
+            const logsKey = "fallback_video_translation_logs";
+            const logsStr = localStorage.getItem(logsKey);
+            const allLogs: any[] = logsStr ? JSON.parse(logsStr) : [];
+            const logsRows = allLogs.filter(l => l.project_id === uuid);
+
+            const mappedDialogues = segments.map(s => ({
+              index: s.segment_index,
+              startSec: s.start_sec,
+              endSec: s.end_sec,
+              text: s.text || "",
+            }));
+            const mappedTranslatedDialogues = segments.map(s => ({
+              index: s.segment_index,
+              startSec: s.start_sec,
+              endSec: s.end_sec,
+              text: s.translated_text || "",
+            })).filter(s => s.text !== "");
+
+            const mappedLogs = logsRows.length > 0 ? logsRows.map(l => l.message) : [`[LOG] Loaded project from storage: ${tp.name}`];
+
+            const translationState = {
+              videoName: tp.name,
+              videoSize: "Unknown Size",
+              videoUrl: tp.video_url || "",
+              coverUrl: tp.cover_url || null,
+              audioUrl: tp.audio_url || null,
+              audioDuration: tp.audio_duration || 0,
+              srtOriginal: tp.srt_original || "",
+              srtTranslated: "",
+              textOriginal: tp.text_original || "",
+              textTranslated: "",
+              dialogues: mappedDialogues,
+              translatedDialogues: mappedTranslatedDialogues,
+              synthesizedAudioUrl: null,
+              outputVideoUrl: null,
+              status: tp.status || 'idle',
+              logs: mappedLogs,
+              selectedVoice: 'Kore',
+              sourceLang: 'Chinese',
+              targetLang: 'English',
+              ttsSpeed: 1.0,
+              lipsyncModel: 'LTX2.3 + LipSync-1.0'
+            };
+            localStorage.setItem(settingKey, JSON.stringify(translationState));
+          }
+        }
+        if (modified) {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(standardProjects));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Local Web fallback self-migration error:", err);
+  }
+
+  return standardProjects;
 }
 
 async function saveLocalStorageProjects(projects: VideoProject[]): Promise<void> {
@@ -250,15 +537,284 @@ export async function fetchProjects(): Promise<VideoProject[]> {
         sceneType: p.scene_type || 'short_video',
         createdAt: p.create_time,
         updatedAt: p.update_time,
+        width: p.width || 1920,
+        height: p.height || 1080,
+        aspectRatio: p.aspect_ratio || '16:9',
+        visualStyle: p.visual_style || 'Cinematic',
       }));
     }
   }
 
   // Fallback to LocalStorage for Web Preview
-  return getLocalStorageProjects().sort((a, b) => b.updatedAt - a.updatedAt);
+  const localProjects = await getLocalStorageProjects();
+  return localProjects.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export async function createProject(name: string, status: number, prompt?: string, sceneType: string = 'short_video', projectPath?: string, explicitId?: string): Promise<any> {
+export async function seedSystemHarnessesForProject(projectId: string, visualStyle: string): Promise<void> {
+  const now = Date.now();
+  console.log(`Seeding system harnesses for project ${projectId} with style ${visualStyle}`);
+
+  // Base items: System Camera Motion Harnesses (can be shared and used in visual library)
+  const itemsToCreate = [
+    {
+      title: "向左横移 (Pan Left)",
+      sceneId: "camera_pan_left",
+      shortName: "@PanLeft",
+      imagePrompt: "classic smooth pan left",
+      videoPrompt: "slow panning camera to the left, capturing wide scenic landscape view",
+      type: "运镜"
+    },
+    {
+      title: "向右横移 (Pan Right)",
+      sceneId: "camera_pan_right",
+      shortName: "@PanRight",
+      imagePrompt: "classic smooth pan right",
+      videoPrompt: "slow panning camera to the right, sweeping cinematic motion",
+      type: "运镜"
+    },
+    {
+      title: "拉近镜头 (Zoom In)",
+      sceneId: "camera_zoom_in",
+      shortName: "@ZoomIn",
+      imagePrompt: "smooth zoom in",
+      videoPrompt: "smooth cinematic camera zoom in, tracking the main focus in detail",
+      type: "运镜"
+    },
+    {
+      title: "拉远镜头 (Zoom Out)",
+      sceneId: "camera_zoom_out",
+      shortName: "@ZoomOut",
+      imagePrompt: "smooth zoom out",
+      videoPrompt: "subtle scenic camera zoom out, revealing detailed epic environmental background",
+      type: "运镜"
+    },
+    {
+      title: "环绕运镜 (Orbit)",
+      sceneId: "camera_orbit",
+      shortName: "@Orbit",
+      imagePrompt: "slow orbital tracking camera",
+      videoPrompt: "slow orbital tracking camera movement rotating 360 degrees around the subject",
+      type: "运镜"
+    },
+    {
+      title: "俯拍飞掠 (Drone)",
+      sceneId: "camera_drone",
+      shortName: "@Drone",
+      imagePrompt: "epic drone shot",
+      videoPrompt: "epic high-altitude drone shot, gliding forward, seamless aerial view",
+      type: "运镜"
+    }
+  ];
+
+  // Visual style pre-made system prompt harnesses
+  if (visualStyle === 'Cinematic' || visualStyle === '电影') {
+    itemsToCreate.push(
+      {
+        title: "电影质感风格",
+        sceneId: "style_cinematic",
+        shortName: "@Style",
+        imagePrompt: "classic 35mm photograph, shallow depth of field, warm cinematic lighting, ultra-detailed photorealistic, shot on ARRI Alexa",
+        videoPrompt: "35mm cinema camera film grain, dramatic high contrast, photorealistic cinematic movement",
+        type: "Style"
+      },
+      {
+        title: "电影氛围光影",
+        sceneId: "style_cinematic_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "dramatic cinematic side lighting, volumetric sunset rays filtration, golden hour ambient",
+        videoPrompt: "golden hour side light ambiance, ray tracing sunset reflections",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'Animation' || visualStyle === '动画') {
+    itemsToCreate.push(
+      {
+        title: "3D动画风格",
+        sceneId: "style_animation",
+        shortName: "@Style",
+        imagePrompt: "Pixar style 3D animation, soft clay render, stylized big expressive eyes, bright colorful lighting, sub-surface scattering skin",
+        videoPrompt: "3D stylized animation keyframes, soft render movement, vibrant colors",
+        type: "Style"
+      },
+      {
+        title: "动画明快光影",
+        sceneId: "style_animation_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "soft overhead dome light, colorful highlights, high-end CGI shader, ambient occlusion",
+        videoPrompt: "soft ambient CGI animation lighting, cheerful warm illumination",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'Comic' || visualStyle === '漫画') {
+    itemsToCreate.push(
+      {
+        title: "漫画手绘风格",
+        sceneId: "style_comic",
+        shortName: "@Style",
+        imagePrompt: "vibrant anime manga comic illustration, ink lineart, halftone dots, bold line weight, screentone shading overlay",
+        videoPrompt: "dynamic visual novel anime style cells, bold outline transition",
+        type: "Style"
+      },
+      {
+        title: "极高对比漫画光影",
+        sceneId: "style_comic_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "bold cel-shaded high contrast lighting, black comic shadows, dramatic action panel reflection",
+        videoPrompt: "cell shaded high-contrast graphics, manga page lighting accents",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'Ghibli' || visualStyle === '吉卜力') {
+    itemsToCreate.push(
+      {
+        title: "吉卜力复古水彩",
+        sceneId: "style_ghibli",
+        shortName: "@Style",
+        imagePrompt: "Studio Ghibli aesthetic watercolor handpainted anime wallpaper, nostalgic rich color scheme, gorgeous scenery master keyframe",
+        videoPrompt: "nostalgic hand-painted watercolor anime scene landscape panning, retro aesthetic",
+        type: "Style"
+      },
+      {
+        title: "午后温润光影",
+        sceneId: "style_ghibli_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "gentle warm watercolor summer breeze sunlight, glowing white fluffy summer clouds, nostalgic atmospheric haze",
+        videoPrompt: "serene bright afternoon radiance, soft sun rays through summer clouds",
+        type: "Style"
+      }
+    );
+  } else {
+    itemsToCreate.push(
+      {
+        title: "通用艺术质感",
+        sceneId: "style_general",
+        shortName: "@Style",
+        imagePrompt: "detailed artistic masterpiece style, elegant clean aesthetic, balanced visual tones",
+        videoPrompt: "cinematic motion artistic digital masterpiece render",
+        type: "Style"
+      },
+      {
+        title: "通用环境光影",
+        sceneId: "style_general_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "balanced atmospheric studio lighting, premium clean environment details",
+        videoPrompt: "ambient photorealistic studio quality raytraced illumination",
+        type: "Style"
+      }
+    );
+  }
+
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        for (const item of itemsToCreate) {
+          // A. Insert visual_library
+          await database.execute(
+            `INSERT INTO visual_library (
+              project_id, scene_id, title, type, uuid, short_name, image_prompt, video_prompt, audio_prompt, 
+              image_path, video_path, audio_path, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              projectId,
+              item.sceneId,
+              item.title,
+              item.type,
+              "", // uuid
+              item.shortName,
+              item.imagePrompt,
+              item.videoPrompt,
+              "", // audio_prompt
+              "", // image_path
+              "", // video_path
+              "", // audio_path
+              now,
+              now
+            ]
+          );
+
+          // B. Retrieve inserted ID
+          const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
+          const insertedId = idResult[0]?.id;
+
+          if (insertedId) {
+            // C. Insert prompt_harness
+            await database.execute(
+              `INSERT INTO prompt_harness (project_id, trigger_keyword, visual_asset_id, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+              [projectId, item.shortName, insertedId, 1, now, now]
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to seed database harnesses:", err);
+      }
+      return;
+    }
+  }
+
+  // LocalStorage Fallback Seeding
+  try {
+    const allItemsRaw = localStorage.getItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY);
+    const allItems: any[] = allItemsRaw ? JSON.parse(allItemsRaw) : [];
+
+    const allHarnessesRaw = localStorage.getItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY);
+    const allHarnesses: any[] = allHarnessesRaw ? JSON.parse(allHarnessesRaw) : [];
+
+    let virtualIdCounter = Date.now();
+
+    for (const item of itemsToCreate) {
+      const assetId = ++virtualIdCounter;
+      const newAsset = {
+        id: assetId,
+        projectId,
+        sceneId: item.sceneId,
+        title: item.title,
+        type: item.type,
+        uuid: "",
+        shortName: item.shortName,
+        imagePrompt: item.imagePrompt,
+        videoPrompt: item.videoPrompt,
+        audioPrompt: "",
+        imagePath: "",
+        videoPath: "",
+        audioPath: "",
+        createdAt: now,
+        updatedAt: now
+      };
+      allItems.push(newAsset);
+
+      const harnessId = ++virtualIdCounter;
+      const newHarness = {
+        id: harnessId,
+        projectId,
+        triggerKeyword: item.shortName,
+        visualAssetId: assetId,
+        active: 1,
+        createdAt: now,
+        updatedAt: now
+      };
+      allHarnesses.push(newHarness);
+    }
+
+    localStorage.setItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY, JSON.stringify(allItems));
+    localStorage.setItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY, JSON.stringify(allHarnesses));
+  } catch (err) {
+    console.error("Failed to seed LocalStorage pre-mades:", err);
+  }
+}
+
+export async function createProject(
+  name: string,
+  status: number,
+  prompt?: string,
+  sceneType: string = 'short_video',
+  projectPath?: string,
+  explicitId?: string,
+  width?: number,
+  height?: number,
+  aspectRatio?: string,
+  visualStyle?: string
+): Promise<any> {
   const id = explicitId || crypto.randomUUID();
   const now = Date.now();
   const actualProjectPath = projectPath || null;
@@ -267,10 +823,24 @@ export async function createProject(name: string, status: number, prompt?: strin
     const database = await getDb();
     if (database) {
       await database.execute(
-        "INSERT INTO video_projects (project_uuid, project_name, project_status, create_time, update_time, project_prompt, scene_type, project_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, name, status, now, now, prompt || null, sceneType, actualProjectPath]
+        "INSERT INTO video_projects (project_uuid, project_name, project_status, create_time, update_time, project_prompt, scene_type, project_path, width, height, aspect_ratio, visual_style) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, name, status, now, now, prompt || null, sceneType, actualProjectPath, width || 1920, height || 1080, aspectRatio || '16:9', visualStyle || 'Cinematic']
       );
-      return { id, name, status, createdAt: now, updatedAt: now, prompt, sceneType, projectPath: actualProjectPath };
+      await seedSystemHarnessesForProject(id, visualStyle || 'Cinematic');
+      return {
+        id,
+        name,
+        status,
+        createdAt: now,
+        updatedAt: now,
+        prompt,
+        sceneType,
+        projectPath: actualProjectPath,
+        width: width || 1920,
+        height: height || 1080,
+        aspectRatio: aspectRatio || '16:9',
+        visualStyle: visualStyle || 'Cinematic'
+      };
     }
   }
 
@@ -284,10 +854,15 @@ export async function createProject(name: string, status: number, prompt?: strin
     createdAt: now,
     updatedAt: now,
     projectPath: actualProjectPath || '',
+    width: width || 1920,
+    height: height || 1080,
+    aspectRatio: aspectRatio || '16:9',
+    visualStyle: visualStyle || 'Cinematic'
   };
-  const projects = getLocalStorageProjects();
+  const projects = await getLocalStorageProjects();
   projects.push(newProject);
-  saveLocalStorageProjects(projects);
+  await saveLocalStorageProjects(projects);
+  await seedSystemHarnessesForProject(id, visualStyle || 'Cinematic');
   return newProject;
 }
 
@@ -311,6 +886,10 @@ export async function fetchProjectById(id: string): Promise<VideoProject | null>
           sceneType: p.scene_type || 'short_video',
           createdAt: p.create_time,
           updatedAt: p.update_time,
+          width: p.width || 1920,
+          height: p.height || 1080,
+          aspectRatio: p.aspect_ratio || '16:9',
+          visualStyle: p.visual_style || 'Cinematic',
         };
       }
       return null;
@@ -318,7 +897,7 @@ export async function fetchProjectById(id: string): Promise<VideoProject | null>
   }
 
   // Fallback to LocalStorage
-  const projects = getLocalStorageProjects();
+  const projects = await getLocalStorageProjects();
   return projects.find(p => p.id === id) || null;
 }
 
@@ -326,7 +905,7 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
   const now = Date.now();
   const current = await fetchProjectById(id);
   if (!current) return null;
-  console.log(`## current:` + JSON.stringify(current));
+
   const updated = { ...current, ...updates, updatedAt: now };
 
   if (isTauri) {
@@ -334,7 +913,7 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
     if (database) {
       // Map back to DB fields
       await database.execute(
-        "UPDATE video_projects SET project_name = ?, project_prompt = ?, project_status = ?, cover_image_path = ?, scene_type = ?, project_path = ?, update_time = ? WHERE project_uuid = ?",
+        "UPDATE video_projects SET project_name = ?, project_prompt = ?, project_status = ?, cover_image_path = ?, scene_type = ?, project_path = ?, update_time = ?, width = ?, height = ?, aspect_ratio = ?, visual_style = ? WHERE project_uuid = ?",
         [
           updated.name,
           updated.prompt,
@@ -343,21 +922,23 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
           updated.sceneType,
           updated.projectPath || null,
           now,
+          updated.width || 1920,
+          updated.height || 1080,
+          updated.aspectRatio || '16:9',
+          updated.visualStyle || 'Cinematic',
           id
         ]
       );
-      console.log(`## updated: `+JSON.stringify(updated));
-
       return updated;
     }
   }
 
   // Fallback
-  const projects = getLocalStorageProjects();
+  const projects = await getLocalStorageProjects();
   const index = projects.findIndex(p => p.id === id);
   if (index !== -1) {
     projects[index] = updated;
-    saveLocalStorageProjects(projects);
+    await saveLocalStorageProjects(projects);
   }
   return updated;
 }
@@ -534,9 +1115,9 @@ export async function deleteProject(id: string): Promise<boolean> {
   }
 
   // Fallback
-  const projects = getLocalStorageProjects();
+  const projects = await getLocalStorageProjects();
   const filtered = projects.filter(p => p.id !== id);
-  saveLocalStorageProjects(filtered);
+  await saveLocalStorageProjects(filtered);
   return true;
 }
 
@@ -641,8 +1222,6 @@ export async function setSetting(key: string, value: string): Promise<boolean> {
   }
   return true;
 }
-
-
 
 // Visual Library operations
 const VISUAL_LIBRARY_LOCAL_STORAGE_KEY = 'ai_visual_library_fallback';
@@ -838,6 +1417,11 @@ export async function deleteVisualLibraryItem(id: number): Promise<boolean> {
   return true;
 }
 
+// ========================================================
+// Prompt Harness operations (IP Consistency Harness System)
+// ========================================================
+const PROMPT_HARNESS_LOCAL_STORAGE_KEY = 'ai_prompt_harnesses_fallback';
+
 export function getLocalStoragePromptHarnesses(): PromptHarness[] {
   const data = localStorage.getItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY);
   return data ? JSON.parse(data) : [];
@@ -1011,29 +1595,62 @@ export async function applyPromptHarnessRules(promptText: string, projectId: str
 
     let modifiedPrompt = promptText;
 
-    // 3. For each active harness rule, check presence of trigger keyword
+    // Parse all @ tags in the prompt
+    // This matches @ followed by any sequence of word-characters, non-spaces, and non-common-punctuation
+    const tagRegex = /@([^\s,.:;!?"'()（）[\]{}<>；：，。！？"“‘]+)/g;
+    const matches = Array.from(modifiedPrompt.matchAll(tagRegex));
+    const processedTags = new Set<string>();
+
+    for (const match of matches) {
+      const fullMatch = match[0]; // e.g. "@Character1"
+      const tagName = match[1];   // e.g. "Character1"
+
+      if (processedTags.has(fullMatch)) continue;
+      processedTags.add(fullMatch);
+
+      // Find an active harness that matches this tag name case-insensitively
+      const matchingRule = activeHarnesses.find(h => {
+        const trigger = h.triggerKeyword || "";
+        const cleanTrigger = trigger.startsWith('@') ? trigger.slice(1) : trigger;
+        return cleanTrigger.toLowerCase() === tagName.toLowerCase();
+      });
+
+      if (!matchingRule) continue;
+
+      const parentAsset = visualAssets.find(v => v.id === matchingRule.visualAssetId);
+      if (!parentAsset) continue;
+
+      const designDetails = [
+        parentAsset.imagePrompt,
+        parentAsset.videoPrompt
+      ].filter(Boolean).join(", ");
+
+      if (designDetails.trim()) {
+        const replacement = `${tagName} (${designDetails})`;
+        const escapedFullMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const replaceRegex = new RegExp(escapedFullMatch, 'g');
+        modifiedPrompt = modifiedPrompt.replace(replaceRegex, replacement);
+      }
+    }
+
+    // Fallback for non-@ triggers (exact word matches) that aren't already part of a resolved parentheses block
     for (const rule of activeHarnesses) {
+      const trigger = rule.triggerKeyword || "";
+      if (!trigger) continue;
+      const cleanTrigger = trigger.startsWith('@') ? trigger.slice(1) : trigger;
       const parentAsset = visualAssets.find(v => v.id === rule.visualAssetId);
       if (!parentAsset) continue;
 
-      const trigger = rule.triggerKeyword;
-      // Use escape helper to support special characters of keyword e.g. "@主角"
-      const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const designDetails = [
+        parentAsset.imagePrompt,
+        parentAsset.videoPrompt
+      ].filter(Boolean).join(", ");
 
-      // Match with word bounds or direct boundaries
-      const regex = new RegExp(`(${escapedTrigger})`, 'gi');
-
-      if (regex.test(modifiedPrompt)) {
-        // Construct the detailed consistency inject token
-        const designDetails = [
-          parentAsset.imagePrompt,
-          parentAsset.videoPrompt
-        ].filter(Boolean).join(", ");
-
-        if (designDetails.trim()) {
-          // Replace matching keywords with their descriptive high fidelity context
-          modifiedPrompt = modifiedPrompt.replace(regex, `$1 (${designDetails})`);
-        }
+      if (designDetails.trim()) {
+        // Look for the exact trigger name, ensuring it is not already followed by details in parentheses
+        const escapedTrigger = cleanTrigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const checkRegex = new RegExp(`(?<!@)(${escapedTrigger})(?!\\s*\\()`, 'gi');
+        modifiedPrompt = modifiedPrompt.replace(checkRegex, `$1 (${designDetails})`);
       }
     }
 
@@ -1043,8 +1660,6 @@ export async function applyPromptHarnessRules(promptText: string, projectId: str
     return promptText;
   }
 }
-
-
 
 // ========================================================
 // BACKGROUND QUEUE & TASK MANAGER DB OPERATIONS
@@ -1235,4 +1850,207 @@ export async function clearCompletedTasks(): Promise<boolean> {
   const filtered = allTasks.filter(t => t.status !== TaskStatus.COMPLETED && t.status !== TaskStatus.FAILED && t.status !== TaskStatus.CANCELLED);
   saveLocalStorageTasks(filtered);
   return true;
+}
+
+export async function saveVideoTranslationData(
+  projectId: string,
+  name: string,
+  videoUrl: string,
+  coverUrl: string | null,
+  audioUrl: string | null,
+  audioDuration: number,
+  srtOriginal: string,
+  textOriginal: string,
+  detectedLanguage: string,
+  status: string,
+  segments: { index: number; startSec: number; endSec: number; text: string; translatedText?: string }[],
+  logs: string[]
+): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        // 1. Save or update video_translation_projects
+        await database.execute(
+          `INSERT INTO video_translation_projects (
+            project_id, name, video_url, cover_url, audio_url, audio_duration, 
+            srt_original, text_original, detected_language, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            video_url = EXCLUDED.video_url,
+            cover_url = EXCLUDED.cover_url,
+            audio_url = EXCLUDED.audio_url,
+            audio_duration = EXCLUDED.audio_duration,
+            srt_original = EXCLUDED.srt_original,
+            text_original = EXCLUDED.text_original,
+            detected_language = EXCLUDED.detected_language,
+            status = EXCLUDED.status,
+            updated_at = EXCLUDED.updated_at`,
+          [
+            projectId,
+            name,
+            videoUrl,
+            coverUrl,
+            audioUrl,
+            audioDuration,
+            srtOriginal,
+            textOriginal,
+            detectedLanguage,
+            status,
+            now,
+            now
+          ]
+        );
+
+        // 1b. Reconcile and keep standard video_projects table fully in sync to align them into a single project structure
+        await database.execute(
+          `UPDATE video_projects SET
+            project_name = ?,
+            cover_image_path = ?,
+            update_time = ?,
+            project_status = ?
+          WHERE project_uuid = ?`,
+          [
+            name,
+            coverUrl,
+            now,
+            status === 'completed' ? 4 : 2, // ProjectStatus.COMPLETED = 4, EDITING = 2
+            projectId
+          ]
+        );
+
+        // 2. Refresh video_translation_timeline segments
+        await database.execute(
+          "DELETE FROM video_translation_timeline WHERE project_id = ?",
+          [projectId]
+        );
+
+        for (const segment of segments) {
+          await database.execute(
+            `INSERT INTO video_translation_timeline (
+              project_id, segment_index, start_sec, end_sec, text, translated_text, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              projectId,
+              segment.index,
+              segment.startSec,
+              segment.endSec,
+              segment.text,
+              segment.translatedText || "",
+              now,
+              now
+            ]
+          );
+        }
+
+        // 3. Clear and insert logs
+        await database.execute(
+          "DELETE FROM video_translation_logs WHERE project_id = ?",
+          [projectId]
+        );
+
+        for (const logLine of logs) {
+          await database.execute(
+            `INSERT INTO video_translation_logs (project_id, log_type, message, timestamp)
+             VALUES (?, ?, ?, ?)`,
+            [
+              projectId,
+              "ASR_LOG",
+              logLine,
+              now
+            ]
+          );
+        }
+      } catch (err) {
+        console.error("Failed to write to video_translation_* SQLite tables:", err);
+      }
+      return;
+    }
+  }
+
+  // LocalStorage Fallback
+  try {
+    // 1. Projects
+    const projectsKey = "fallback_video_translation_projects";
+    const existingProjStr = localStorage.getItem(projectsKey);
+    const existingList: any[] = existingProjStr ? JSON.parse(existingProjStr) : [];
+    const updatedProj = {
+      project_id: projectId,
+      name,
+      video_url: videoUrl,
+      cover_url: coverUrl,
+      audio_url: audioUrl,
+      audio_duration: audioDuration,
+      srt_original: srtOriginal,
+      text_original: textOriginal,
+      detected_language: detectedLanguage,
+      status,
+      created_at: now,
+      updated_at: now
+    };
+    const projIdx = existingList.findIndex(p => p.project_id === projectId);
+    if (projIdx !== -1) {
+      existingList[projIdx] = { ...existingList[projIdx], ...updatedProj, updated_at: now };
+    } else {
+      existingList.push(updatedProj);
+    }
+    localStorage.setItem(projectsKey, JSON.stringify(existingList));
+
+    // 1b. Sync standard LocalStorage fallback list to keep name, cover, status, and time aligned
+    const standardData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (standardData) {
+      const standardProjects: VideoProject[] = JSON.parse(standardData);
+      const sIdx = standardProjects.findIndex(sp => sp.id === projectId);
+      if (sIdx !== -1) {
+        standardProjects[sIdx] = {
+          ...standardProjects[sIdx],
+          name,
+          coverImagePath: coverUrl || undefined,
+          updatedAt: now,
+          status: status === 'completed' ? 4 : 2
+        };
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(standardProjects));
+      }
+    }
+
+    // 2. Timeline
+    const timelineKey = "fallback_video_translation_timeline";
+    const existingTimelineStr = localStorage.getItem(timelineKey);
+    let allSegments: any[] = existingTimelineStr ? JSON.parse(existingTimelineStr) : [];
+
+    allSegments = allSegments.filter(s => s.project_id !== projectId);
+    for (const segment of segments) {
+      allSegments.push({
+        project_id: projectId,
+        segment_index: segment.index,
+        start_sec: segment.startSec,
+        end_sec: segment.endSec,
+        text: segment.text,
+        translated_text: segment.translatedText || "",
+        created_at: now,
+        updated_at: now
+      });
+    }
+    localStorage.setItem(timelineKey, JSON.stringify(allSegments));
+
+    // 3. Logs
+    const logsKey = "fallback_video_translation_logs";
+    const existingLogsStr = localStorage.getItem(logsKey);
+    let allLogs: any[] = existingLogsStr ? JSON.parse(existingLogsStr) : [];
+
+    allLogs = allLogs.filter(l => l.project_id !== projectId);
+    for (const logLine of logs) {
+      allLogs.push({
+        project_id: projectId,
+        log_type: "ASR_LOG",
+        message: logLine,
+        timestamp: now
+      });
+    }
+    localStorage.setItem(logsKey, JSON.stringify(allLogs));
+  } catch (err) {
+    console.error("Failed to write to fallback video_translation_* Web LocalStorage:", err);
+  }
 }

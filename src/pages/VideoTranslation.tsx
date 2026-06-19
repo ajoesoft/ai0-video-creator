@@ -36,7 +36,7 @@ import { videoTranslationTranslations } from '../localization/videoTranslationLo
 import { getGeminiClient, translateTextGemini, transcribeAudioGemini, synthesizeSpeechGemini } from '../lib/gemini';
 import { comfy } from '../lib/comfy';
 import { parseSRT, compileDialogueToASS, formatAssTime, SubtitleDialogueLine, DEFAULT_SUBTITLE_STYLE } from '../lib/subtitles';
-import { fetchProjectById, updateProject as updateCoreProject, getSetting, setSetting, createProject } from '../lib/db';
+import { fetchProjectById, updateProject as updateCoreProject, getSetting, setSetting, createProject, saveVideoTranslationData } from '../lib/db';
 import { ProjectStatus, SceneType } from '../types';
 import { useMediaUrl, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -63,6 +63,303 @@ const isVideoFile = (file: File) => {
   return ext ? ['mp4', 'mov', 'mkv', 'avi', 'webm', 'wmv', 'flv', '3gp'].includes(ext) : false;
 };
 
+function mapLanguageToHYMT(lang: string): string {
+  const normalized = lang.trim().toLowerCase();
+  if (normalized === 'english' || normalized === 'en' || normalized === '英文' || normalized === '英语') {
+    return 'en | 英语';
+  }
+  if (normalized === 'spanish' || normalized === 'es' || normalized === '西班牙语') {
+    return 'es | 西班牙语';
+  }
+  if (normalized === 'french' || normalized === 'fr' || normalized === '法语') {
+    return 'fr | 法语';
+  }
+  if (normalized === 'german' || normalized === 'de' || normalized === '德语') {
+    return 'de | 德语';
+  }
+  if (normalized === 'chinese' || normalized === 'zh' || normalized === '中文') {
+    return 'zh | 中文';
+  }
+  if (normalized === 'japanese' || normalized === 'jp' || normalized === 'ja' || normalized === '日语') {
+    return 'ja | 日语';
+  }
+  if (normalized === 'korean' || normalized === 'ko' || normalized === '韩语') {
+    return 'ko | 韩语';
+  }
+  return lang + ' | '; // Soft fallback if non-matched
+}
+
+function formatSRTTimeStandalone(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+}
+
+function segmentPlainText(text: string): SubtitleDialogueLine[] {
+  if (!text || !text.trim()) return [];
+  
+  const rawSegments = text
+    .split(/[\r\n.?!。？！]+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+    
+  let currentSec = 0.0;
+  const dialogues: SubtitleDialogueLine[] = [];
+  
+  rawSegments.forEach((seg, i) => {
+    const charLen = seg.length;
+    let duration = charLen * 0.15;
+    if (duration < 2.0) duration = 2.0;
+    if (duration > 6.0) duration = 6.0;
+    
+    dialogues.push({
+      index: i + 1,
+      startSec: currentSec,
+      endSec: Math.round((currentSec + duration) * 10) / 10,
+      text: seg
+    });
+    
+    currentSec = Math.round((currentSec + duration + 0.3) * 10) / 10;
+  });
+  
+  return dialogues;
+}
+
+function alignSentencesWithRawSegments(fullText: string, rawSegments: any[]): SubtitleDialogueLine[] | null {
+  if (!fullText || !rawSegments || rawSegments.length === 0) return null;
+
+  // 1. Resolve standard fields of rawSegments to extract: { start, end, text }
+  const parsedSubSegs: { start: number; end: number; text: string }[] = [];
+  for (let i = 0; i < rawSegments.length; i++) {
+    const item = rawSegments[i];
+    if (item && typeof item === 'object') {
+      let startSec = 0;
+      if ('start' in item) startSec = Number(item.start);
+      else if ('start_sec' in item) startSec = Number(item.start_sec);
+      else if ('startSec' in item) startSec = Number(item.startSec);
+      else if ('startTime' in item) startSec = Number(item.startTime);
+      else if ('start_time' in item) startSec = Number(item.start_time);
+      else if ('time_start' in item) startSec = Number(item.time_start);
+
+      let endSec = 0;
+      if ('end' in item) endSec = Number(item.end);
+      else if ('end_sec' in item) endSec = Number(item.end_sec);
+      else if ('endSec' in item) endSec = Number(item.endSec);
+      else if ('endTime' in item) endSec = Number(item.endTime);
+      else if ('end_time' in item) endSec = Number(item.end_time);
+      else if ('time_end' in item) endSec = Number(item.time_end);
+
+      let textVal = "";
+      if ('text' in item) textVal = String(item.text);
+      else if ('string' in item) textVal = String(item.string);
+      else if ('content' in item) textVal = String(item.content);
+      else if ('words' in item) textVal = String(item.words);
+
+      if (textVal) {
+        parsedSubSegs.push({
+          start: Number.isNaN(startSec) ? 0 : startSec,
+          end: Number.isNaN(endSec) ? 0 : endSec,
+          text: textVal.trim()
+        });
+      }
+    }
+  }
+
+  if (parsedSubSegs.length === 0) return null;
+
+  // 2. Split fullText into sentence units
+  const regex = /[^。！？!?\n\r]+[。！？!?\n\r]*/g;
+  const sentenceStrings = fullText.match(regex);
+  if (!sentenceStrings) return null;
+
+  const sentences = sentenceStrings
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  if (sentences.length === 0) return null;
+
+  // 3. Sequential character matcher
+  const cleanStr = (s: string) => s.replace(/[^\w\s\u4e00-\u9fa5]/g, "").replace(/\s+/g, "");
+
+  const cleanedSubSegs = parsedSubSegs.map(seg => ({
+    original: seg,
+    cleanedText: cleanStr(seg.text)
+  })).filter(seg => seg.cleanedText.length > 0);
+
+  if (cleanedSubSegs.length === 0) {
+    // distribution fallback
+    const totalDuration = parsedSubSegs[parsedSubSegs.length - 1].end || 10.0;
+    const durPerSent = totalDuration / sentences.length;
+    return sentences.map((sent, i) => ({
+      index: i + 1,
+      startSec: Number((i * durPerSent).toFixed(2)),
+      endSec: Number(((i + 1) * durPerSent).toFixed(2)),
+      text: sent
+    }));
+  }
+
+  const result: SubtitleDialogueLine[] = [];
+  let segIdx = 0;
+
+  for (let s = 0; s < sentences.length; s++) {
+    const rawSent = sentences[s];
+    const cleanedSent = cleanStr(rawSent);
+
+    if (cleanedSent.length === 0) {
+      const prevEnd = result.length > 0 ? result[result.length - 1].endSec : 0;
+      result.push({
+        index: s + 1,
+        startSec: prevEnd,
+        endSec: Number((prevEnd + 1.0).toFixed(2)),
+        text: rawSent
+      });
+      continue;
+    }
+
+    let matchedLen = 0;
+    const targetLen = cleanedSent.length;
+    let firstSeg: typeof cleanedSubSegs[0] | null = null;
+    let lastSeg: typeof cleanedSubSegs[0] | null = null;
+
+    while (segIdx < cleanedSubSegs.length && matchedLen < targetLen) {
+      const seg = cleanedSubSegs[segIdx];
+      if (!firstSeg) firstSeg = seg;
+      lastSeg = seg;
+
+      matchedLen += seg.cleanedText.length;
+      segIdx++;
+    }
+
+    if (firstSeg && lastSeg) {
+      let startSec = firstSeg.original.start;
+      let endSec = lastSeg.original.end;
+
+      if (endSec < startSec) {
+        endSec = startSec + 1.0;
+      }
+
+      result.push({
+        index: s + 1,
+        startSec: Number(startSec.toFixed(2)),
+        endSec: Number(endSec.toFixed(2)),
+        text: rawSent
+      });
+    } else {
+      const prevEnd = result.length > 0 ? result[result.length - 1].endSec : 0;
+      result.push({
+        index: s + 1,
+        startSec: prevEnd,
+        endSec: Number((prevEnd + 2.0).toFixed(2)),
+        text: rawSent
+      });
+    }
+  }
+
+  // Sanity overlap passes
+  for (let i = 0; i < result.length; i++) {
+    const cur = result[i];
+    if (cur.startSec >= cur.endSec) {
+      cur.endSec = Number((cur.startSec + 1.5).toFixed(2));
+    }
+    if (i > 0) {
+      const prev = result[i - 1];
+      if (cur.startSec < prev.endSec) {
+        if (cur.startSec < prev.startSec) {
+          cur.startSec = prev.endSec;
+        }
+      }
+      if (cur.endSec <= cur.startSec) {
+        cur.endSec = Number((cur.startSec + 1.0).toFixed(2));
+      }
+    }
+  }
+
+  return result;
+}
+
+function parseSegmentsFromJSON(text: string): SubtitleDialogueLine[] | null {
+  if (!text || !text.trim()) return null;
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\n/, "").replace(/\n```$/, "").trim();
+  }
+  try {
+    const data = JSON.parse(cleaned);
+    let rawSegments: any[] = [];
+    if (Array.isArray(data)) {
+      rawSegments = data;
+    } else if (data && typeof data === 'object') {
+      if (Array.isArray(data.segments)) {
+        rawSegments = data.segments;
+      } else if (Array.isArray(data.data)) {
+        rawSegments = data.data;
+      } else {
+        for (const key of Object.keys(data)) {
+          if (Array.isArray(data[key])) {
+            rawSegments = data[key];
+            break;
+          }
+        }
+      }
+    }
+
+    // Try sentence-segment alignment if full text & sub-segments are both present
+    if (data && typeof data === 'object' && typeof data.text === 'string' && data.text.trim() && rawSegments.length > 0) {
+      const aligned = alignSentencesWithRawSegments(data.text, rawSegments);
+      if (aligned && aligned.length > 0) {
+        return aligned;
+      }
+    }
+
+    if (rawSegments.length > 0) {
+      const parsed: SubtitleDialogueLine[] = [];
+      for (let i = 0; i < rawSegments.length; i++) {
+        const item = rawSegments[i];
+        if (item && typeof item === 'object') {
+          let startSec = 0;
+          if ('start' in item) startSec = Number(item.start);
+          else if ('start_sec' in item) startSec = Number(item.start_sec);
+          else if ('startSec' in item) startSec = Number(item.startSec);
+          else if ('startTime' in item) startSec = Number(item.startTime);
+          else if ('start_time' in item) startSec = Number(item.start_time);
+          else if ('time_start' in item) startSec = Number(item.time_start);
+
+          let endSec = 0;
+          if ('end' in item) endSec = Number(item.end);
+          else if ('end_sec' in item) endSec = Number(item.end_sec);
+          else if ('endSec' in item) endSec = Number(item.endSec);
+          else if ('endTime' in item) endSec = Number(item.endTime);
+          else if ('end_time' in item) endSec = Number(item.end_time);
+          else if ('time_end' in item) endSec = Number(item.time_end);
+
+          let textVal = "";
+          if ('text' in item) textVal = String(item.text);
+          else if ('string' in item) textVal = String(item.string);
+          else if ('content' in item) textVal = String(item.content);
+          else if ('words' in item) textVal = String(item.words);
+
+          if (textVal) {
+            parsed.push({
+              index: i + 1,
+              startSec: Number.isNaN(startSec) ? 0 : startSec,
+              endSec: Number.isNaN(endSec) ? 0 : endSec,
+              text: textVal.trim()
+            });
+          }
+        }
+      }
+      if (parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    // Not valid JSON
+  }
+  return null;
+}
+
 interface TranslationProject {
   id: string;
   videoName: string;
@@ -73,6 +370,8 @@ interface TranslationProject {
   audioDuration: number;
   srtOriginal: string;
   srtTranslated: string;
+  textOriginal?: string;
+  textTranslated?: string;
   dialogues: SubtitleDialogueLine[];
   translatedDialogues: SubtitleDialogueLine[];
   synthesizedAudioUrl: string | null;
@@ -97,11 +396,16 @@ export function VideoTranslation() {
   const [projects, setProjects] = useState<TranslationProject[]>([]);
   const projectsRef = useRef<TranslationProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const activeProjectIdRef = useRef<string | null>(null);
 
-  // Keep projectsRef in sync with projects state synchronously
+  // Keep projectsRef and activeProjectIdRef in sync synchronously
   useEffect(() => {
     projectsRef.current = projects;
   }, [projects]);
+
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
 
   // Synchronously fetch the active project to avoid stale React closures
   const getActiveProjectSync = () => {
@@ -153,30 +457,102 @@ export function VideoTranslation() {
         const coreProj = await fetchProjectById(projectIdParam);
         if (!coreProj) return;
 
+        let localSrtOriginal = '';
+        let localDialogues: SubtitleDialogueLine[] = [];
+        let localSrtTranslated = '';
+        let localTranslatedDialogues: SubtitleDialogueLine[] = [];
+        let localTextOriginal = '';
+        let localTextTranslated = '';
+        let audioOrigExists = false;
+        let audioOrigPath = "";
+        let audioTransExists = false;
+        let audioTranslatedPath = "";
+        let coverExists = false;
+        let coverPath = "";
+
+        if (isTauri) {
+          try {
+            const workspacePath = await getSetting('workspace_path') || '';
+            if (workspacePath) {
+              const { exists, readFile } = await import('@tauri-apps/plugin-fs');
+              const scriptDir = await join(workspacePath, projectIdParam, 'script');
+              
+              const srtPath = await join(scriptDir, 'timeline.srt');
+              if (await exists(srtPath)) {
+                const contentBytes = await readFile(srtPath);
+                const fileContent = new TextDecoder().decode(contentBytes);
+                if (fileContent.trim()) {
+                  localSrtOriginal = fileContent;
+                  localDialogues = parseSRT(fileContent);
+                }
+              }
+
+              const txtPath = await join(scriptDir, 'plain_text.txt');
+              if (await exists(txtPath)) {
+                const contentBytes = await readFile(txtPath);
+                localTextOriginal = new TextDecoder().decode(contentBytes).trim();
+              }
+
+              // Parse localTextOriginal if it represents a JSON segments list
+              const jsonSegments = parseSegmentsFromJSON(localTextOriginal);
+              if (jsonSegments && jsonSegments.length > 0) {
+                localDialogues = jsonSegments;
+                if (!localSrtOriginal.trim()) {
+                  localSrtOriginal = localDialogues.map(d => {
+                    const start = formatSRTTimeStandalone(d.startSec);
+                    const end = formatSRTTimeStandalone(d.endSec);
+                    return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
+                  }).join('\n');
+                }
+              }
+
+              const transSrtPath = await join(scriptDir, 'timeline_translated.srt');
+              if (await exists(transSrtPath)) {
+                const contentBytes = await readFile(transSrtPath);
+                const fileContent = new TextDecoder().decode(contentBytes);
+                if (fileContent.trim()) {
+                  localSrtTranslated = fileContent;
+                  localTranslatedDialogues = parseSRT(fileContent);
+                }
+              }
+
+              const transTxtPath = await join(scriptDir, 'plain_text_translated.txt');
+              if (await exists(transTxtPath)) {
+                const contentBytes = await readFile(transTxtPath);
+                localTextTranslated = new TextDecoder().decode(contentBytes).trim();
+              }
+
+              const audioDir = await join(workspacePath, projectIdParam, 'audio');
+              const audioOrigFile = await join(audioDir, 'audio.mp3');
+              if (await exists(audioOrigFile)) {
+                audioOrigExists = true;
+                audioOrigPath = audioOrigFile;
+              }
+
+              const audioTranslatedFile = await join(audioDir, 'audio_translated.mp3');
+              if (await exists(audioTranslatedFile)) {
+                audioTransExists = true;
+                audioTranslatedPath = audioTranslatedFile;
+              }
+
+              const coverDir = await join(workspacePath, projectIdParam, 'cover');
+              const coverFile = await join(coverDir, 'cover.png');
+              if (await exists(coverFile)) {
+                coverExists = true;
+                coverPath = coverFile;
+              }
+            }
+          } catch (fsErr) {
+            console.warn("Failed to read project files during initialization:", fsErr);
+          }
+        }
+
         // Try getting details from database / localStorage fallback
         const localDataStr = await getSetting(`video_translation_data_${projectIdParam}`);
         if (localDataStr) {
           try {
             const parsed = JSON.parse(localDataStr);
             
-            const loadedProj: TranslationProject = {
-              id: projectIdParam,
-              videoName: parsed.videoName || coreProj.name,
-              videoSize: parsed.videoSize || "12.5 MB",
-              videoUrl: parsed.videoUrl || "https://www.w3schools.com/html/mov_bbb.mp4",
-              coverUrl: parsed.coverUrl || coreProj.coverImagePath || null,
-              audioUrl: parsed.audioUrl || null,
-              audioDuration: parsed.audioDuration || 0,
-              srtOriginal: parsed.srtOriginal || "",
-              srtTranslated: parsed.srtTranslated || "",
-              dialogues: parsed.dialogues || [],
-              translatedDialogues: parsed.translatedDialogues || [],
-              synthesizedAudioUrl: parsed.synthesizedAudioUrl || null,
-              outputVideoUrl: parsed.outputVideoUrl || null,
-              status: parsed.status || 'idle',
-              logs: parsed.logs || [`[LOG] Loaded project from storage: ${coreProj.name}`],
-            };
-
             // Apply settings if stored
             if (parsed.selectedVoice) setSelectedVoice(parsed.selectedVoice);
             if (parsed.sourceLang) setSourceLang(parsed.sourceLang);
@@ -184,26 +560,111 @@ export function VideoTranslation() {
             if (parsed.ttsSpeed) setTtsSpeed(parsed.ttsSpeed);
             if (parsed.lipsyncModel) setLipsyncModel(parsed.lipsyncModel);
 
-            setProjects([loadedProj]);
-            setActiveProjectId(projectIdParam);
+            if (parsed.queue && Array.isArray(parsed.queue) && parsed.queue.length > 0) {
+              setProjects(parsed.queue);
+              setActiveProjectId(parsed.activeId || parsed.queue[0]?.id || projectIdParam);
+              projectsRef.current = parsed.queue;
+            } else {
+              let localDialoguesParsed = (parsed.dialogues && parsed.dialogues.length > 0) ? parsed.dialogues : [];
+              if (localDialoguesParsed.length === 0) {
+                const textToParse = parsed.textOriginal || localTextOriginal;
+                const jsonSegments = parseSegmentsFromJSON(textToParse);
+                if (jsonSegments && jsonSegments.length > 0) {
+                  localDialoguesParsed = jsonSegments;
+                } else if (localDialogues && localDialogues.length > 0) {
+                  localDialoguesParsed = localDialogues;
+                } else if (textToParse.trim()) {
+                  localDialoguesParsed = segmentPlainText(textToParse);
+                }
+              }
+
+              const loadedProj: TranslationProject = {
+                id: projectIdParam,
+                videoName: parsed.videoName || coreProj.name,
+                videoSize: parsed.videoSize || "12.5 MB",
+                videoUrl: parsed.videoUrl || "https://www.w3schools.com/html/mov_bbb.mp4",
+                coverUrl: parsed.coverUrl || (coverExists ? coverPath : null) || coreProj.coverImagePath || null,
+                audioUrl: parsed.audioUrl || (audioOrigExists ? audioOrigPath : null),
+                audioDuration: parsed.audioDuration || 0,
+                srtOriginal: parsed.srtOriginal || localSrtOriginal || (localDialoguesParsed.length > 0 ? localDialoguesParsed.map(d => `${d.index}\n${formatSRTTimeStandalone(d.startSec)} --> ${formatSRTTimeStandalone(d.endSec)}\n${d.text}`).join('\n\n') : ""),
+                srtTranslated: parsed.srtTranslated || localSrtTranslated,
+                textOriginal: parsed.textOriginal || localTextOriginal,
+                textTranslated: parsed.textTranslated || localTextTranslated,
+                dialogues: localDialoguesParsed,
+                translatedDialogues: (parsed.translatedDialogues && parsed.translatedDialogues.length > 0) ? parsed.translatedDialogues : localTranslatedDialogues,
+                synthesizedAudioUrl: parsed.synthesizedAudioUrl || (audioTransExists ? audioTranslatedPath : null),
+                outputVideoUrl: parsed.outputVideoUrl || null,
+                status: parsed.status || 'idle',
+                logs: parsed.logs || [`[LOG] Loaded project from storage: ${coreProj.name}`],
+              };
+
+              setProjects([loadedProj]);
+              setActiveProjectId(projectIdParam);
+            }
+
+            // Synchronize loaded state back to disk if some filesystem files are missing
+            if (isTauri) {
+              try {
+                const workspacePath = await getSetting('workspace_path') || '';
+                if (workspacePath) {
+                  const { exists, mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
+                  const scriptDir = await join(workspacePath, projectIdParam, 'script');
+                  if (!(await exists(scriptDir))) {
+                    await mkdir(scriptDir, { recursive: true });
+                  }
+                  const encoder = new TextEncoder();
+                  const srtOrig = parsed.srtOriginal || localSrtOriginal;
+                  const txtOrig = parsed.textOriginal || localTextOriginal;
+                  const srtTrans = parsed.srtTranslated || localSrtTranslated;
+                  const txtTrans = parsed.textTranslated || localTextTranslated;
+
+                  if (srtOrig && !localSrtOriginal) {
+                    await writeFile(await join(scriptDir, 'timeline.srt'), encoder.encode(srtOrig));
+                  }
+                  if (txtOrig && !localTextOriginal) {
+                    await writeFile(await join(scriptDir, 'plain_text.txt'), encoder.encode(txtOrig));
+                  }
+                  if (srtTrans && !localSrtTranslated) {
+                    await writeFile(await join(scriptDir, 'timeline_translated.srt'), encoder.encode(srtTrans));
+                  }
+                  if (txtTrans && !localTextTranslated) {
+                    await writeFile(await join(scriptDir, 'plain_text_translated.txt'), encoder.encode(txtTrans));
+                  }
+                }
+              } catch (fsSyncErr) {
+                console.warn("Failed to synchronize loaded project data to disk during initialization:", fsSyncErr);
+              }
+            }
           } catch (jsonErr) {
             console.error("Failed to parse stored translation data:", jsonErr);
           }
         } else {
           // Construct default translation state for this project
+          let initialDialogues = (localDialogues && localDialogues.length > 0) ? localDialogues : [];
+          if (initialDialogues.length === 0) {
+            const jsonSegments = parseSegmentsFromJSON(localTextOriginal);
+            if (jsonSegments && jsonSegments.length > 0) {
+              initialDialogues = jsonSegments;
+            } else if (localTextOriginal.trim()) {
+              initialDialogues = segmentPlainText(localTextOriginal);
+            }
+          }
+
           const initialProj: TranslationProject = {
             id: projectIdParam,
             videoName: "未上传视频 (No Video Uploaded)",
             videoSize: "0 MB",
             videoUrl: "", 
-            coverUrl: coreProj.coverImagePath || null,
-            audioUrl: null,
+            coverUrl: (coverExists ? coverPath : null) || coreProj.coverImagePath || null,
+            audioUrl: audioOrigExists ? audioOrigPath : null,
             audioDuration: 0,
-            srtOriginal: "",
-            srtTranslated: "",
-            dialogues: [],
-            translatedDialogues: [],
-            synthesizedAudioUrl: null,
+            srtOriginal: localSrtOriginal || (initialDialogues.length > 0 ? initialDialogues.map(d => `${d.index}\n${formatSRTTimeStandalone(d.startSec)} --> ${formatSRTTimeStandalone(d.endSec)}\n${d.text}`).join('\n\n') : ""),
+            srtTranslated: localSrtTranslated,
+            textOriginal: localTextOriginal,
+            textTranslated: localTextTranslated,
+            dialogues: initialDialogues,
+            translatedDialogues: localTranslatedDialogues,
+            synthesizedAudioUrl: audioTransExists ? audioTranslatedPath : null,
             outputVideoUrl: null,
             status: 'idle',
             logs: [`[LOG] Initialized brand-new translator workbench for: ${coreProj.name}. Please upload original video file.`]
@@ -226,6 +687,144 @@ export function VideoTranslation() {
 
     loadProjectFromSuite();
   }, []);
+
+  // Synchronize with physical disk files for the active project
+  useEffect(() => {
+    if (!activeProjectId || !isTauri) return;
+
+    let active = true;
+
+    async function loadProjectDiskFiles() {
+      // Avoid scheduling updates if the active project is not yet loaded in state
+      const stateHasProj = projectsRef.current.some(p => p.id === activeProjectId);
+      if (!stateHasProj) return;
+
+      try {
+        const workspacePath = await getSetting('workspace_path') || '';
+        if (!workspacePath) return;
+
+        const { exists, readFile } = await import('@tauri-apps/plugin-fs');
+        const scriptDir = await join(workspacePath, activeProjectId, 'script');
+        
+        let localSrtOriginal = '';
+        let localDialogues: SubtitleDialogueLine[] = [];
+        let localSrtTranslated = '';
+        let localTranslatedDialogues: SubtitleDialogueLine[] = [];
+        let localTextOriginal = '';
+        let localTextTranslated = '';
+
+        // 1. Read original timeline srt
+        const srtPath = await join(scriptDir, 'timeline.srt');
+        if (await exists(srtPath)) {
+          const contentBytes = await readFile(srtPath);
+          const fileContent = new TextDecoder().decode(contentBytes);
+          if (fileContent.trim()) {
+            localSrtOriginal = fileContent;
+            localDialogues = parseSRT(fileContent);
+          }
+        }
+
+        const txtPath = await join(scriptDir, 'plain_text.txt');
+        if (await exists(txtPath)) {
+          const contentBytes = await readFile(txtPath);
+          localTextOriginal = new TextDecoder().decode(contentBytes).trim();
+        }
+
+        // 2. Read translated timeline srt
+        const transSrtPath = await join(scriptDir, 'timeline_translated.srt');
+        if (await exists(transSrtPath)) {
+          const contentBytes = await readFile(transSrtPath);
+          const fileContent = new TextDecoder().decode(contentBytes);
+          if (fileContent.trim()) {
+            localSrtTranslated = fileContent;
+            localTranslatedDialogues = parseSRT(fileContent);
+          }
+        }
+
+        const transTxtPath = await join(scriptDir, 'plain_text_translated.txt');
+        if (await exists(transTxtPath)) {
+          const contentBytes = await readFile(transTxtPath);
+          localTextTranslated = new TextDecoder().decode(contentBytes).trim();
+        }
+
+        // 3. Check audio files
+        const audioDir = await join(workspacePath, activeProjectId, 'audio');
+        const audioOrigPath = await join(audioDir, 'audio.mp3');
+        const audioOrigExists = await exists(audioOrigPath);
+
+        const audioTranslatedPath = await join(audioDir, 'audio_translated.mp3');
+        const audioTransExists = await exists(audioTranslatedPath);
+
+        const coverDir = await join(workspacePath, activeProjectId, 'cover');
+        const coverPath = await join(coverDir, 'cover.png');
+        const coverExists = await exists(coverPath);
+
+        if (!active) return;
+
+        setProjects(prev => prev.map(p => {
+          if (p.id !== activeProjectId) return p;
+          
+          let dialoguesToLoad = p.dialogues.length === 0 ? [] : p.dialogues;
+          if (dialoguesToLoad.length === 0) {
+            const textToParse = p.textOriginal || localTextOriginal;
+            const jsonSegments = parseSegmentsFromJSON(textToParse);
+            if (jsonSegments && jsonSegments.length > 0) {
+              dialoguesToLoad = jsonSegments;
+            } else if (localDialogues.length > 0) {
+              dialoguesToLoad = localDialogues;
+            } else if (textToParse.trim()) {
+              dialoguesToLoad = segmentPlainText(textToParse);
+            }
+          }
+          
+          return {
+            ...p,
+            srtOriginal: p.srtOriginal || localSrtOriginal || (dialoguesToLoad.length > 0 ? dialoguesToLoad.map(d => `${d.index}\n${formatSRTTimeStandalone(d.startSec)} --> ${formatSRTTimeStandalone(d.endSec)}\n${d.text}`).join('\n\n') : ""),
+            dialogues: dialoguesToLoad,
+            srtTranslated: p.srtTranslated || localSrtTranslated,
+            translatedDialogues: p.translatedDialogues.length === 0 ? localTranslatedDialogues : p.translatedDialogues,
+            textOriginal: p.textOriginal || localTextOriginal,
+            textTranslated: p.textTranslated || localTextTranslated,
+            audioUrl: p.audioUrl || (audioOrigExists ? audioOrigPath : null),
+            synthesizedAudioUrl: p.synthesizedAudioUrl || (audioTransExists ? audioTranslatedPath : null),
+            coverUrl: p.coverUrl || (coverExists ? coverPath : null)
+          };
+        }));
+
+        // Write memory data back to disk if filesystem files are missing
+        const targetProj = projectsRef.current.find(p => p.id === activeProjectId);
+        if (targetProj) {
+          const srtOrig = targetProj.srtOriginal || localSrtOriginal;
+          const txtOrig = targetProj.textOriginal || localTextOriginal;
+          const srtTrans = targetProj.srtTranslated || localSrtTranslated;
+          const txtTrans = targetProj.textTranslated || localTextTranslated;
+
+          const encoder = new TextEncoder();
+          if (srtOrig && !localSrtOriginal) {
+            await writeFile(await join(scriptDir, 'timeline.srt'), encoder.encode(srtOrig));
+          }
+          if (txtOrig && !localTextOriginal) {
+            await writeFile(await join(scriptDir, 'plain_text.txt'), encoder.encode(txtOrig));
+          }
+          if (srtTrans && !localSrtTranslated) {
+            await writeFile(await join(scriptDir, 'timeline_translated.srt'), encoder.encode(srtTrans));
+          }
+          if (txtTrans && !localTextTranslated) {
+            await writeFile(await join(scriptDir, 'plain_text_translated.txt'), encoder.encode(txtTrans));
+          }
+        }
+
+      } catch (err) {
+        console.warn('Failed to load project timeline script from physical disk directory:', err);
+      }
+    }
+
+    loadProjectDiskFiles();
+
+    return () => {
+      active = false;
+    };
+  }, [activeProjectId]);
 
   const saveProjectToSuite = async (silent = false) => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -256,6 +855,8 @@ export function VideoTranslation() {
         audioDuration: activeProject.audioDuration,
         srtOriginal: activeProject.srtOriginal,
         srtTranslated: activeProject.srtTranslated,
+        textOriginal: activeProject.textOriginal,
+        textTranslated: activeProject.textTranslated,
         dialogues: activeProject.dialogues,
         translatedDialogues: activeProject.translatedDialogues,
         synthesizedAudioUrl: activeProject.synthesizedAudioUrl,
@@ -271,6 +872,20 @@ export function VideoTranslation() {
       
       await setSetting(`video_translation_data_${projectIdParam}`, JSON.stringify(translationState));
       
+      // Also save parent state queue under routeProjectId
+      if (routeProjectId) {
+        const parentState = {
+          queue: projects,
+          activeId: activeProjectId,
+          selectedVoice,
+          sourceLang,
+          targetLang,
+          ttsSpeed,
+          lipsyncModel
+        };
+        await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(parentState));
+      }
+
       if (!silent) {
         addLog(projectIdParam, `[SYSTEM] Saved all timelines and synthesis outputs to core project [${projectIdParam}] successfully.`);
         alert("项目数据及译后口型配置已保存成功！");
@@ -351,6 +966,8 @@ export function VideoTranslation() {
             audioDuration: currentProj.audioDuration,
             srtOriginal: currentProj.srtOriginal,
             srtTranslated: currentProj.srtTranslated,
+            textOriginal: currentProj.textOriginal,
+            textTranslated: currentProj.textTranslated,
             dialogues: currentProj.dialogues,
             translatedDialogues: currentProj.translatedDialogues,
             synthesizedAudioUrl: currentProj.synthesizedAudioUrl,
@@ -366,6 +983,53 @@ export function VideoTranslation() {
           console.log(`##projectId:${projectId}`);
 
           await setSetting(`video_translation_data_${projectId}`, JSON.stringify(translationState));
+
+          // If routeProjectId is defined, also save the entire queue under routeProjectId
+          if (routeProjectId) {
+            const parentState = {
+              queue: projectsRef.current,
+              activeId: activeProjectIdRef.current || activeProjectId,
+              selectedVoice,
+              sourceLang,
+              targetLang,
+              ttsSpeed,
+              lipsyncModel
+            };
+            await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(parentState));
+          }
+
+          // Ensure files exist on disk if in Tauri environment (autosave)
+          if (isTauri) {
+            try {
+              const workspacePath = await getSetting('workspace_path') || '';
+              if (workspacePath) {
+                const { exists, mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
+                const scriptDir = await join(workspacePath, projectId, 'script');
+                if (!(await exists(scriptDir))) {
+                  await mkdir(scriptDir, { recursive: true });
+                }
+                const encoder = new TextEncoder();
+                if (currentProj.srtOriginal) {
+                  const srtPath = await join(scriptDir, 'timeline.srt');
+                  await writeFile(srtPath, encoder.encode(currentProj.srtOriginal));
+                }
+                if (currentProj.textOriginal) {
+                  const txtPath = await join(scriptDir, 'plain_text.txt');
+                  await writeFile(txtPath, encoder.encode(currentProj.textOriginal));
+                }
+                if (currentProj.srtTranslated) {
+                  const transSrtPath = await join(scriptDir, 'timeline_translated.srt');
+                  await writeFile(transSrtPath, encoder.encode(currentProj.srtTranslated));
+                }
+                if (currentProj.textTranslated) {
+                  const transTxtPath = await join(scriptDir, 'plain_text_translated.txt');
+                  await writeFile(transTxtPath, encoder.encode(currentProj.textTranslated));
+                }
+              }
+            } catch (diskErr) {
+              console.warn("Autosave of translation script files to disk failed in updateProject:", diskErr);
+            }
+          }
 
           await updateCoreProject(projectId, {
             coverImagePath: currentProj.coverUrl || undefined,
@@ -451,8 +1115,8 @@ export function VideoTranslation() {
           
           setProjects(prev => {
             const hasProject = prev.some(p => p.id === routeProjectId);
-            if (!hasProject) {
-              const newProj: TranslationProject = {
+            const updated = !hasProject ? [
+              {
                 id: routeProjectId,
                 videoName,
                 videoSize: "Local Disk",
@@ -468,23 +1132,22 @@ export function VideoTranslation() {
                 outputVideoUrl: null,
                 status: 'idle',
                 logs: [`[${timestamp}] [Tauri] Registered local original video: ${filePath}`]
-              };
-              return [newProj];
-            } else {
-              return prev.map(p => {
-                if (p.id === routeProjectId) {
-                  return {
-                    ...p,
-                    videoName,
-                    videoSize: "Local Disk",
-                    videoUrl: filePath,
-                    status: 'idle',
-                    logs: [...p.logs, `[${timestamp}] [Tauri] Bound local original video path: ${filePath}`]
-                  };
-                }
-                return p;
-              });
-            }
+              }
+            ] : prev.map(p => {
+              if (p.id === routeProjectId) {
+                return {
+                  ...p,
+                  videoName,
+                  videoSize: "Local Disk",
+                  videoUrl: filePath,
+                  status: 'idle',
+                  logs: [...p.logs, `[${timestamp}] [Tauri] Bound local original video path: ${filePath}`]
+                };
+              }
+              return p;
+            });
+            projectsRef.current = updated;
+            return updated;
           });
 
           // Sync saving to DB first
@@ -521,15 +1184,8 @@ export function VideoTranslation() {
           // Additional files or if routed project already has a video
           const newId = crypto.randomUUID();
           try {
-            await createProject(
-              videoName,
-              ProjectStatus.EDITING,
-              `Imported video translation project for ${videoName}.`,
-              SceneType.VIDEO_TRANSLATION,
-              filePath,
-              newId
-            );
-
+            // DO NOT create multiple separate database projects!
+            // Just register as queue item
             const newProj: TranslationProject = {
               id: newId,
               videoName,
@@ -545,7 +1201,7 @@ export function VideoTranslation() {
               synthesizedAudioUrl: null,
               outputVideoUrl: null,
               status: 'idle',
-              logs: [`[Tauri] Registered local video: ${filePath}`]
+              logs: [`[Tauri] Registered local video under project queue: ${filePath}`]
             };
 
             const translationState = {
@@ -562,7 +1218,7 @@ export function VideoTranslation() {
               synthesizedAudioUrl: null,
               outputVideoUrl: null,
               status: 'idle',
-              logs: [`[Tauri] Registered local video: ${filePath}`],
+              logs: [`[Tauri] Registered local video under project queue: ${filePath}`],
               selectedVoice,
               sourceLang,
               targetLang,
@@ -573,7 +1229,7 @@ export function VideoTranslation() {
             await setSetting(`video_translation_data_${newId}`, JSON.stringify(translationState));
             newProjectsToAdd.push(newProj);
           } catch (createErr) {
-            console.error("Failed to create new project in DB:", createErr);
+            console.error("Failed to register new video in queue:", createErr);
           }
         }
       }
@@ -581,6 +1237,21 @@ export function VideoTranslation() {
       if (newProjectsToAdd.length > 0) {
         setProjects(prev => {
           const combined = [...prev, ...newProjectsToAdd];
+          projectsRef.current = combined;
+          
+          setTimeout(async () => {
+            const parentState = {
+              queue: combined,
+              activeId: activeProjectIdRef.current || activeProjectId || routeProjectId,
+              selectedVoice,
+              sourceLang,
+              targetLang,
+              ttsSpeed,
+              lipsyncModel
+            };
+            await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(parentState));
+          }, 0);
+
           return combined;
         });
         
@@ -592,81 +1263,98 @@ export function VideoTranslation() {
       return;
     }
 
-    // Workstation mode: always ADD these files as new project instances!
-    const newProjects: TranslationProject[] = [];
-    for (const filePath of paths) {
+    // Workstation mode: We create ONE single database project, and add all files in paths as part of its queue!
+    if (paths.length === 0) return;
+    
+    const parentId = crypto.randomUUID();
+    const firstPath = paths[0];
+    const parentVideoName = firstPath.split(/[/\\]/).pop() || 'video.mp4';
+    
+    try {
+      // Create exactly ONE parent project row in the database
+      await createProject(
+        parentVideoName,
+        ProjectStatus.EDITING,
+        `Imported video translation project for ${parentVideoName}.`,
+        SceneType.VIDEO_TRANSLATION,
+        firstPath,
+        parentId
+      );
+    } catch (dbErr) {
+      console.error("Failed to register parent project under workstation mode:", dbErr);
+    }
+
+    const queueProjects: TranslationProject[] = [];
+    
+    for (let i = 0; i < paths.length; i++) {
+      const filePath = paths[i];
       const videoName = filePath.split(/[/\\]/).pop() || 'video.mp4';
-      const id = crypto.randomUUID();
+      const id = i === 0 ? parentId : crypto.randomUUID();
       
-      try {
-        await createProject(
-          videoName,
-          ProjectStatus.EDITING,
-          `Imported video translation project for ${videoName}.`,
-          SceneType.VIDEO_TRANSLATION,
-          filePath,
-          id
-        );
+      const newVideoItem: TranslationProject = {
+        id,
+        videoName,
+        videoSize: "Local Disk",
+        videoUrl: filePath,
+        coverUrl: null,
+        audioUrl: null,
+        audioDuration: 0,
+        srtOriginal: "",
+        srtTranslated: "",
+        dialogues: [],
+        translatedDialogues: [],
+        synthesizedAudioUrl: null,
+        outputVideoUrl: null,
+        status: 'idle',
+        logs: [`[Tauri] Registered video in queue: ${filePath}`]
+      };
+      
+      const translationState = {
+        videoName,
+        videoSize: "Local Disk",
+        videoUrl: filePath,
+        coverUrl: null,
+        audioUrl: null,
+        audioDuration: 0,
+        srtOriginal: "",
+        srtTranslated: "",
+        dialogues: [],
+        translatedDialogues: [],
+        synthesizedAudioUrl: null,
+        outputVideoUrl: null,
+        status: 'idle',
+        logs: [`[Tauri] Registered video in queue: ${filePath}`],
+        selectedVoice,
+        sourceLang,
+        targetLang,
+        ttsSpeed,
+        lipsyncModel
+      };
 
-        const newProj: TranslationProject = {
-          id,
-          videoName,
-          videoSize: "Local Disk",
-          videoUrl: filePath,
-          coverUrl: null,
-          audioUrl: null,
-          audioDuration: 0,
-          srtOriginal: "",
-          srtTranslated: "",
-          dialogues: [],
-          translatedDialogues: [],
-          synthesizedAudioUrl: null,
-          outputVideoUrl: null,
-          status: 'idle',
-          logs: [`[Tauri] Registered local video: ${filePath}`]
-        };
-
-        const translationState = {
-          videoName,
-          videoSize: "Local Disk",
-          videoUrl: filePath,
-          coverUrl: null,
-          audioUrl: null,
-          audioDuration: 0,
-          srtOriginal: "",
-          srtTranslated: "",
-          dialogues: [],
-          translatedDialogues: [],
-          synthesizedAudioUrl: null,
-          outputVideoUrl: null,
-          status: 'idle',
-          logs: [`[Tauri] Registered local video: ${filePath}`],
-          selectedVoice,
-          sourceLang,
-          targetLang,
-          ttsSpeed,
-          lipsyncModel
-        };
-
-        await setSetting(`video_translation_data_${id}`, JSON.stringify(translationState));
-        newProjects.push(newProj);
-      } catch (err) {
-        console.error("Failed to register project in workstation mode:", err);
-      }
+      await setSetting(`video_translation_data_${id}`, JSON.stringify(translationState));
+      queueProjects.push(newVideoItem);
     }
 
-    if (newProjects.length > 0) {
-      setProjects(prev => {
-        const combined = [...prev, ...newProjects];
-        if (!activeProjectId) {
-          setActiveProjectId(newProjects[0].id);
-        }
-        return combined;
-      });
-      newProjects.forEach(p => {
-        performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
-      });
-    }
+    const parentState = {
+      queue: queueProjects,
+      activeId: parentId,
+      selectedVoice,
+      sourceLang,
+      targetLang,
+      ttsSpeed,
+      lipsyncModel
+    };
+    await setSetting(`video_translation_data_${parentId}`, JSON.stringify(parentState));
+
+    setProjects(queueProjects);
+    projectsRef.current = queueProjects;
+    setActiveProjectId(parentId);
+    
+    queueProjects.forEach(p => {
+      performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
+    });
+
+    navigate(`/translation?project_id=${parentId}`);
   };
 
   const handleImportClick = async () => {
@@ -685,7 +1373,6 @@ export function VideoTranslation() {
     }
   };
 
-  // Handle video selection (from empty state or add button)
   const handleVideosSelect = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     
@@ -711,8 +1398,8 @@ export function VideoTranslation() {
           
           setProjects(prev => {
             const hasProject = prev.some(p => p.id === routeProjectId);
-            if (!hasProject) {
-              const newProj: TranslationProject = {
+            const updated = !hasProject ? [
+              {
                 id: routeProjectId,
                 videoName: file.name,
                 videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
@@ -728,23 +1415,22 @@ export function VideoTranslation() {
                 outputVideoUrl: null,
                 status: 'idle',
                 logs: [`[${timestamp}] [LOG] Initialized video translation project: ${file.name} (${sizeMB} MB)`]
-              };
-              return [newProj];
-            } else {
-              return prev.map(p => {
-                if (p.id === routeProjectId) {
-                  return {
-                    ...p,
-                    videoName: file.name,
-                    videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
-                    videoUrl: url,
-                    status: 'idle',
-                    logs: [...p.logs, `[${timestamp}] [LOG] Loaded local original video: ${file.name} (${sizeMB} MB)`]
-                  };
-                }
-                return p;
-              });
-            }
+              }
+            ] : prev.map(p => {
+              if (p.id === routeProjectId) {
+                return {
+                  ...p,
+                  videoName: file.name,
+                  videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+                  videoUrl: url,
+                  status: 'idle',
+                  logs: [...p.logs, `[${timestamp}] [LOG] Loaded local original video: ${file.name} (${sizeMB} MB)`]
+                };
+              }
+              return p;
+            });
+            projectsRef.current = updated;
+            return updated;
           });
 
           // Sync saving to DB first
@@ -781,15 +1467,8 @@ export function VideoTranslation() {
           // Additional files or if routed project already has a video
           const newId = crypto.randomUUID();
           try {
-            await createProject(
-              file.name,
-              ProjectStatus.EDITING,
-              `Imported video translation project for ${file.name}.`,
-              SceneType.VIDEO_TRANSLATION,
-              url,
-              newId
-            );
-
+            // DO NOT create multiple database projects!
+            // Just register as queue item
             const newProj: TranslationProject = {
               id: newId,
               videoName: file.name,
@@ -805,7 +1484,7 @@ export function VideoTranslation() {
               synthesizedAudioUrl: null,
               outputVideoUrl: null,
               status: 'idle',
-              logs: [`[LOG] Loaded local video: ${file.name} (${sizeMB} MB)`]
+              logs: [`[LOG] Loaded local video in project queue: ${file.name} (${sizeMB} MB)`]
             };
 
             const translationState = {
@@ -822,7 +1501,7 @@ export function VideoTranslation() {
               synthesizedAudioUrl: null,
               outputVideoUrl: null,
               status: 'idle',
-              logs: [`[LOG] Loaded local video: ${file.name}`],
+              logs: [`[LOG] Loaded local video in project queue: ${file.name}`],
               selectedVoice,
               sourceLang,
               targetLang,
@@ -833,7 +1512,7 @@ export function VideoTranslation() {
             await setSetting(`video_translation_data_${newId}`, JSON.stringify(translationState));
             newProjectsToAdd.push(newProj);
           } catch (createErr) {
-            console.error("Failed to create new project in DB:", createErr);
+            console.error("Failed to register local video in project queue:", createErr);
           }
         }
       }
@@ -841,6 +1520,21 @@ export function VideoTranslation() {
       if (newProjectsToAdd.length > 0) {
         setProjects(prev => {
           const combined = [...prev, ...newProjectsToAdd];
+          projectsRef.current = combined;
+          
+          setTimeout(async () => {
+            const parentState = {
+              queue: combined,
+              activeId: activeProjectIdRef.current || activeProjectId || routeProjectId,
+              selectedVoice,
+              sourceLang,
+              targetLang,
+              ttsSpeed,
+              lipsyncModel
+            };
+            await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(parentState));
+          }, 0);
+
           return combined;
         });
         
@@ -852,91 +1546,110 @@ export function VideoTranslation() {
       return;
     }
 
-    // Workstation mode: always ADD these files as new project instances!
-    const newProjects: TranslationProject[] = [];
+    // Workstation mode: always create exactly ONE database project, and add all items to its queue list!
+    const validFiles = Array.from(files).filter(isVideoFile);
+    if (validFiles.length === 0) return;
+
+    const parentId = crypto.randomUUID();
+    const firstFile = validFiles[0];
+    const sizeMBFirst = (firstFile.size / (1024 * 1024)).toFixed(2);
     
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (!isVideoFile(file)) continue;
-      
+    let firstUrl = URL.createObjectURL(firstFile);
+    if (isTauri && (firstFile as any).path) {
+      firstUrl = (firstFile as any).path;
+    }
+
+    try {
+      // Create precisely ONE database project core row
+      await createProject(
+        firstFile.name,
+        ProjectStatus.EDITING,
+        `Imported video translation project for ${firstFile.name}.`,
+        SceneType.VIDEO_TRANSLATION,
+        firstUrl,
+        parentId
+      );
+    } catch (err) {
+      console.error("Failed to register parent project under workstation mode:", err);
+    }
+
+    const queueProjects: TranslationProject[] = [];
+
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
       const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      
       let url = URL.createObjectURL(file);
       if (isTauri && (file as any).path) {
         url = (file as any).path;
       }
-      const id = crypto.randomUUID();
       
-      try {
-        await createProject(
-          file.name,
-          ProjectStatus.EDITING,
-          `Imported video translation project for ${file.name}.`,
-          SceneType.VIDEO_TRANSLATION,
-          url,
-          id
-        );
+      const id = i === 0 ? parentId : crypto.randomUUID();
 
-        const newProj: TranslationProject = {
-          id,
-          videoName: file.name,
-          videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
-          videoUrl: url,
-          coverUrl: null,
-          audioUrl: null,
-          audioDuration: 0,
-          srtOriginal: "",
-          srtTranslated: "",
-          dialogues: [],
-          translatedDialogues: [],
-          synthesizedAudioUrl: null,
-          outputVideoUrl: null,
-          status: 'idle',
-          logs: [`[LOG] Loaded local video: ${file.name} (${sizeMB} MB)`]
-        };
+      const newProj: TranslationProject = {
+        id,
+        videoName: file.name,
+        videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+        videoUrl: url,
+        coverUrl: null,
+        audioUrl: null,
+        audioDuration: 0,
+        srtOriginal: "",
+        srtTranslated: "",
+        dialogues: [],
+        translatedDialogues: [],
+        synthesizedAudioUrl: null,
+        outputVideoUrl: null,
+        status: 'idle',
+        logs: [`[LOG] Loaded local video: ${file.name} (${sizeMB} MB)`]
+      };
 
-        const translationState = {
-          videoName: file.name,
-          videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
-          videoUrl: url,
-          coverUrl: null,
-          audioUrl: null,
-          audioDuration: 0,
-          srtOriginal: "",
-          srtTranslated: "",
-          dialogues: [],
-          translatedDialogues: [],
-          synthesizedAudioUrl: null,
-          outputVideoUrl: null,
-          status: 'idle',
-          logs: [`[LOG] Loaded local video: ${file.name}`],
-          selectedVoice,
-          sourceLang,
-          targetLang,
-          ttsSpeed,
-          lipsyncModel
-        };
+      const translationState = {
+        videoName: file.name,
+        videoSize: isTauri ? "Local Disk" : `${sizeMB} MB`,
+        videoUrl: url,
+        coverUrl: null,
+        audioUrl: null,
+        audioDuration: 0,
+        srtOriginal: "",
+        srtTranslated: "",
+        dialogues: [],
+        translatedDialogues: [],
+        synthesizedAudioUrl: null,
+        outputVideoUrl: null,
+        status: 'idle',
+        logs: [`[LOG] Loaded local video: ${file.name}`],
+        selectedVoice,
+        sourceLang,
+        targetLang,
+        ttsSpeed,
+        lipsyncModel
+      };
 
-        await setSetting(`video_translation_data_${id}`, JSON.stringify(translationState));
-        newProjects.push(newProj);
-      } catch (err) {
-        console.error("Failed to register project in workstation mode:", err);
-      }
+      await setSetting(`video_translation_data_${id}`, JSON.stringify(translationState));
+      queueProjects.push(newProj);
     }
 
-    if (newProjects.length > 0) {
-      setProjects(prev => {
-        const combined = [...prev, ...newProjects];
-        // If nothing was selected before, select the first new video
-        if (!activeProjectId) {
-          setActiveProjectId(newProjects[0].id);
-        }
-        return combined;
-      });
-      // Try extracting covers for newly loaded videos on back thread
-      newProjects.forEach(p => {
-        performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
-      });
-    }
+    const parentState = {
+      queue: queueProjects,
+      activeId: parentId,
+      selectedVoice,
+      sourceLang,
+      targetLang,
+      ttsSpeed,
+      lipsyncModel
+    };
+    await setSetting(`video_translation_data_${parentId}`, JSON.stringify(parentState));
+
+    setProjects(queueProjects);
+    projectsRef.current = queueProjects;
+    setActiveProjectId(parentId);
+    
+    queueProjects.forEach(p => {
+      performCoverFrameExtractionOnLoad(p.id, p.videoUrl);
+    });
+
+    navigate(`/translation?project_id=${parentId}`);
   };
 
   // Background cover extraction upon loading
@@ -1204,9 +1917,11 @@ export function VideoTranslation() {
         const finalFilename = extractComfyFilename(inputAudioFile);
 
         addLog(activeProject.id, `Triggering Qwen3-ASR model transcription. Payload: ${finalFilename}`);
-        const transcribedSrt = await comfy.runASRQwen(finalFilename, (msg) => {
+        const asrResult = await comfy.runASRQwen(finalFilename, (msg) => {
           addLog(activeProject.id, `[ComfyUI ASR] ${msg}`);
         });
+        let transcribedSrt = asrResult.srtText;
+        const transcribedPlain = asrResult.plainText;
 
         // Save SRT to script folder!
         const scriptDir = await join(workspacePath, activeProject.id, 'script');
@@ -1214,15 +1929,70 @@ export function VideoTranslation() {
           await mkdir(scriptDir, { recursive: true });
         }
         const srtPath = await join(scriptDir, 'timeline.srt');
+        const txtPath = await join(scriptDir, 'plain_text.txt');
+
+        let parsedOrig = asrResult.dialogues || null;
+        if (parsedOrig && parsedOrig.length > 0) {
+          addLog(activeProject.id, `[JSON ASR] Successfully received ${parsedOrig.length} aligned timeline segments from Qwen3-ASR.`);
+        } else {
+          parsedOrig = parseSegmentsFromJSON(asrResult.rawJson || transcribedPlain);
+          if (parsedOrig && parsedOrig.length > 0) {
+            addLog(activeProject.id, `[JSON ASR] Successfully parsed ${parsedOrig.length} segments inside VideoTranslation.`);
+            transcribedSrt = parsedOrig.map(d => {
+              const start = formatSRTTimeStandalone(d.startSec);
+              const end = formatSRTTimeStandalone(d.endSec);
+              return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
+            }).join('\n');
+          } else {
+            parsedOrig = parseSRT(transcribedSrt);
+            if (parsedOrig.length === 0 && transcribedPlain.trim()) {
+              addLog(activeProject.id, "[Warning] No valid SRT timestamps. Auto-segmenting plain_text.txt transcript to populate timeline segments...");
+              parsedOrig = segmentPlainText(transcribedPlain);
+              
+              transcribedSrt = parsedOrig.map(d => {
+                const start = formatSRTTimeStandalone(d.startSec);
+                const end = formatSRTTimeStandalone(d.endSec);
+                return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
+              }).join('\n');
+              addLog(activeProject.id, `Fully structured ${parsedOrig.length} narrative segments from prose text.`);
+            }
+          }
+        }
+
         await writeFile(srtPath, new TextEncoder().encode(transcribedSrt));
         addLog(activeProject.id, `[Tauri] Dialogue timeline saved to: ${srtPath}`);
 
-        const parsedOrig = parseSRT(transcribedSrt);
+        await writeFile(txtPath, new TextEncoder().encode(transcribedPlain));
+        addLog(activeProject.id, `[Tauri] Prose narrative transcript saved to: ${txtPath}`);
+
         updateProject(activeProject.id, { 
           srtOriginal: transcribedSrt,
+          textOriginal: transcribedPlain,
           dialogues: parsedOrig,
           status: 'idle'
         });
+
+        // Write transcript text, language, segments and logs to system databases
+        try {
+          const freshProj = getActiveProjectSync() || activeProject;
+          await saveVideoTranslationData(
+            activeProject.id,
+            freshProj.videoName || activeProject.videoName,
+            freshProj.videoUrl || activeProject.videoUrl,
+            freshProj.coverUrl || activeProject.coverUrl,
+            freshProj.audioUrl || activeProject.audioUrl,
+            freshProj.audioDuration || activeProject.audioDuration,
+            transcribedSrt,
+            transcribedPlain,
+            language, // text language
+            'idle',
+            parsedOrig.map(d => ({ index: d.index, startSec: d.startSec, endSec: d.endSec, text: d.text })),
+            freshProj.logs || activeProject.logs
+          );
+          addLog(activeProject.id, "[Database] Successfully recorded plain_text transcript, detected language, logs, and timeline segments to Dedicated DB tables.");
+        } catch (dbErr: any) {
+          addLog(activeProject.id, `[Database Warning] Failed to write ASR outputs to dedicated tables: ${dbErr?.message || dbErr}`);
+        }
 
         addLog(activeProject.id, `Qwen3-ASR transcription successful. Identified ${parsedOrig.length} narrative segments.`);
         setCurrentTab('subtitle');
@@ -1246,12 +2016,36 @@ ${ltxText}
 ${fastenText}`;
 
         const parsedOrig = parseSRT(mockLocalSrt);
+        const textOrig = `${welcomeText}\n${ltxText}\n${fastenText}`;
 
         updateProject(activeProject.id, { 
           srtOriginal: mockLocalSrt,
+          textOriginal: textOrig,
           dialogues: parsedOrig,
           status: 'idle'
         });
+
+        // Write transcript text, language, segments and logs to fallbacks
+        try {
+          const freshProj = getActiveProjectSync() || activeProject;
+          await saveVideoTranslationData(
+            activeProject.id,
+            freshProj.videoName || activeProject.videoName,
+            freshProj.videoUrl || activeProject.videoUrl,
+            freshProj.coverUrl || activeProject.coverUrl,
+            freshProj.audioUrl || activeProject.audioUrl,
+            freshProj.audioDuration || activeProject.audioDuration,
+            mockLocalSrt,
+            textOrig,
+            language,
+            'idle',
+            parsedOrig.map(d => ({ index: d.index, startSec: d.startSec, endSec: d.endSec, text: d.text })),
+            freshProj.logs || activeProject.logs
+          );
+          addLog(activeProject.id, "[Database] Successfully recorded fallback transcript, language, logs, and timeline segments to Dedicated DB tables.");
+        } catch (dbErr: any) {
+          addLog(activeProject.id, `[Database Warning] Failed to write fallback ASR outputs to dedicated tables: ${dbErr?.message || dbErr}`);
+        }
 
         addLog(activeProject.id, "Qwen3-ASR transcription successful. Identified 3 narrative segments.");
         setCurrentTab('subtitle');
@@ -1264,6 +2058,17 @@ ${fastenText}`;
     }
   };
 
+  const compileSrtToPlain = (srt: string): string => {
+    return srt
+      .replace(/\uFEFF/g, "")
+      .replace(/\r/g, "")
+      .replace(/\d+:\d+:\d+[,.]\d+\s*-->\s*\d+:\d+:\d+[,.]\d+/g, "")
+      .split("\n")
+      .map(line => line.trim())
+      .filter(line => line !== "" && !/^\d+$/.test(line))
+      .join("\n");
+  };
+
   // 5. Translate Subtitles to English
   const translateSubtitles = async () => {
     const freshProject = getActiveProjectSync();
@@ -1273,14 +2078,29 @@ ${fastenText}`;
     }
     setIsProcessing(true);
     updateProject(freshProject.id, { status: 'translating' });
-    addLog(freshProject.id, `Translating text segments to ${targetLang} using Gemini-3.5-Flash...`);
+    addLog(freshProject.id, `Translating text segments to ${targetLang}...`);
 
     try {
       const updatedLines: SubtitleDialogueLine[] = [];
       
       for (const line of freshProject.dialogues) {
-        addLog(freshProject.id, `Translating segment ${line.index}: "${line.text}"`);
-        const result = await translateTextGemini(line.text, targetLang);
+        let result = "";
+        try {
+          if (isTauri) {
+            addLog(freshProject.id, `Translating segment ${line.index} using local ComfyUI HY-MT20 model: "${line.text}"`);
+            const targetLanguageHYMT = mapLanguageToHYMT(targetLang);
+            const { comfy } = await import('../lib/comfy');
+            result = await comfy.runTranslationHYMT(line.text, targetLanguageHYMT, (msg) => {
+              addLog(freshProject.id, `[HY-MT20] ${msg}`);
+            });
+          } else {
+            addLog(freshProject.id, `Translating segment ${line.index} using Gemini-3.5-Flash: "${line.text}"`);
+            result = await translateTextGemini(line.text, targetLang);
+          }
+        } catch (lineErr: any) {
+          addLog(freshProject.id, `⚠️ Segment ${line.index} translation failed: ${lineErr?.message || lineErr}. Using original text.`);
+          result = line.text;
+        }
         updatedLines.push({
           ...line,
           text: result || line.text
@@ -1293,11 +2113,70 @@ ${fastenText}`;
         return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
       }).join('\n');
 
+      const compiledPlain = updatedLines.map(d => d.text).join('\n');
+
       updateProject(freshProject.id, { 
         srtTranslated: compiledSrt,
         translatedDialogues: updatedLines,
+        textTranslated: compiledPlain,
         status: 'idle'
       });
+
+      if (isTauri) {
+        try {
+          const workspacePath = await getSetting('workspace_path') || '';
+          if (workspacePath) {
+            const { exists, mkdir, writeFile } = await import('@tauri-apps/plugin-fs');
+            const scriptDir = await join(workspacePath, freshProject.id, 'script');
+            if (!(await exists(scriptDir))) {
+              await mkdir(scriptDir, { recursive: true });
+            }
+            const srtTranslatedPath = await join(scriptDir, 'timeline_translated.srt');
+            await writeFile(srtTranslatedPath, new TextEncoder().encode(compiledSrt));
+            
+            const txtTranslatedPath = await join(scriptDir, 'plain_text_translated.txt');
+            await writeFile(txtTranslatedPath, new TextEncoder().encode(compiledPlain));
+            
+            addLog(freshProject.id, `[Tauri] Translated dialogue timeline saved to disk: ${srtTranslatedPath}`);
+            addLog(freshProject.id, `[Tauri] Translated prose saved to disk: ${txtTranslatedPath}`);
+          }
+        } catch (fsErr: any) {
+          console.error("Failed to save translation file:", fsErr);
+        }
+      }
+
+      // Sync translated segments directly to SQLite video_translation_timeline
+      try {
+        const freshProj = getActiveProjectSync() || freshProject;
+        const segmentsToSave = updatedLines.map(d => {
+          const origSegment = freshProject.dialogues.find(orig => orig.index === d.index);
+          return {
+            index: d.index,
+            startSec: d.startSec,
+            endSec: d.endSec,
+            text: origSegment ? origSegment.text : d.text,
+            translatedText: d.text
+          };
+        });
+
+        await saveVideoTranslationData(
+          freshProject.id,
+          freshProj.videoName || freshProject.videoName,
+          freshProj.videoUrl || freshProject.videoUrl,
+          freshProj.coverUrl || freshProject.coverUrl,
+          freshProj.audioUrl || freshProject.audioUrl,
+          freshProj.audioDuration || freshProject.audioDuration,
+          freshProj.srtOriginal || freshProject.srtOriginal,
+          freshProj.textOriginal || freshProject.textOriginal,
+          language,
+          'idle',
+          segmentsToSave,
+          freshProj.logs || freshProject.logs
+        );
+        addLog(freshProject.id, "[Database] Successfully recorded translation segments directly into video_translation_timeline DB table.");
+      } catch (dbErr: any) {
+        addLog(freshProject.id, `[Database Warning] Failed to save translation segments to database: ${dbErr?.message || dbErr}`);
+      }
 
       addLog(freshProject.id, "Successfully finalized target translation and structured localized subtitles.");
     } catch (e: any) {
@@ -1330,17 +2209,29 @@ ${fastenText}`;
   // 6. Generate New Audio Stream using Qwen3-TTS
   const generateNewTTSAudio = async () => {
     const freshProject = getActiveProjectSync();
-    if (!freshProject || freshProject.translatedDialogues.length === 0) {
-      alert(vt('alertGenerateTranslation'));
+    if (!freshProject || (freshProject.translatedDialogues.length === 0 && freshProject.dialogues.length === 0)) {
+      alert(vt('alertGenerateOriginal'));
       return;
     }
+
+    let targetDialogues = freshProject.translatedDialogues;
+    if (targetDialogues.length === 0) {
+      addLog(freshProject.id, "No translated subtitles detected. Falling back to original extracted dialogues for Qwen3-TTS synthesis.");
+      targetDialogues = freshProject.dialogues;
+      // In-memory update
+      updateProject(freshProject.id, {
+        translatedDialogues: freshProject.dialogues,
+        srtTranslated: freshProject.srtOriginal
+      });
+    }
+
     setIsProcessing(true);
     updateProject(freshProject.id, { status: 'synthesizing_tts' });
     addLog(freshProject.id, `Synthesizing translations to speech using voice preset [${selectedVoice}]...`);
 
     try {
       addLog(freshProject.id, "Aggregating dialogues into single narration sequence...");
-      const textToSynthesize = freshProject.translatedDialogues.map(d => d.text).join(' ');
+      const textToSynthesize = targetDialogues.map(d => d.text).join(' ');
       
       if (isTauri) {
         addLog(freshProject.id, "Constructing native paths and ensuring audio workspace folders...");
@@ -1947,9 +2838,94 @@ ${fastenText}`;
 
                   <div className="space-y-3 max-h-[380px] overflow-y-auto pr-2 custom-scrollbar">
                     {activeProject.dialogues.length === 0 ? (
-                      <div className="py-12 text-center text-gray-600 border border-dashed border-white/5 rounded-lg flex flex-col items-center justify-center">
-                        <FileText className="w-8 h-8 mb-2" />
-                        <p className="text-xs">{vt('noSubtitleTrack')}</p>
+                      <div className="py-12 text-center text-gray-500 border border-dashed border-white/5 rounded-lg flex flex-col items-center justify-center p-6 space-y-4">
+                        <FileText className="w-8 h-8 text-gray-600" />
+                        <div className="space-y-1 max-w-md">
+                          <p className="text-xs font-semibold text-gray-400">{vt('noSubtitleTrack')}</p>
+                          <p className="text-[10px] text-gray-500 leading-relaxed">
+                            系统当前未检测到内存中的剧本。如果您已在 [ 提取分离 ] 模块中运行过 Qwen3-ASR，
+                            可直接点击下方按钮从项目物理路径中的 `script/timeline.srt` 载入。
+                          </p>
+                        </div>
+                        {isTauri && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const workspacePath = await getSetting('workspace_path') || '';
+                                if (!workspacePath) {
+                                  alert("请先设置工作空间路径！");
+                                  return;
+                                }
+                                const { exists, readFile } = await import('@tauri-apps/plugin-fs');
+                                const scriptDir = await join(workspacePath, activeProject.id, 'script');
+                                const srtPath = await join(scriptDir, 'timeline.srt');
+                                const txtPath = await join(scriptDir, 'plain_text.txt');
+                                
+                                if (await exists(srtPath) || await exists(txtPath)) {
+                                  let content = '';
+                                  if (await exists(srtPath)) {
+                                    content = new TextDecoder().decode(await readFile(srtPath));
+                                  }
+                                  let parsed = parseSRT(content);
+                                  
+                                  let localSrtTranslated = '';
+                                  let localTranslatedDialogues: SubtitleDialogueLine[] = [];
+                                  
+                                  const transSrtPath = await join(scriptDir, 'timeline_translated.srt');
+                                  if (await exists(transSrtPath)) {
+                                    const transBytes = await readFile(transSrtPath);
+                                    localSrtTranslated = new TextDecoder().decode(transBytes);
+                                    localTranslatedDialogues = parseSRT(localSrtTranslated);
+                                  }
+
+                                  let localTextOriginal = '';
+                                  if (await exists(txtPath)) {
+                                    const txtBytes = await readFile(txtPath);
+                                    localTextOriginal = new TextDecoder().decode(txtBytes).trim();
+                                  }
+
+                                  const jsonSegments = parseSegmentsFromJSON(localTextOriginal);
+                                  if (jsonSegments && jsonSegments.length > 0) {
+                                    parsed = jsonSegments;
+                                    if (!content.trim()) {
+                                      content = parsed.map(d => {
+                                        const start = formatSRTTimeStandalone(d.startSec);
+                                        const end = formatSRTTimeStandalone(d.endSec);
+                                        return `${d.index}\n${start} --> ${end}\n${d.text}\n`;
+                                      }).join('\n');
+                                    }
+                                  }
+
+                                  let localTextTranslated = '';
+                                  const transTxtPath = await join(scriptDir, 'plain_text_translated.txt');
+                                  if (await exists(transTxtPath)) {
+                                    const transTxtBytes = await readFile(transTxtPath);
+                                    localTextTranslated = new TextDecoder().decode(transTxtBytes).trim();
+                                  }
+
+                                  updateProject(activeProject.id, {
+                                    srtOriginal: content,
+                                    dialogues: parsed,
+                                    textOriginal: localTextOriginal || (content ? compileSrtToPlain(content) : ""),
+                                    srtTranslated: localSrtTranslated || "",
+                                    translatedDialogues: localTranslatedDialogues,
+                                    textTranslated: localTextTranslated || (localSrtTranslated ? compileSrtToPlain(localSrtTranslated) : "")
+                                  });
+                                  addLog(activeProject.id, `[Success] Resolved and loaded plain text JSON / SRT segments from project script directory.`);
+                                  alert("成功载入本地 ASR 对白剧本" + (localTranslatedDialogues.length > 0 ? "及翻译剧本" : "") + "！");
+                                } else {
+                                  alert(`未在剧本文件夹下检测到任何剧本文件。\n路径: ${txtPath}`);
+                                }
+                              } catch (err: any) {
+                                alert("读取本地文件失败: " + err.message);
+                              }
+                            }}
+                            className="px-4 py-2 bg-brand-primary text-black hover:opacity-90 text-[11px] font-bold uppercase rounded transition-all flex items-center gap-1.5"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            检测并加载本地剧本文件
+                          </button>
+                        )}
                       </div>
                     ) : (
                       activeProject.dialogues.map((line, idx) => {
@@ -1998,7 +2974,7 @@ ${fastenText}`;
                   <div className="mt-6 flex justify-end gap-3 border-t border-white/5 pt-4">
                     <button
                       onClick={generateNewTTSAudio}
-                      disabled={isProcessing || activeProject.translatedDialogues.length === 0}
+                      disabled={isProcessing || (activeProject.translatedDialogues.length === 0 && activeProject.dialogues.length === 0)}
                       className="px-5 py-2.5 bg-brand-primary text-black text-xs font-bold uppercase tracking-wider rounded hover:opacity-90 transition-all flex items-center gap-2"
                     >
                       <Music className="w-4 h-4 text-black" />

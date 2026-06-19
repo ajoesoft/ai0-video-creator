@@ -5,11 +5,11 @@ import {
   Image as ImageIcon, MessageSquare, Info, 
   Edit2, Check, X, Wand2, Music, Layers, BookOpen, Languages, Loader2
 } from 'lucide-react';
-import { fetchProjectById, updateProject, getSetting } from '../lib/db';
+import { fetchProjectById, updateProject, getSetting, applyPromptHarnessRules, fetchPromptHarnessByProject } from '../lib/db';
 import { VideoProject, ProjectStatus, SceneType } from '../types';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn, getAssetUrl } from '../lib/utils';
+import { cn, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 
 const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
@@ -22,8 +22,8 @@ export function ProjectDetail() {
   const navigate = useNavigate();
   const [project, setProject] = useState<VideoProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [imageExists, setImageExists] = useState(false);
-  const [coverImageBase64, setCoverImageBase64] = useState<string>('');
+  // Load local cover image with useLocalImageBase64
+  const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
   const [synthesizedVideoPath, setSynthesizedVideoPath] = useState<string | null>(null);
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   
@@ -41,27 +41,41 @@ export function ProjectDetail() {
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
   const [generationMsg, setGenerationMsg] = useState('');
   const [generationError, setGenerationError] = useState('');
+  const [promptHarnesses, setPromptHarnesses] = useState<any[]>([]);
 
   const handleOpenCoverModal = () => {
     setCoverPrompt(project?.prompt || '');
     setGenerationError('');
     setGenerationMsg('');
     setIsEditingCover(true);
+    if (project?.id) {
+      fetchPromptHarnessByProject(project.id)
+        .then(harnesses => setPromptHarnesses(harnesses || []))
+        .catch(err => console.error("Failed to refresh prompt harnesses:", err));
+    }
+  };
+
+  const handleInsertHarness = (keyword: string) => {
+    setCoverPrompt(prev => {
+      if (!prev) return keyword;
+      if (prev.endsWith(' ')) return `${prev}${keyword}`;
+      return `${prev} ${keyword}`;
+    });
   };
 
   const handleGenerateCover = async () => {
     if (!coverPrompt.trim() || !project) {
-      setGenerationError('请输入生成提示词！');
+      setGenerationError('Please enter a generation prompt!');
       return;
     }
     setIsGeneratingCover(true);
     setGenerationError('');
-    setGenerationMsg('正在初始化 (Initializing)...');
+    setGenerationMsg('Initializing...');
 
     try {
       const workspacePath = await getSetting('workspace_path');
       if (!workspacePath) {
-        throw new Error('全局工作空间路径未配置，请先在系统设置中配置！');
+        throw new Error('Global workspace path is not configured. Please specify it in settings first.');
       }
 
       // 1. Ensure cover directory exists
@@ -79,9 +93,12 @@ export function ProjectDetail() {
       // 3. Select model (isTurbo: true for z-image-turbo, false for qwen-image-2512)
       const isTurbo = selectedModel === 'z-image-turbo';
 
-      setGenerationMsg('正在提交生成任务 (Submitting)...');
+      // Resolve prompt consistency harnesses in cover prompt
+      const resolvedCoverPrompt = await applyPromptHarnessRules(coverPrompt, project.id);
+
+      setGenerationMsg('Submitting generation task...');
       const savedPath = await comfy.runImageGenerationRust(
-        coverPrompt, 
+        resolvedCoverPrompt, 
         localCoverPath, 
         isTurbo, 
         (progressMsg) => {
@@ -90,29 +107,18 @@ export function ProjectDetail() {
       );
 
       if (savedPath) {
-        setGenerationMsg('图像已生成，正在更新数据库 (Updating database)...');
+        setGenerationMsg('Image generated, updating database...');
         const updated = await updateProject(project.id, { coverImagePath: savedPath });
         if (updated) {
           setProject(updated);
-          // Reload local file representation
-          try {
-            const hasFile = await exists(savedPath);
-            setImageExists(hasFile);
-            if (hasFile) {
-              const base64 = await invoke<string>('load_local_image', { path: savedPath });
-              setCoverImageBase64(base64);
-            }
-          } catch (loadErr) {
-            console.error('Failed to reload cover image Base64:', loadErr);
-          }
         }
         setIsEditingCover(false);
       } else {
-        throw new Error('未返回有效的生成封面保存路径。');
+        throw new Error('No valid cover save path returned.');
       }
     } catch (err: any) {
       console.error('Failed to generate cover image:', err);
-      setGenerationError(err?.message || err?.toString() || '生成项目封面失败');
+      setGenerationError(err?.message || err?.toString() || 'Failed to generate project cover');
     } finally {
       setIsGeneratingCover(false);
     }
@@ -140,24 +146,14 @@ export function ProjectDetail() {
         setEditedName(data.name);
         setEditedPrompt(data.prompt || '');
         
-        if (data.coverImagePath) {
-          if (isTauri) {
-            try {
-              const hasFile = await exists(data.coverImagePath);
-              setImageExists(hasFile);
-              if (hasFile && !data.coverImagePath.startsWith('http')) {
-                const base64 = await invoke<string>('load_local_image', { path: data.coverImagePath });
-                setCoverImageBase64(`data:image/png;base64,${base64}`);
-              }
-            } catch (e) {
-              console.warn("FS exists check failed in Tauri:", e);
-              setImageExists(false);
-            }
-          } else {
-            // Web browser/AI Studio preview mode doesn't have local rust FS, assume true to render standard assets
-            setImageExists(true);
-          }
+        try {
+          const harnesses = await fetchPromptHarnessByProject(projectId);
+          setPromptHarnesses(harnesses || []);
+        } catch (e) {
+          console.error("Failed to load prompt harnesses for cover editor:", e);
         }
+        
+
       }
     } catch (error) {
       console.error('Failed to load project:', error);
@@ -186,13 +182,13 @@ export function ProjectDetail() {
 
   const getStatusLabel = (status: ProjectStatus) => {
     switch (status) {
-      case ProjectStatus.DRAFT: return '草稿 (Draft)';
-      case ProjectStatus.GENERATING: return '生成中 (Generating)';
-      case ProjectStatus.EDITING: return '编排中 (Editing)';
-      case ProjectStatus.RENDERING: return '导出中 (Rendering)';
-      case ProjectStatus.COMPLETED: return '已完成 (Completed)';
-      case ProjectStatus.ERROR: return '终止 (Error)';
-      default: return '未知 (Unknown)';
+      case ProjectStatus.DRAFT: return 'Draft';
+      case ProjectStatus.GENERATING: return 'Generating';
+      case ProjectStatus.EDITING: return 'Editing';
+      case ProjectStatus.RENDERING: return 'Rendering';
+      case ProjectStatus.COMPLETED: return 'Completed';
+      case ProjectStatus.ERROR: return 'Error';
+      default: return 'Unknown';
     }
   };
 
@@ -313,7 +309,7 @@ export function ProjectDetail() {
                   className="text-xs font-bold text-brand-primary hover:text-brand-primary/80 transition-colors flex items-center gap-1.5 cursor-pointer bg-white/5 hover:bg-white/10 px-3 py-1 rounded-full border border-white/10 hover:border-white/20"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
-                  编辑封面
+                  Edit Cover
                 </button>
               </div>
               <div className="aspect-[16/10] w-full rounded-3xl bg-black border border-white/5 overflow-hidden group relative shadow-2xl flex items-center justify-center">
@@ -330,14 +326,14 @@ export function ProjectDetail() {
                       onClick={() => setIsPlayingVideo(false)}
                       className="absolute top-4 right-4 bg-black/60 hover:bg-black/80 text-white rounded-full px-3 py-1.5 transition-colors z-10 text-[10px] font-mono border border-white/10 uppercase"
                     >
-                      关闭预览 Close
+                      Close Preview
                     </button>
                   </div>
                 ) : (
                   <>
-                    {(imageExists && project.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64)) || (!isTauri && project.coverImagePath) ? (
+                    {localCoverBase64 ? (
                       <img 
-                        src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (coverImageBase64 || getAssetUrl(project.coverImagePath))} 
+                        src={localCoverBase64} 
                         alt={project.name} 
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
                       />
@@ -358,9 +354,9 @@ export function ProjectDetail() {
                           className="bg-brand-primary text-black font-semibold text-xs px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 hover:scale-105 active:scale-95 transition-all cursor-pointer"
                         >
                           <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" />
+                             <path d="M8 5v14l11-7z" />
                           </svg>
-                          <span>播放预览视频</span>
+                          <span>Play Preview Video</span>
                         </button>
                       ) : null}
                       
@@ -369,7 +365,7 @@ export function ProjectDetail() {
                         className="bg-white/10 hover:bg-white/20 border border-white/10 text-white font-semibold text-xs px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:scale-105 active:scale-95 transition-all cursor-pointer"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
-                        更换封面图片
+                        Change Cover
                       </button>
                     </div>
                   </>
@@ -378,7 +374,9 @@ export function ProjectDetail() {
                 <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
                   <div className="flex justify-between items-end">
                     <div className="mono-text text-[10px] text-gray-400">FPS: 24</div>
-                    <div className="mono-text text-[10px] text-gray-400">1920x1080</div>
+                    <div className="mono-text text-[10px] text-gray-400">
+                      {project?.width && project?.height ? `${project.width}x${project.height}` : '1920x1080'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -386,19 +384,41 @@ export function ProjectDetail() {
 
             <section className="p-6 rounded-3xl bg-white/2 border border-white/5 space-y-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">Workspace Health</h3>
-                <span className="text-[10px] mono-text text-green-500">Optimal</span>
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400">Production Specifications</h3>
+                <span className="text-[10px] mono-text text-brand-primary uppercase">Active Preset</span>
               </div>
               
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white/3 p-4 rounded-2xl border border-white/5 space-y-1">
+                    <div className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold font-mono">Dimensions & Ratio</div>
+                    <div className="text-xs font-semibold mono-text text-white leading-tight">
+                      {project?.width && project?.height ? `${project.width} × ${project.height}` : '1920 × 1080'}
+                    </div>
+                    <div className="text-[9px] text-gray-400 font-mono">
+                      Aspect ratio: {project?.aspectRatio || '16:9'}
+                    </div>
+                  </div>
+                  
+                  <div className="bg-white/3 p-4 rounded-2xl border border-white/5 space-y-1">
+                    <div className="text-[9px] text-gray-500 uppercase tracking-wider font-semibold font-mono">Visual Aesthetic</div>
+                    <div className="text-xs font-semibold uppercase text-brand-primary tracking-wide leading-tight">
+                      {project?.visualStyle || 'Cinematic'}
+                    </div>
+                    <div className="text-[9px] text-gray-400">
+                      Auto-seeded visual harnesses applied
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                    <div className="text-[10px] text-gray-500 uppercase mb-1">Duration</div>
-                    <div className="text-sm font-medium mono-text">00:00:00</div>
+                    <div className="text-[10px] text-gray-500 uppercase mb-1">FPS Counter</div>
+                    <div className="text-sm font-semibold mono-text text-white">24 fps</div>
                   </div>
                   <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                    <div className="text-[10px] text-gray-500 uppercase mb-1">Storage</div>
-                    <div className="text-sm font-medium mono-text">1.2 MB</div>
+                    <div className="text-[10px] text-gray-500 uppercase mb-1">Synthesis Target</div>
+                    <div className="text-sm font-semibold mono-text text-white">Local MP4</div>
                   </div>
                 </div>
               </div>
@@ -558,7 +578,7 @@ export function ProjectDetail() {
                   <div className="flex justify-between items-center pb-4 border-b border-white/5">
                     <div className="flex items-center gap-2">
                       <ImageIcon className="w-5 h-5 text-brand-primary" />
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-white">编辑项目封面</h3>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-white">Edit Project Cover</h3>
                     </div>
                     <button 
                       onClick={() => setIsEditingCover(false)}
@@ -572,22 +592,53 @@ export function ProjectDetail() {
                   {/* Form Body */}
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 block">文生图提示词 (Prompt)</label>
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 block">Image Generation Prompt</label>
                       <textarea
                         value={coverPrompt}
                         onChange={(e) => setCoverPrompt(e.target.value)}
-                        placeholder="请输入生图的提示词（例如：A majestic space dragon soaring over a black hole, neon blue nebulas, cinematic lighting, 8k render...）"
+                        placeholder="Enter cover image prompt (e.g. A majestic space dragon soaring over a black hole, neon blue nebulas, cinematic lighting, 8k render...)"
                         disabled={isGeneratingCover}
                         className="w-full h-32 bg-white/5 border border-white/5 rounded-2xl p-4 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-brand-primary/50 resize-none transition-colors"
                       />
+                      
+                      {/* Insert Project Prompt Harness Selector */}
+                      <div className="space-y-1.5 pt-1 animate-fadeIn">
+                        <span className="text-[9px] font-mono font-bold text-brand-primary uppercase tracking-wider block">
+                          Insert Project Prompt Harness
+                        </span>
+                        {promptHarnesses && promptHarnesses.filter(h => h.active === 1).length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
+                            {promptHarnesses.filter(h => h.active === 1).map((h, hIdx) => (
+                              <button
+                                key={h.id || hIdx}
+                                type="button"
+                                disabled={isGeneratingCover}
+                                onClick={() => handleInsertHarness(h.triggerKeyword)}
+                                className="px-2.5 py-1 text-[10px] bg-brand-primary/10 hover:bg-brand-primary border border-brand-primary/20 hover:border-brand-primary text-brand-primary hover:text-black font-semibold font-mono rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                                title="Click to insert trigger tag into prompt"
+                              >
+                                <span className="text-xs font-bold">+</span>
+                                <span>{h.triggerKeyword}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-gray-400/80 leading-relaxed bg-white/[0.01] p-2.5 rounded-xl border border-white/5 flex items-start gap-1.5">
+                            <Info className="w-3.5 h-3.5 text-gray-600 shrink-0 mt-0.5" />
+                            <span>
+                              No active prompt harnesses configured. Define style associations in Visuals or Harness panels.
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 block">生成模型 (Model)</label>
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 block">Generator Model</label>
                       <div className="grid grid-cols-2 gap-3">
                         {[
-                          { id: 'z-image-turbo', name: 'z-image-turbo', desc: '极速生成 (Turbo Model)' },
-                          { id: 'qwen-image-2512', name: 'qwen-image-2512', desc: '高画质 (Standard Qwen)' }
+                          { id: 'z-image-turbo', name: 'z-image-turbo', desc: 'Rapid generation (Turbo Model)' },
+                          { id: 'qwen-image-2512', name: 'qwen-image-2512', desc: 'High Quality (Standard Qwen)' }
                         ].map(model => (
                           <button
                             key={model.id}
@@ -614,7 +665,7 @@ export function ProjectDetail() {
                         {isGeneratingCover && (
                           <div className="flex items-center gap-3 text-xs text-brand-primary font-medium">
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>{generationMsg || '正在生成中...'}</span>
+                            <span>{generationMsg || 'Generating...'}</span>
                           </div>
                         )}
                         {!isGeneratingCover && generationMsg && !generationError && (
@@ -640,7 +691,7 @@ export function ProjectDetail() {
                       onClick={() => setIsEditingCover(false)}
                       className="px-4 py-2 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all cursor-pointer disabled:opacity-50"
                     >
-                      取消
+                      Cancel
                     </button>
                     <button
                       type="button"
@@ -651,12 +702,12 @@ export function ProjectDetail() {
                       {isGeneratingCover ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          生成中...
+                          Generating...
                         </>
                       ) : (
                         <>
                           <Wand2 className="w-3.5 h-3.5" />
-                          开始生成
+                          Generate
                         </>
                       )}
                     </button>

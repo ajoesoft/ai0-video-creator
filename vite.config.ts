@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       configureServer(server) {
-        server.middlewares.use((req, res, next) => {
+       server.middlewares.use((req, res, next) => {
           if (req.url) {
             const rawUrl = decodeURIComponent(req.url);
             const cleanUrl = rawUrl.split('?')[0];
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => {
             }
 
             // Strip common workspace path prefixes to normalize resolution
-            const prefixes = ['data/workflow/workspace/', 'workflow/workspace/', 'workspace/'];
+            const prefixes = ['data/workflow/workspace/', 'data/workflow/','workflow/workspace/', 'workspace/'];
             for (const prefix of prefixes) {
               if (relativePath.startsWith(prefix)) {
                 relativePath = relativePath.slice(prefix.length);
@@ -59,8 +59,13 @@ export default defineConfig(({ mode }) => {
             }
 
             // Safety check: ensure requested file is inside our workspace/cwd, or is a system data folder
-            const isSafeSystemPath = resolvedPath.startsWith('/data/') || resolvedPath.startsWith('/data');
-            if (resolvedPath.startsWith(cwd) || isSafeSystemPath) {
+            const normalizedResolved = resolvedPath.replace(/\\/g, '/');
+            const isSafeSystemPath = normalizedResolved.startsWith('/data/') || 
+                                     normalizedResolved.startsWith('/data') || 
+                                     /^[a-zA-Z]:\/data(\/|$)/.test(normalizedResolved);
+            
+            const normalizedCwd = cwd.replace(/\\/g, '/');
+            if (normalizedResolved.startsWith(normalizedCwd) || isSafeSystemPath) {
               const baseName = path.basename(resolvedPath);
               const sensitiveFiles = ['.env', 'package.json', 'package-lock.json', 'vite.config.ts', 'tsconfig.json', 'metadata.json'];
               if (!sensitiveFiles.includes(baseName) && !resolvedPath.includes('/.') && !resolvedPath.includes('node_modules')) {

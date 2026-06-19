@@ -33,7 +33,12 @@ export interface VideoProject {
   templateId?: number;
   projectPath?: string;
   config?: AppConfig;
+  width?: number;
+  height?: number;
+  aspectRatio?: string;
+  visualStyle?: string;
 }
+
 
 export interface SceneConfig {
   configId: number;

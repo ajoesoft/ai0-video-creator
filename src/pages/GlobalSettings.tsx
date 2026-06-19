@@ -37,6 +37,55 @@ export function GlobalSettings() {
   const [cudaVer, setCudaVer] = useState<string>('Detecting (检测中)...');
   const [ollamaVer, setOllamaVer] = useState<string>('Detecting (检测中)...');
 
+  const [ollamaModels, setOllamaModels] = useState<{
+    name: string;
+    size: number;
+    details?: { parameter_size?: string; quantization_level?: string; format?: string };
+  }[]>([]);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>('qwen:7b');
+  const [isFetchingModels, setIsFetchingModels] = useState<boolean>(false);
+  const [ollamaFetchError, setOllamaFetchError] = useState<string | null>(null);
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const fetchOllamaModels = async () => {
+    setIsFetchingModels(true);
+    setOllamaFetchError(null);
+    try {
+      const response = await fetch('http://127.0.0.1:11434/api/tags');
+      if (!response.ok) {
+        throw new Error(`HTTP Error: status ${response.status}`);
+      }
+      const data = await response.json();
+      if (data && Array.isArray(data.models)) {
+        setOllamaModels(data.models);
+        
+        const names = data.models.map((m: any) => m.name);
+        const savedModel = await getSetting('model_ollama_active_model');
+        if (savedModel && names.includes(savedModel)) {
+          setSelectedOllamaModel(savedModel);
+        } else if (names.length > 0 && !savedModel) {
+          setSelectedOllamaModel(names[0]);
+          await setSetting('model_ollama_active_model', names[0]);
+        }
+      } else {
+        setOllamaModels([]);
+      }
+    } catch (err: any) {
+      console.warn('[Ollama] Failed to fetch models from local API:', err);
+      setOllamaFetchError('Cannot connect to local Ollama. Please ensure Ollama is installed and running.');
+      setOllamaModels([]);
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
   const fetchVersions = async (pyPath: string, ffPath: string) => {
     const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
     
@@ -135,8 +184,17 @@ export function GlobalSettings() {
       const threads = await getSetting('python_thread_limit');
       setThreadLimit(threads || '4');
 
-      // Fetch dynamic version tags
+      // Load active Ollama model
+      const savedOllamaM = await getSetting('model_ollama_active_model');
+      if (savedOllamaM) {
+        setSelectedOllamaModel(savedOllamaM);
+      } else {
+        setSelectedOllamaModel('qwen:7b');
+      }
+
+      // Fetch dynamic version tags & models
       await fetchVersions(resolvedPyPath, resolvedFfPath);
+      await fetchOllamaModels();
     }
     loadSettings();
   }, []);
@@ -215,8 +273,10 @@ export function GlobalSettings() {
       await setSetting('ffmpeg_path', ffmpegPath);
       await setSetting('python_cuda_device', cudaDevice);
       await setSetting('python_thread_limit', threadLimit);
+      await setSetting('model_ollama_active_model', selectedOllamaModel);
       setSaveStatus('saved');
       await fetchVersions(pythonPath, ffmpegPath);
+      await fetchOllamaModels();
     } catch (e) {
       console.error('Failed to save settings:', e);
       setSaveStatus('idle');
@@ -390,7 +450,7 @@ export function GlobalSettings() {
                        <span className="text-sm">Auto-start on launch</span>
                     </div>
                     <div className="w-10 h-5 bg-brand-primary rounded-full relative cursor-pointer">
-                      <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full transition-all" />
+                       <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full transition-all" />
                     </div>
                  </div>
 
@@ -402,9 +462,131 @@ export function GlobalSettings() {
                     </div>
                  </div>
 
-                 <div className="p-4 bg-white/5 border border-white/5 rounded-xl flex justify-between items-center text-xs mt-4">
+                 <div className="p-4 bg-white/5 border border-white/5 rounded-xl flex justify-between items-center text-xs">
                    <span className="text-gray-400 font-medium">Ollama Core Version (Ollama 运行版本):</span>
                    <span className="font-mono text-brand-primary font-bold bg-brand-primary/10 px-2.5 py-1 rounded-md">{ollamaVer}</span>
+                 </div>
+
+                 <div className="space-y-3 pt-4 border-t border-white/10">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+                        Active LLM Model (当前大语言模型)
+                      </label>
+                      <button
+                        onClick={fetchOllamaModels}
+                        disabled={isFetchingModels}
+                        className="text-xs text-brand-primary hover:text-brand-primary/80 flex items-center gap-1 cursor-pointer transition-colors"
+                        title="刷新本地模型列表 (Refresh model list)"
+                      >
+                        <RefreshCcw className={cn("w-3.5 h-3.5", isFetchingModels && "animate-spin")} />
+                        <span>{isFetchingModels ? 'Scanning...' : 'Rescan Models'}</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Select Dropdown */}
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-gray-500 block font-medium">Select Installed Models (选择已下载的模型)</span>
+                        <select
+                          value={ollamaModels.some(m => m.name === selectedOllamaModel) ? selectedOllamaModel : 'custom'}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            if (val !== 'custom') {
+                              setSelectedOllamaModel(val);
+                              await setSetting('model_ollama_active_model', val);
+                            }
+                          }}
+                          className="desktop-input w-full bg-white/5 py-2 px-3 text-xs h-9 cursor-pointer border border-white/10 rounded-md focus:border-brand-primary focus:outline-none"
+                        >
+                          {ollamaModels.length > 0 ? (
+                            <>
+                              {ollamaModels.map((model) => (
+                                <option key={model.name} value={model.name} className="bg-[#121214] text-white">
+                                  {model.name} ({formatBytes(model.size)})
+                                </option>
+                              ))}
+                              <option value="custom" className="bg-[#121214] text-white">
+                                -- Custom / Input manually (手动输入标识) --
+                              </option>
+                            </>
+                          ) : (
+                            <option value="custom" className="bg-[#121214] text-white">
+                              No models found (未检测到本地模型)
+                            </option>
+                          )}
+                        </select>
+                      </div>
+
+                      {/* Manual Name Input */}
+                      <div className="space-y-1">
+                        <span className="text-[10px] text-gray-500 block font-medium">Active Model Identifier (当前使用的模型标识)</span>
+                        <input
+                          type="text"
+                          value={selectedOllamaModel}
+                          onChange={async (e) => {
+                            const val = e.target.value;
+                            setSelectedOllamaModel(val);
+                            await setSetting('model_ollama_active_model', val);
+                          }}
+                          className="desktop-input w-full bg-white/5 font-mono text-xs py-2 px-3 h-9 border border-white/10 rounded-md focus:border-brand-primary focus:outline-none"
+                          placeholder="e.g. qwen:7b, llama3"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Fetched models display list/grid */}
+                    {ollamaModels.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        <span className="text-[10px] text-gray-500 block font-medium">Double-click or click below to select (选择已加载算力模型):</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1.5 border border-white/5 bg-white/[0.01] rounded-lg custom-scrollbar">
+                          {ollamaModels.map((model) => {
+                            const isSelected = selectedOllamaModel === model.name;
+                            return (
+                              <button
+                                key={model.name}
+                                onClick={async () => {
+                                  setSelectedOllamaModel(model.name);
+                                  await setSetting('model_ollama_active_model', model.name);
+                                }}
+                                type="button"
+                                className={cn(
+                                  "flex flex-col items-start p-2 rounded-md border text-left transition-all text-xs cursor-pointer",
+                                  isSelected 
+                                    ? "bg-brand-primary/10 border-brand-primary/40 text-brand-primary shadow-sm shadow-brand-primary/10" 
+                                    : "bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/15 text-gray-400 hover:text-white"
+                                )}
+                              >
+                                <div className="font-semibold flex items-center justify-between w-full">
+                                  <span className="truncate">{model.name}</span>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-brand-primary" />}
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-1 font-mono text-[9px] text-gray-500">
+                                  <span>{formatBytes(model.size)}</span>
+                                  {model.details?.parameter_size && (
+                                    <>
+                                      <span>•</span>
+                                      <span>{model.details.parameter_size}</span>
+                                    </>
+                                  )}
+                                  {model.details?.quantization_level && (
+                                    <>
+                                      <span>•</span>
+                                      <span>{model.details.quantization_level}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {ollamaFetchError && (
+                      <p className="text-[10px] text-amber-500 mt-1 leading-relaxed bg-amber-500/5 p-2 border border-amber-500/10 rounded-md">
+                        ⚠️ 如何连接：{ollamaFetchError} (若未运行，您可以直接在此页面指定您的模型标识，如 <code className="bg-white/5 font-mono px-1 rounded text-orange-300">qwen:7b</code>).
+                      </p>
+                    )}
                  </div>
               </div>
             </div>

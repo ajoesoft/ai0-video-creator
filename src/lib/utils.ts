@@ -9,11 +9,82 @@ export function cn(...inputs: ClassValue[]) {
 
 export function safeConvertFileSrc(filePath: string): string {
   if (!filePath) return '';
+
+  const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
   
-  // Normalize Windows paths
+  // If we are in Tauri, use native convertFileSrc to extract standard custom asset protocol prefixes (e.g., https://asset.localhost/ on Windows, asset://localhost/ on macOS/Linux)
+  if (isTauri) {
+    try {
+      const nativeSrc = convertFileSrc(filePath);
+      if (nativeSrc) {
+        const prefixes = [
+          'https://asset.localhost/',
+          'http://asset.localhost/',
+          'asset://localhost/',
+          'assets://localhost/',
+          'asset:///',
+          'assets:///'
+        ];
+
+        let matchedPrefix = '';
+        for (const prefix of prefixes) {
+          if (nativeSrc.startsWith(prefix)) {
+            matchedPrefix = prefix;
+            break;
+          }
+        }
+
+        let protocolAndHost = '';
+        if (matchedPrefix) {
+          protocolAndHost = matchedPrefix;
+        } else {
+          const match = nativeSrc.match(/^([a-zA-Z]+:\/\/[^\/]+)\//);
+          if (match) {
+            protocolAndHost = match[1] + '/';
+          } else {
+            protocolAndHost = nativeSrc.startsWith('https://') ? 'https://asset.localhost/' : 'asset://localhost/';
+          }
+        }
+
+        // Clean path and separate drive letter for segment-by-segment URI-encoding to support AVKit/Webkit range quests
+        let cleanPath = filePath.replace(/\\/g, '/');
+        for (const prefix of prefixes) {
+          if (cleanPath.startsWith(prefix)) {
+            cleanPath = cleanPath.slice(prefix.length);
+            break;
+          }
+        }
+
+        let driveLetter = '';
+        const driveMatch = cleanPath.match(/^([a-zA-Z]:)\//);
+        if (driveMatch) {
+          driveLetter = driveMatch[1] + '/';
+          cleanPath = cleanPath.slice(driveMatch[0].length);
+        }
+
+        const hasLeadingSlash = cleanPath.startsWith('/');
+        if (hasLeadingSlash) {
+          cleanPath = cleanPath.slice(1);
+        }
+
+        const segments = cleanPath.split('/');
+        const encodedSegments = segments.map(seg => encodeURIComponent(seg));
+        const encodedPath = encodedSegments.join('/');
+
+        const leading = hasLeadingSlash ? '/' : '';
+        const drive = driveLetter ? `${driveLetter}` : '';
+
+        const result = `${protocolAndHost}${drive}${leading}${encodedPath}`.replace(/\/+/g, '/');
+        return result.replace(':/', '://').replace('https:///', 'https://').replace('http:///', 'http://').replace('asset:///', 'asset://');
+      }
+    } catch (e) {
+      console.warn('[safeConvertFileSrc] Native convertFileSrc failed, falling back to manual parsing:', e);
+    }
+  }
+
+  // Fallback manual parser for non-tauri or uninitialized environments
   let cleanPath = filePath.replace(/\\/g, '/');
   
-  // Extract and preserve Windows drive letter if there is one (e.g. "C:/")
   let driveLetter = '';
   const driveMatch = cleanPath.match(/^([a-zA-Z]:)\//);
   if (driveMatch) {
@@ -33,7 +104,6 @@ export function safeConvertFileSrc(filePath: string): string {
   const leading = hasLeadingSlash ? '/' : '';
   const drive = driveLetter ? `${driveLetter}` : '';
   
-  // For Tauri v2, construct standard "asset://localhost/" with segment-by-segment encoding to protect Webview / AVKit range-requests
   return `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
 }
 

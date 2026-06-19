@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Filter, MoreVertical, Clock, CheckCircle2, AlertCircle, Video, Smartphone, BookOpen, Users, Type, Edit, Trash2, Languages } from 'lucide-react';
-import { cn } from '@/src/lib/utils';
+import { cn, useLocalImageBase64 } from '@/src/lib/utils';
 import { ProjectStatus, VideoProject, SceneType } from '@/src/types';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
@@ -16,8 +16,10 @@ import {
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists, mkdir } from '@tauri-apps/plugin-fs';
-import { useLocalImageBase64 } from '../lib/utils';
+
 import { ask } from '@tauri-apps/plugin-dialog';
+
+const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -31,6 +33,32 @@ export function Dashboard() {
   const [editingProject, setEditingProject] = useState<VideoProject | null>(null);
   const [editName, setEditName] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
+
+  // Project dimensions, aspect ratio & style
+  const [aspectRatio, setAspectRatio] = useState<string>('16:9');
+  const [selectedStyle, setSelectedStyle] = useState<string>('Cinematic');
+  const [width, setWidth] = useState<number>(1920);
+  const [height, setHeight] = useState<number>(1080);
+
+  const handleRatioChange = (ratio: string) => {
+    setAspectRatio(ratio);
+    if (ratio === '16:9') {
+      setWidth(1920);
+      setHeight(1080);
+    } else if (ratio === '9:16') {
+      setWidth(1080);
+      setHeight(1920);
+    } else if (ratio === '1:1') {
+      setWidth(1080);
+      setHeight(1080);
+    } else if (ratio === '4:3') {
+      setWidth(1440);
+      setHeight(1080);
+    } else if (ratio === '3:4') {
+      setWidth(1080);
+      setHeight(1440);
+    }
+  };
 
   useEffect(() => {
     loadProjects();
@@ -56,7 +84,7 @@ export function Dashboard() {
       let projectPath = '';
 
       // 1. Calculate and Create Directory Structure
-      if (workspacePath) {
+      if (isTauri && workspacePath) {
         try {
           projectPath = await join(workspacePath, id);
           await mkdir(projectPath, { recursive: true });
@@ -82,12 +110,20 @@ export function Dashboard() {
         newProjectPrompt, 
         selectedScene,
         projectPath,
-        id
+        id,
+        width,
+        height,
+        aspectRatio,
+        selectedStyle
       );
       
       setIsCreating(false);
       setNewProjectName('');
       setNewProjectPrompt('');
+      setAspectRatio('16:9');
+      setSelectedStyle('Cinematic');
+      setWidth(1920);
+      setHeight(1080);
       
       if (newProject && newProject.id) {
         navigate(`/project/${newProject.id}/details`);
@@ -114,10 +150,15 @@ export function Dashboard() {
   };
 
   const handleDeleteProject = async (id: string) => {
-    const confirmed = await ask('Are you sure you want to delete this project? This action cannot be undone.', {
-      title: 'Delete Project',
-      kind: 'warning',
-    });
+    let confirmed = false;
+    if (isTauri) {
+      confirmed = await ask('Are you sure you want to delete this project? This action cannot be undone.', {
+        title: 'Delete Project',
+        kind: 'warning',
+      });
+    } else {
+      confirmed = window.confirm('Are you sure you want to delete this project? This action cannot be undone.');
+    }
     if (!confirmed) return;
     try {
       await dbDeleteProject(id);
@@ -161,60 +202,155 @@ export function Dashboard() {
                initial={{ opacity: 0, scale: 0.95 }}
                animate={{ opacity: 1, scale: 1 }}
                exit={{ opacity: 0, scale: 0.95 }}
-               className="desktop-card w-full max-w-2xl p-10 space-y-8 shadow-2xl bg-black overflow-y-auto max-h-[90vh]"
+               className="desktop-card w-full max-w-5xl p-10 space-y-8 shadow-2xl bg-black overflow-y-auto max-h-[92vh]"
             >
-               <div className="space-y-2">
-                  <h3 className="editorial-title text-3xl">{t('createProject')}</h3>
-                  <p className="text-sm text-gray-500">Define the identity and framework of your new digital synthesis.</p>
+               <div className="space-y-2 border-b border-white/5 pb-4">
+                  <h3 className="editorial-title text-3xl font-bold tracking-tight text-white">{t('createProject')}</h3>
+                  <p className="text-sm text-gray-500">Define the identity, dimension layouts, visual style preferences, and scene frameworks.</p>
                </div>
                
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                 <div className="space-y-6">
-                   <div className="space-y-3">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('projectName')}</label>
+               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-2">
+                 {/* Column 1: Identity */}
+                 <div className="space-y-6 lg:border-r lg:border-white/5 lg:pr-8">
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">{t('projectName')}</label>
                       <input 
                         autoFocus
                         value={newProjectName}
                         onChange={(e) => setNewProjectName(e.target.value)}
                         placeholder="Enter production name..." 
-                        className="desktop-input w-full text-lg h-12"
+                        className="desktop-input w-full text-base h-11"
                       />
                    </div>
 
-                   <div className="space-y-3">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('projectPrompt')}</label>
+                   <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">{t('projectPrompt')}</label>
                       <textarea 
                         value={newProjectPrompt}
                         onChange={(e) => setNewProjectPrompt(e.target.value)}
                         placeholder="Describe your cinematic vision..." 
-                        className="desktop-input w-full min-h-[120px] py-4 resize-none text-sm"
+                        className="desktop-input w-full min-h-[140px] py-3.5 resize-none text-xs leading-relaxed"
                       />
                    </div>
                  </div>
 
+                 {/* Column 2: Dimensions & Styles */}
+                 <div className="space-y-6 lg:border-r lg:border-white/5 lg:pr-8">
+                   {/* Aspect Ratio Selector */}
+                   <div className="space-y-2.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">
+                        Aspect Ratio / 画面比例
+                      </label>
+                      <div className="grid grid-cols-5 gap-1.5">
+                        {['16:9', '9:16', '1:1', '4:3', '3:4'].map((ratio) => (
+                          <button
+                            key={ratio}
+                            type="button"
+                            onClick={() => handleRatioChange(ratio)}
+                            className={cn(
+                              "py-2 text-[10px] font-mono font-bold rounded-lg border text-center transition-all cursor-pointer",
+                              aspectRatio === ratio
+                                ? "bg-brand-primary/20 border-brand-primary text-brand-primary font-bold shadow-[0_0_10px_rgba(var(--brand-primary-rgb),0.1)]"
+                                : "bg-white/5 border-white/5 text-gray-400 hover:border-white/10 hover:text-white"
+                            )}
+                          >
+                            {ratio}
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+
+                   {/* Output Size Customizer */}
+                   <div className="space-y-2.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">
+                        Dimensions / 输出尺寸 (px)
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-wide">Width</span>
+                          <input
+                            type="number"
+                            value={width}
+                            onChange={(e) => setWidth(Number(e.target.value))}
+                            className="desktop-input w-full text-xs font-mono py-2"
+                            placeholder="1920"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-mono font-bold text-gray-500 uppercase tracking-wide">Height</span>
+                          <input
+                            type="number"
+                            value={height}
+                            onChange={(e) => setHeight(Number(e.target.value))}
+                            className="desktop-input w-full text-xs font-mono py-2"
+                            placeholder="1080"
+                          />
+                        </div>
+                      </div>
+                   </div>
+
+                   {/* Prefab Visual Styles */}
+                   <div className="space-y-2.5">
+                      <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">
+                        Visual Style / 画面风格
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { val: 'Cinematic', label: '电影质感 (Cinematic)' },
+                          { val: 'Animation', label: '3D动画 (Animation)' },
+                          { val: 'Comic', label: '漫画手绘 (Comic)' },
+                          { val: 'Ghibli', label: '吉卜力水彩 (Ghibli)' },
+                        ].map((style) => (
+                          <button
+                            key={style.val}
+                            type="button"
+                            onClick={() => setSelectedStyle(style.val)}
+                            className={cn(
+                              "p-2.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col justify-between h-14",
+                              selectedStyle === style.val
+                                ? "bg-brand-primary/15 border-brand-primary shadow-[0_0_8px_rgba(var(--brand-primary-rgb),0.1)]"
+                                : "bg-white/5 border-white/5 hover:border-white/10"
+                            )}
+                          >
+                            <span className={cn(
+                              "text-[10px] font-bold tracking-tight",
+                              selectedStyle === style.val ? "text-brand-primary" : "text-white"
+                            )}>
+                              {style.label.split(' ')[0]}
+                            </span>
+                            <span className="text-[9px] text-gray-500 font-mono scale-90 origin-left">
+                              {style.label.split(' ')[1] || ''}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+                 </div>
+
+                 {/* Column 3: Scene Framework */}
                  <div className="space-y-3">
-                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Scene Framework</label>
-                   <div className="grid grid-cols-1 gap-3">
+                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Scene Framework</label>
+                   <div className="grid grid-cols-1 gap-2.5 max-h-[320px] overflow-y-auto pr-1">
                       {sceneOptions.map((opt) => (
                         <button
                           key={opt.type}
                           onClick={() => setSelectedScene(opt.type)}
                           className={cn(
-                            "flex items-center gap-4 p-4 rounded-xl border transition-all text-left group",
+                            "flex items-center gap-3.5 p-3 rounded-xl border transition-all text-left group cursor-pointer",
                             selectedScene === opt.type 
-                              ? "bg-brand-primary/10 border-brand-primary border-2 shadow-[0_0_15px_rgba(var(--brand-primary-rgb),0.2)]" 
-                              : "bg-white/5 border-white/10 hover:border-white/20"
+                              ? "bg-brand-primary/10 border-brand-primary shadow-[0_0_12px_rgba(var(--brand-primary-rgb),0.15)]" 
+                              : "bg-white/5 border-white/5 hover:border-white/10"
                           )}
                         >
                           <div className={cn(
-                            "w-10 h-10 rounded-lg flex items-center justify-center transition-colors",
+                            "w-8.5 h-8.5 rounded-lg flex items-center justify-center transition-colors shrink-0",
                             selectedScene === opt.type ? "bg-brand-primary text-black" : "bg-white/5 text-gray-400 group-hover:text-white"
                           )}>
-                            <opt.icon className="w-5 h-5" />
+                            <opt.icon className="w-4.5 h-4.5" />
                           </div>
                           <div>
-                            <div className={cn("text-xs font-bold uppercase tracking-wider mb-0.5", selectedScene === opt.type ? "text-brand-primary" : "text-white")}>{opt.label}</div>
-                            <div className="text-[10px] text-gray-500 font-medium">{opt.desc}</div>
+                            <div className={cn("text-[10px] font-bold uppercase tracking-wider mb-0.5", selectedScene === opt.type ? "text-brand-primary" : "text-white")}>{opt.label}</div>
+                            <div className="text-[9px] text-gray-500 font-medium leading-tight">{opt.desc}</div>
                           </div>
                         </button>
                       ))}
@@ -222,9 +358,9 @@ export function Dashboard() {
                  </div>
                </div>
 
-               <div className="flex items-center gap-4 pt-4">
-                  <button onClick={() => setIsCreating(false)} className="desktop-button-ghost flex-1 h-12">Discard</button>
-                  <button onClick={handleCreateProject} className="desktop-button-primary flex-1 h-12">Establish</button>
+               <div className="flex items-center gap-4 pt-4 border-t border-white/5">
+                  <button onClick={() => setIsCreating(false)} className="desktop-button-ghost flex-1 h-11">Discard</button>
+                  <button onClick={handleCreateProject} className="desktop-button-primary flex-1 h-11">Establish Production</button>
                </div>
             </motion.div>
           </div>
@@ -330,25 +466,17 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
   const [imageExists, setImageExists] = useState(false);
   const [coverImageBase64, setCoverImageBase64] = useState<string>('');
 
+  const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
+
   useEffect(() => {
-    async function checkImage() {
-      if (project.coverImagePath) {
-        try {
-          const existsFile = await exists(project.coverImagePath);
-          setImageExists(existsFile);
-          if (existsFile && !project.coverImagePath.startsWith('http')) {
-            const base64 = await invoke<string>('load_local_image', { path: project.coverImagePath });
-            setCoverImageBase64(`data:image/png;base64,${base64}`);
-          }
-        } catch (e) {
-          setImageExists(false);
-        }
-      } else {
-        setImageExists(false);
-      }
+    if (localCoverBase64) {
+      setCoverImageBase64(localCoverBase64);
+      setImageExists(true);
+    } else {
+      setCoverImageBase64('');
+      setImageExists(false);
     }
-    checkImage();
-  }, [project.coverImagePath]);
+  }, [localCoverBase64]);
 
   const statusConfig = {
     [ProjectStatus.COMPLETED]: { color: 'text-green-500', label: 'Archived' },
@@ -377,9 +505,9 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
     >
       <div className="desktop-card flex-1 flex flex-col hover:border-brand-primary/40 transition-all bg-black/40 relative">
         <div className="aspect-[16/10] bg-[#111114] relative overflow-hidden">
-          {imageExists && project.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64) ? (
+          {project?.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64) ? (
             <img 
-              src={ `${coverImageBase64}` }
+              src={project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64} 
               alt={project.name} 
               className="w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700" 
             />

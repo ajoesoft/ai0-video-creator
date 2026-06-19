@@ -1,12 +1,12 @@
 {
   "2": {
     "inputs": {
-      "language": "English",
+      "language": "Auto",
       "task": "transcribe",
       "timestamps": "word",
       "chunk_size": 30,
       "overlap": 2,
-      "enable_asr_cache": true,
+      "enable_asr_cache": false,
       "engine": [
         "4",
         0
@@ -41,31 +41,17 @@
       "compile_mode": "default",
       "asr_use_forced_aligner": true,
       "asr_translate_target_language": "English",
-      "asr_translate_instruction_override": "Translate the speech from {source_language} into {target_language} text. Return only the translated text."
+      "asr_translate_instruction_override": "Translate the speech from {source_language} into {target_language} text. Return only the translated text.",
+      "runtime_mode": "Main Environment"
     },
     "class_type": "Qwen3TTSEngineNode",
     "_meta": {
       "title": "⚙️ Qwen3-TTS Engine"
     }
   },
-  "7": {
-    "inputs": {
-      "preview_markdown": "",
-      "preview_text": "",
-      "previewMode": null,
-      "source": [
-        "2",
-        0
-      ]
-    },
-    "class_type": "PreviewAny",
-    "_meta": {
-      "title": "Preview as Text"
-    }
-  },
   "17": {
     "inputs": {
-      "audioUI": "",
+      "audioUI": "/api/view?filename=ComfyUI_temp_tfwkc_00001_.flac&type=temp&subfolder=&rand=0.8494144169434147",
       "audio": [
         "24",
         0
@@ -76,31 +62,27 @@
       "title": "Preview Audio"
     }
   },
-  "21": {
-    "inputs": {
-      "output_file_path": "",
-      "file_name": "",
-      "file_extension": "txt",
-      "overwrite": true,
-      "text": [
-        "2",
-        0
-      ]
-    },
-    "class_type": "easy saveText",
-    "_meta": {
-      "title": "Save Text"
-    }
-  },
   "24": {
     "inputs": {
-      "audio": "emma_01_austen_64kb.mp3",
+      "audio": "陆少错爱成瘾第1集.mp3",
       "start_time": 0,
       "duration": 0
     },
     "class_type": "VHS_LoadAudioUpload",
     "_meta": {
-      "title": "Load Audio (Upload)🎥🅥🅗🅢"
+      "title": "INPUT(AUDIO)"
+    }
+  },
+  "25": {
+    "inputs": {
+      "source": [
+        "2",
+        1
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "OUTPUT(TEXT)"
     }
   }
 }

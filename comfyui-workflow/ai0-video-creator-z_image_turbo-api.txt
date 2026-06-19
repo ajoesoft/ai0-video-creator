@@ -9,7 +9,7 @@
     },
     "class_type": "SaveImage",
     "_meta": {
-      "title": "Save Image"
+      "title": "OUTPUT(IMAGE)"
     }
   },
   "57:30": {
@@ -134,7 +134,7 @@
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "CLIP Text Encode (Prompt)"
+      "title": "INPUT(TEXT)"
     }
   }
 }

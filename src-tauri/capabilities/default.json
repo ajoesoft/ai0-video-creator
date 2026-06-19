@@ -7,6 +7,10 @@
   ],
   "permissions": [
     "core:default",
+    "core:resources:default",
+    "core:webview:default",
+    "fs:scope-data",
+    "fs:read-all",
     "opener:default",
     "shell:default",
     "sql:default",
@@ -30,6 +34,21 @@
       "allow": [
         {
           "path": "**"
+        },
+        {
+          "path": "**/*"
+        },
+        {
+          "path": "/**"
+        },
+        {
+          "path": "/**/*"
+        },
+        {
+          "path": "/data/**"
+        },
+        {
+          "path": "/data/**/*"
         }
       ]
     },
@@ -38,6 +57,21 @@
       "allow": [
         {
           "path": "**"
+        },
+        {
+          "path": "**/*"
+        },
+        {
+          "path": "/**"
+        },
+        {
+          "path": "/**/*"
+        },
+        {
+          "path": "/data/**"
+        },
+        {
+          "path": "/data/**/*"
         }
       ]
     },
@@ -46,6 +80,21 @@
       "allow": [
         {
           "path": "**"
+        },
+        {
+          "path": "**/*"
+        },
+        {
+          "path": "/**"
+        },
+        {
+          "path": "/**/*"
+        },
+        {
+          "path": "/data/**"
+        },
+        {
+          "path": "/data/**/*"
         }
       ]
     },
@@ -54,6 +103,21 @@
       "allow": [
         {
           "path": "**"
+        },
+        {
+          "path": "**/*"
+        },
+        {
+          "path": "/**"
+        },
+        {
+          "path": "/**/*"
+        },
+        {
+          "path": "/data/**"
+        },
+        {
+          "path": "/data/**/*"
         }
       ]
     },
@@ -68,6 +132,7 @@
         }
       ]
     },
+    
     "log:default"
   ]
 }

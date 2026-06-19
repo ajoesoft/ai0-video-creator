@@ -200,8 +200,8 @@ class QueueWorkerManager {
             const localAudioPath = params.audioPath || `tts_voice_qwen_${task.id}.mp3`;
             executionResult = await comfy.runQwenTTSVoiceAllInOneRust(
               params.text,
-              localAudioPath,
               params.voicePrompt,
+              localAudioPath,
               params.language || "中文",
               progressCallback
             );
@@ -216,7 +216,8 @@ class QueueWorkerManager {
         case TaskType.ASR: {
           // params: audioPath
           if (!params.audioPath) throw new Error("Missing 'audioPath' input parameter for Automatic Speech Recognition.");
-          executionResult = await comfy.runASRQwen(params.audioPath, progressCallback);
+          const asrRes = await comfy.runASRQwen(params.audioPath, progressCallback);
+          executionResult = asrRes.srtText;
           break;
         }
 
