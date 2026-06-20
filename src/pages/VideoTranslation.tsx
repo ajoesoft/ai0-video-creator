@@ -43,6 +43,21 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { join } from '@tauri-apps/api/path';
 import { exists, mkdir, writeFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
+import { getSafeVideoSrc } from '../lib/utils';
+
+/**
+ * Resolves a video URL to a playable source.
+ * Handles local file paths (via convertFileSrc), blob URLs, HTTP URLs, and undefined.
+ */
+function resolveVideoSrc(url: string | undefined | null): string {
+  if (!url) return '';
+  // Already a remote or blob URL — use as-is
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('asset://') || url.startsWith('http://asset.localhost')) {
+    return url;
+  }
+  // Local file path — convert to Tauri asset URL
+  return getSafeVideoSrc(url);
+}
 
 function VideoTranslationCover({ path, className = "w-full h-full object-cover", alt = "cover" }: { path: string | undefined | null, className?: string, alt?: string }) {
   const src = useLocalImageBase64(path);
@@ -902,9 +917,9 @@ export function VideoTranslation() {
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
 
   // Resolve raw video paths to secure URLs
-  const resolvedVideoUrl = useMediaUrl(activeProject?.videoUrl, 'video');
-  const resolvedOutputVideoUrl = useMediaUrl(activeProject?.outputVideoUrl, 'video');
-
+  const resolvedVideoUrl = resolveVideoSrc(activeProject?.videoUrl);
+  const resolvedOutputVideoUrl = resolveVideoSrc(activeProject?.outputVideoUrl);
+  console.log(`## resolvedVideoUrl : ${resolvedVideoUrl}`);
   // Helper to add logs to specific project
   const addLog = (projectId: string, message: string) => {
     const timestamp = new Date().toISOString().substring(11, 19);
@@ -950,7 +965,7 @@ export function VideoTranslation() {
       }
     }
 
-    console.log(`##latestProj:` + JSON.stringify(latestProj));
+    // console.log(`##latestProj:` + JSON.stringify(latestProj));
 
     // Automatically synchronize state updates to internal SQLite DB tables so all downstream views match
     setTimeout(async () => {
@@ -1825,15 +1840,18 @@ export function VideoTranslation() {
       if (isTauri) {
         addLog(activeProject.id, "[Tauri Command] Executing: ffmpeg -i input.mp4 -q:a 0 -map a output.mp3 -y");
         const workspacePath = await getSetting('workspace_path') || '';
+        console.log(`## workspacePath: ${workspacePath}`);
         const ffmpegPath = await getSetting('ffmpeg_path') || '';
+        console.log(`## ffmpegPath: ${ffmpegPath}`);
         const audioDir = await join(workspacePath, activeProject.id, 'audio');
-        
+        console.log(`## audioDir: ${audioDir}`);
         if (!(await exists(audioDir))) {
           await mkdir(audioDir, { recursive: true });
         }
         const audioPath = await join(audioDir, 'audio.mp3');
-
+        console.log(`## audioPath: ${audioPath}`);
         let targetVideo = activeProject.videoUrl;
+        console.log(`## targetVideo: ${targetVideo}`);
         if (targetVideo.startsWith('blob:')) {
           targetVideo = await ensureNativeVideoUrl(activeProject.id, targetVideo);
         }

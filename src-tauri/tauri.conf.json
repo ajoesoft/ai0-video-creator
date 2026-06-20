@@ -18,12 +18,18 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; video-src 'self' asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost; audio-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline';",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**/*"
+        ]
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",    
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

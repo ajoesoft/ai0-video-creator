@@ -26,6 +26,8 @@ export function GlobalSettings() {
   const [workspacePath, setWorkspacePath] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
   const [sqlitePath, setSqlitePath] = useState('加载中 (Loading)...');
+  const [comfyuiAddress,setComfyuiAddress] = useState('127.0.0.1');
+  const [comfyuiPort,setComfyuiPort] = useState(8188);
   const [pythonPath, setPythonPath] = useState('');
   const [cudaDevice, setCudaDevice] = useState('0');
   const [threadLimit, setThreadLimit] = useState('4');
@@ -184,6 +186,11 @@ export function GlobalSettings() {
       const threads = await getSetting('python_thread_limit');
       setThreadLimit(threads || '4');
 
+      const comfyui_address = await getSetting('comfyui_address');
+      setComfyuiAddress(comfyui_address);
+
+      const comfyui_port = await getSetting("comfyui_port");
+      setComfyuiPort(comfyui_port);
       // Load active Ollama model
       const savedOllamaM = await getSetting('model_ollama_active_model');
       if (savedOllamaM) {
@@ -684,6 +691,12 @@ export function GlobalSettings() {
                   <input 
                     type="text" 
                     defaultValue="127.0.0.1" 
+                    value={comfyuiAddress}
+                    onChange={async(e)=>{
+                      const val = e.target.value;
+                      setComfyuiAddress(val);
+                      await setSetting('comfyui_address',val);
+                    }}
                     className="desktop-input w-full font-mono text-xs" 
                     placeholder="127.0.0.1"
                   />
@@ -692,6 +705,14 @@ export function GlobalSettings() {
                   <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Port</label>
                   <input 
                     type="number" 
+                    value={comfyuiPort}
+                    onChange={async(e)=>{
+                      const val = e.target.value;
+                      setComfyuiPort(val);
+                      await setSetting('comfyui_port',val);
+                    }
+
+                    }
                     defaultValue="8188" 
                     className="desktop-input w-full font-mono text-xs" 
                     placeholder="8188"

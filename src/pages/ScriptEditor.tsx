@@ -65,6 +65,7 @@ import {
   cleanNarrationText,
   formatAssTime
 } from '../lib/subtitles';
+import { useLocalImageBase64 } from '../lib/utils';
 
 const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
 
@@ -148,8 +149,9 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
             } else {
               const fileExists = await exists(segment.imagePath);
               if (fileExists) {
-                const base64 = await invoke<string>('load_local_image', { path: segment.imagePath });
-                setImageSrc(base64);
+                const base64 =  await invoke<string>('load_local_image', { path: segment.imagePath });
+                //useLocalImageBase64(segment.imagePath );
+                setImageSrc(`data:image/png;base64,${base64}`);
               } else {
                 setImageSrc(null);
               }
@@ -2284,8 +2286,8 @@ export function VideoGenModal({
             } else {
               const existsFile = await exists(p);
               if (existsFile) {
-                const b64 = await invoke<string>('load_local_image', { path: p });
-                thumbs[p] = b64;
+                const base64 = await invoke<string>('load_local_image', { path: p });
+                thumbs[p] = `data:image/png;base64,${base64}`;
               }
             }
           } else {

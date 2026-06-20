@@ -7,75 +7,102 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function encodeUrlPath(url: string): string {
+  if (!url) return '';
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url;
+
+  try {
+    // If it has a protocol/scheme
+    if (url.includes('://')) {
+      const parts = url.split('://');
+      const protocol = parts[0];
+      const rest = parts[1];
+      
+      const hostSlashIdx = rest.indexOf('/');
+      if (hostSlashIdx === -1) return url;
+      
+      const hostAndMaybePort = rest.slice(0, hostSlashIdx);
+      const pathAndQuery = rest.slice(hostSlashIdx);
+      
+      // Separate query and hash
+      let path = pathAndQuery;
+      let queryAndHash = '';
+      
+      const queryIdx = pathAndQuery.indexOf('?');
+      const hashIdx = pathAndQuery.indexOf('#');
+      
+      if (queryIdx !== -1 && hashIdx !== -1) {
+        const splitIdx = Math.min(queryIdx, hashIdx);
+        path = pathAndQuery.slice(0, splitIdx);
+        queryAndHash = pathAndQuery.slice(splitIdx);
+      } else if (queryIdx !== -1) {
+        path = pathAndQuery.slice(0, queryIdx);
+        queryAndHash = pathAndQuery.slice(queryIdx);
+      } else if (hashIdx !== -1) {
+        path = pathAndQuery.slice(0, hashIdx);
+        queryAndHash = pathAndQuery.slice(hashIdx);
+      }
+      
+      // Segment path encoding, preserving drive letters like C:/ or D:/
+      const segments = path.split('/');
+      const encodedSegments = segments.map((seg) => {
+        const decoded = decodeURIComponent(seg);
+        if (/^[a-zA-Z]:$/.test(decoded)) {
+          return seg; // Keep drive letter representation exactly as-is (e.g. "C%3A" or "C:")
+        }
+        return encodeURIComponent(decoded);
+      });
+      
+      const pathEncoded = encodedSegments.join('/');
+      return `${protocol}://${hostAndMaybePort}${pathEncoded}${queryAndHash}`;
+    } else {
+      // Relative path / absolute path without protocol
+      let path = url;
+      let queryAndHash = '';
+      
+      const queryIdx = url.indexOf('?');
+      const hashIdx = url.indexOf('#');
+      
+      if (queryIdx !== -1 && hashIdx !== -1) {
+        const splitIdx = Math.min(queryIdx, hashIdx);
+        path = url.slice(0, splitIdx);
+        queryAndHash = url.slice(splitIdx);
+      } else if (queryIdx !== -1) {
+        path = url.slice(0, queryIdx);
+        queryAndHash = url.slice(queryIdx);
+      } else if (hashIdx !== -1) {
+        path = url.slice(0, hashIdx);
+        queryAndHash = url.slice(hashIdx);
+      }
+      
+      const segments = path.split('/');
+      const encodedSegments = segments.map(seg => {
+        const decoded = decodeURIComponent(seg);
+        if (/^[a-zA-Z]:$/.test(decoded)) {
+          return seg;
+        }
+        return encodeURIComponent(decoded);
+      });
+      
+      const pathEncoded = encodedSegments.join('/');
+      return `${pathEncoded}${queryAndHash}`;
+    }
+  } catch (e) {
+    console.warn('[encodeUrlPath] Failed to encode url path:', e);
+    return url;
+  }
+}
+
 export function safeConvertFileSrc(filePath: string): string {
   if (!filePath) return '';
 
   const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
   
-  // If we are in Tauri, use native convertFileSrc to extract standard custom asset protocol prefixes (e.g., https://asset.localhost/ on Windows, asset://localhost/ on macOS/Linux)
   if (isTauri) {
     try {
       const nativeSrc = convertFileSrc(filePath);
       if (nativeSrc) {
-        const prefixes = [
-          'https://asset.localhost/',
-          'http://asset.localhost/',
-          'asset://localhost/',
-          'assets://localhost/',
-          'asset:///',
-          'assets:///'
-        ];
-
-        let matchedPrefix = '';
-        for (const prefix of prefixes) {
-          if (nativeSrc.startsWith(prefix)) {
-            matchedPrefix = prefix;
-            break;
-          }
-        }
-
-        let protocolAndHost = '';
-        if (matchedPrefix) {
-          protocolAndHost = matchedPrefix;
-        } else {
-          const match = nativeSrc.match(/^([a-zA-Z]+:\/\/[^\/]+)\//);
-          if (match) {
-            protocolAndHost = match[1] + '/';
-          } else {
-            protocolAndHost = nativeSrc.startsWith('https://') ? 'https://asset.localhost/' : 'asset://localhost/';
-          }
-        }
-
-        // Clean path and separate drive letter for segment-by-segment URI-encoding to support AVKit/Webkit range quests
-        let cleanPath = filePath.replace(/\\/g, '/');
-        for (const prefix of prefixes) {
-          if (cleanPath.startsWith(prefix)) {
-            cleanPath = cleanPath.slice(prefix.length);
-            break;
-          }
-        }
-
-        let driveLetter = '';
-        const driveMatch = cleanPath.match(/^([a-zA-Z]:)\//);
-        if (driveMatch) {
-          driveLetter = driveMatch[1] + '/';
-          cleanPath = cleanPath.slice(driveMatch[0].length);
-        }
-
-        const hasLeadingSlash = cleanPath.startsWith('/');
-        if (hasLeadingSlash) {
-          cleanPath = cleanPath.slice(1);
-        }
-
-        const segments = cleanPath.split('/');
-        const encodedSegments = segments.map(seg => encodeURIComponent(seg));
-        const encodedPath = encodedSegments.join('/');
-
-        const leading = hasLeadingSlash ? '/' : '';
-        const drive = driveLetter ? `${driveLetter}` : '';
-
-        const result = `${protocolAndHost}${drive}${leading}${encodedPath}`.replace(/\/+/g, '/');
-        return result.replace(':/', '://').replace('https:///', 'https://').replace('http:///', 'http://').replace('asset:///', 'asset://');
+        return encodeUrlPath(nativeSrc);
       }
     } catch (e) {
       console.warn('[safeConvertFileSrc] Native convertFileSrc failed, falling back to manual parsing:', e);
@@ -98,13 +125,14 @@ export function safeConvertFileSrc(filePath: string): string {
   }
   
   const segments = cleanPath.split('/');
-  const encodedSegments = segments.map(seg => encodeURIComponent(seg));
+  const encodedSegments = segments.map(seg => encodeURIComponent(decodeURIComponent(seg)));
   const encodedPath = encodedSegments.join('/');
   
   const leading = hasLeadingSlash ? '/' : '';
   const drive = driveLetter ? `${driveLetter}` : '';
   
-  return `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
+  const finalUrl = `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
+  return finalUrl;
 }
 
 export function getAssetUrl(path: string | undefined | null): string {
@@ -184,7 +212,8 @@ export function getAssetUrl(path: string | undefined | null): string {
 
   // Prepend origin to ensure the browser fetches standard web URLs
   const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-  return `${origin}/workspace/${relativePath}`;
+  const finalUrl = `${origin}/workspace/${relativePath}`;
+  return encodeUrlPath(finalUrl);
 }
 
 export function useMediaUrl(path: string | undefined | null, mediaType: 'video' | 'audio' | 'image' = 'video') {
@@ -275,7 +304,28 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
 
   return url;
 }
-
+export function getSafeVideoSrc(fullPath:string) {
+  // 1. 统一将 Windows 的反斜杠 \ 替换为正斜杠 /，方便处理
+  const normalizedPath = fullPath.replace(/\\/g, '/');
+  
+  // 2. 找到最后一个斜杠的位置
+  const lastSlashIndex = normalizedPath.lastIndexOf('/');
+  
+  if (lastSlashIndex === -1) {
+    // 如果没有斜杠，说明整个字符串就是文件名
+    return convertFileSrc(encodeURIComponent(normalizedPath));
+  }
+  
+  // 3. 拆分目录路径和文件名
+  const dirPath = normalizedPath.substring(0, lastSlashIndex + 1); // 包含斜杠
+  const fileName = normalizedPath.substring(lastSlashIndex + 1);
+  
+  // 4. 仅对文件名进行编码，并重新拼接
+  const safePath = dirPath + encodeURIComponent(fileName);
+  
+  // 5. 传给 Tauri 转换成 asset:// 协议
+  return convertFileSrc(safePath);
+}
 export function useLocalImageBase64(path: string | undefined | null): string {
   const [src, setSrc] = useState<string>('');
 

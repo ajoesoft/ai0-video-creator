@@ -99,6 +99,14 @@
       ]
     },
     {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "**/*"
+        }
+      ]
+    },
+    {
       "identifier": "fs:allow-read-file",
       "allow": [
         {
@@ -121,6 +129,7 @@
         }
       ]
     },
+   
     {
       "identifier": "http:default",
       "allow": [
@@ -132,7 +141,6 @@
         }
       ]
     },
-    
     "log:default"
   ]
 }
