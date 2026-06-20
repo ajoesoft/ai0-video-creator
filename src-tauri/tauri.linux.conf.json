@@ -1,0 +1,16 @@
+{
+    "app": {
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**/*",
+          "**/.local/share/**/*",
+          "**/.cache/**/*",
+          "$CACHE/**",
+          "$CONFIG/**"
+        ]
+      }
+    }
+  }
+}

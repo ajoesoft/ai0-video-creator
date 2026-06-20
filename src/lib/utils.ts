@@ -98,41 +98,77 @@ export function safeConvertFileSrc(filePath: string): string {
 
   const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
   
+  // Normalize windows backslashes to unix slashes
+  let absolutePath = filePath.replace(/\\/g, '/');
+  
+  // Self-heal: normalize relative path to absolute workspace path
+  if (!absolutePath.startsWith('/') && !absolutePath.startsWith('\\') && !/^[a-zA-Z]:/.test(absolutePath)) {
+    absolutePath = `/data/workflow/workspace/${absolutePath}`;
+  }
+
   if (isTauri) {
+    // If we are in Tauri and running in DEV mode (origin is localhost:3000 / 127.0.0.1:3000),
+    // we should stream video.src / audio.src directly from our Vite dev server using HTTP!
+    // This completely resolves macOS WKWebView custom scheme (asset://) media range-request playback failures.
+    const isDev = typeof window !== 'undefined' && 
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (isDev) {
+      const origin = window.location.origin;
+      let relativePath = absolutePath;
+      const workspacePrefix = '/data/workflow/workspace/';
+      if (relativePath.startsWith(workspacePrefix)) {
+        relativePath = relativePath.slice(workspacePrefix.length);
+      } else if (relativePath.startsWith('/')) {
+        relativePath = relativePath.slice(1);
+      }
+      return encodeUrlPath(`${origin}/workspace/${relativePath}`);
+    }
+
     try {
-      const nativeSrc = convertFileSrc(filePath);
+      const nativeSrc = convertFileSrc(absolutePath);
       if (nativeSrc) {
-        return encodeUrlPath(nativeSrc);
+        return nativeSrc; // nativeSrc is already fully encoded & optimized by Tauri Core
       }
     } catch (e) {
       console.warn('[safeConvertFileSrc] Native convertFileSrc failed, falling back to manual parsing:', e);
     }
+
+    // Fallback manual parser for native Tauri app in production (asset://localhost/...)
+    let cleanPath = absolutePath;
+    let driveLetter = '';
+    const driveMatch = cleanPath.match(/^([a-zA-Z]:)\//);
+    if (driveMatch) {
+      driveLetter = driveMatch[1] + '/';
+      cleanPath = cleanPath.slice(driveMatch[0].length);
+    }
+    
+    const hasLeadingSlash = cleanPath.startsWith('/');
+    if (hasLeadingSlash) {
+      cleanPath = cleanPath.slice(1);
+    }
+    
+    const segments = cleanPath.split('/');
+    const encodedSegments = segments.map(seg => encodeURIComponent(decodeURIComponent(seg)));
+    const encodedPath = encodedSegments.join('/');
+    
+    const leading = hasLeadingSlash ? '/' : '';
+    const drive = driveLetter ? `${driveLetter}` : '';
+    
+    return `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
   }
 
-  // Fallback manual parser for non-tauri or uninitialized environments
-  let cleanPath = filePath.replace(/\\/g, '/');
-  
-  let driveLetter = '';
-  const driveMatch = cleanPath.match(/^([a-zA-Z]:)\//);
-  if (driveMatch) {
-    driveLetter = driveMatch[1] + '/';
-    cleanPath = cleanPath.slice(driveMatch[0].length);
+  // Non-Tauri (Web Browser / AI Studio Workspace):
+  // Convert to standard workspace web URL
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+  let relativePath = absolutePath;
+  const workspacePrefix = '/data/workflow/workspace/';
+  if (relativePath.startsWith(workspacePrefix)) {
+    relativePath = relativePath.slice(workspacePrefix.length);
+  } else if (relativePath.startsWith('/')) {
+    relativePath = relativePath.slice(1);
   }
-  
-  const hasLeadingSlash = cleanPath.startsWith('/');
-  if (hasLeadingSlash) {
-    cleanPath = cleanPath.slice(1);
-  }
-  
-  const segments = cleanPath.split('/');
-  const encodedSegments = segments.map(seg => encodeURIComponent(decodeURIComponent(seg)));
-  const encodedPath = encodedSegments.join('/');
-  
-  const leading = hasLeadingSlash ? '/' : '';
-  const drive = driveLetter ? `${driveLetter}` : '';
-  
-  const finalUrl = `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
-  return finalUrl;
+  return encodeUrlPath(`${origin}/workspace/${relativePath}`);
 }
 
 export function getAssetUrl(path: string | undefined | null): string {
@@ -172,48 +208,12 @@ export function getAssetUrl(path: string | undefined | null): string {
     return rawPath;
   }
 
-  // Tauri detection
-  const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
-  if (isTauri) {
-    try {
-      return safeConvertFileSrc(rawPath);
-    } catch (e) {
-      console.warn('Tauri convertFileSrc failed, falling back:', e);
-    }
+  // Self-heal relative paths
+  if (!rawPath.startsWith('/') && !rawPath.startsWith('\\') && !/^[a-zA-Z]:/.test(rawPath)) {
+    rawPath = `/data/workflow/workspace/${rawPath}`;
   }
 
-  // Web Browser / AI Studio preview fallback:
-  // Convert absolute or relative path to a web-accessible relative URL
-  let relativePath = rawPath;
-  const workspaceMarkers = ['workflow/workspace/', '/workspace/', 'workspace/'];
-  
-  let foundMarker = false;
-  for (const marker of workspaceMarkers) {
-    const idx = relativePath.indexOf(marker);
-    if (idx !== -1) {
-      relativePath = relativePath.slice(idx + marker.length);
-      foundMarker = true;
-      break;
-    }
-  }
-
-  if (!foundMarker) {
-    // Fallback if no workspace marker is found
-    const workspacePrefix = '/data/workflow/workspace/';
-    if (relativePath.startsWith(workspacePrefix)) {
-      relativePath = relativePath.slice(workspacePrefix.length);
-    } else if (relativePath.startsWith('/')) {
-      relativePath = relativePath.slice(1);
-    }
-  }
-
-  // Ensure there are no leading or double slashes
-  relativePath = relativePath.replace(/^\/+/, '');
-
-  // Prepend origin to ensure the browser fetches standard web URLs
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-  const finalUrl = `${origin}/workspace/${relativePath}`;
-  return encodeUrlPath(finalUrl);
+  return safeConvertFileSrc(rawPath);
 }
 
 export function useMediaUrl(path: string | undefined | null, mediaType: 'video' | 'audio' | 'image' = 'video') {
@@ -259,13 +259,18 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       return;
     }
 
+    // Self-heal relative paths
+    if (!cleanPath.startsWith('/') && !cleanPath.startsWith('\\') && !/^[a-zA-Z]:/.test(cleanPath)) {
+      cleanPath = `/data/workflow/workspace/${cleanPath}`;
+    }
+
     let active = true;
     let blobUrl = '';
 
     const resolveUrl = async () => {
       if (isTauri) {
         try {
-          // Direct fallback to convertFileSrc for video & audio to support native range-requests / seekable streaming
+          // Direct fallback to safeConvertFileSrc for video & audio to support range-requests / seekable streaming
           if (mediaType === 'video' || mediaType === 'audio') {
             setUrl(safeConvertFileSrc(cleanPath));
             return;
@@ -286,7 +291,7 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
         }
       }
 
-      // Fallback
+      // Fallback (non-Tauri or error)
       if (active) {
         setUrl(getAssetUrl(cleanPath));
       }
@@ -304,28 +309,7 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
 
   return url;
 }
-export function getSafeVideoSrc(fullPath:string) {
-  // 1. 统一将 Windows 的反斜杠 \ 替换为正斜杠 /，方便处理
-  const normalizedPath = fullPath.replace(/\\/g, '/');
-  
-  // 2. 找到最后一个斜杠的位置
-  const lastSlashIndex = normalizedPath.lastIndexOf('/');
-  
-  if (lastSlashIndex === -1) {
-    // 如果没有斜杠，说明整个字符串就是文件名
-    return convertFileSrc(encodeURIComponent(normalizedPath));
-  }
-  
-  // 3. 拆分目录路径和文件名
-  const dirPath = normalizedPath.substring(0, lastSlashIndex + 1); // 包含斜杠
-  const fileName = normalizedPath.substring(lastSlashIndex + 1);
-  
-  // 4. 仅对文件名进行编码，并重新拼接
-  const safePath = dirPath + encodeURIComponent(fileName);
-  
-  // 5. 传给 Tauri 转换成 asset:// 协议
-  return convertFileSrc(safePath);
-}
+
 export function useLocalImageBase64(path: string | undefined | null): string {
   const [src, setSrc] = useState<string>('');
 
