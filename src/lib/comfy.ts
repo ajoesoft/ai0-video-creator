@@ -230,6 +230,20 @@ export class ComfyService {
     this.config = config;
   }
 
+  public async syncConfig(): Promise<string> {
+    try {
+      const { getSetting } = await import("./db");
+      const address = await getSetting("comfyui_address");
+      const port = await getSetting("comfyui_port");
+      const cleanAddress = (address || "127.0.0.1").trim();
+      const cleanPort = (port || "8188").trim();
+      this.config.serverAddress = `${cleanAddress}:${cleanPort}`;
+    } catch (e) {
+      console.warn("[comfy.ts] Failed to sync ComfyUI config with database, using default:", e);
+    }
+    return this.config.serverAddress;
+  }
+
   private async fetch(url: string, options: any = {}) {
     // If we are in Tauri, use the Tauri fetch to bypass CORS
     if ((window as any).__TAURI_INTERNALS__) {
@@ -253,6 +267,7 @@ export class ComfyService {
   }
 
   async checkConnection(): Promise<boolean> {
+    await this.syncConfig();
     try {
       const response = await this.fetch(`http://${this.config.serverAddress}/system_stats`);
       return response.ok;
@@ -262,6 +277,7 @@ export class ComfyService {
   }
 
   async uploadFile(file: File): Promise<string> {
+    await this.syncConfig();
     const formData = new FormData();
     formData.append("image", file);
     const response = await this.fetch(`http://${this.config.serverAddress}/upload/image`, {
@@ -276,6 +292,7 @@ export class ComfyService {
   }
 
   async submitPrompt(prompt: any): Promise<string> {
+    await this.syncConfig();
     const response = await this.fetch(`http://${this.config.serverAddress}/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -292,6 +309,7 @@ export class ComfyService {
   }
 
   async getHistory(promptId: string): Promise<any> {
+    await this.syncConfig();
     const response = await this.fetch(`http://${this.config.serverAddress}/history/${promptId}`);
     if (!response.ok) return null;
     const data = await response.json();
@@ -299,6 +317,7 @@ export class ComfyService {
   }
 
   async getQueue(): Promise<any> {
+    await this.syncConfig();
     const response = await this.fetch(`http://${this.config.serverAddress}/queue`);
     if (!response.ok) return null;
     return await response.json();

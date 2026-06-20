@@ -43,19 +43,31 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { join } from '@tauri-apps/api/path';
 import { exists, mkdir, writeFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
-import { getSafeVideoSrc } from '../lib/utils';
-
+import { convertFileSrc } from '@tauri-apps/api/core';
 /**
- * Resolves a video URL to a playable source.
- * Handles local file paths (via convertFileSrc), blob URLs, HTTP URLs, and undefined.
+ * 将本地文件路径转换为 Tauri 安全的资产 URL (Tauri v2)
  */
-function resolveVideoSrc(url: string | undefined | null): string {
+function getSafeVideoSrc(url: string): string {
+  // convertFileSrc 会自动处理不同平台，转换为 asset:// 或 http://asset.localhost 格式
+  return convertFileSrc(url);
+}
+
+export function resolveVideoSrc(url: string | undefined | null): string {
   if (!url) return '';
-  // Already a remote or blob URL — use as-is
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('asset://') || url.startsWith('http://asset.localhost')) {
+  
+  // 如果已经是远程、blob 或已经转换过的 asset URL，直接返回
+  if (
+    url.startsWith('http://') || 
+    url.startsWith('https://') || 
+    url.startsWith('blob:') || 
+    url.startsWith('data:') || 
+    url.startsWith('asset://') || 
+    url.startsWith('http://asset.localhost')
+  ) {
     return url;
   }
-  // Local file path — convert to Tauri asset URL
+  
+  // 本地文件路径 — 转换为 Tauri asset URL
   return getSafeVideoSrc(url);
 }
 
