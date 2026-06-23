@@ -354,11 +354,64 @@ export class ComfyService {
     });
   }
 
+  // Helper to dynamically override width and height parameters in a ComfyUI workflow
+  applyDimensionsToWorkflow(workflow: any, width?: number, height?: number): any {
+    if (!width || !height) return workflow;
+    try {
+      const cloned = JSON.parse(JSON.stringify(workflow));
+      for (const key in cloned) {
+        const node = cloned[key];
+        if (node && node.inputs) {
+          if (node.class_type === "EmptySD3LatentImage" || node.class_type === "EmptyImage" || node.class_type === "EmptyLatentImage" || node.class_type === "EmptyLatentVideo") {
+            node.inputs.width = width;
+            node.inputs.height = height;
+          } else if (typeof node.inputs.width === 'number' && typeof node.inputs.height === 'number') {
+            if (node.class_type !== "GetImageSize") {
+              node.inputs.width = width;
+              node.inputs.height = height;
+            }
+          }
+        }
+      }
+      return cloned;
+    } catch (e) {
+      console.error("Error applying dimensions to workflow:", e);
+      return workflow;
+    }
+  }
+
   // Workflows
-  async runImageGenerationRust(promptText: string, localPath: string, isTurbo: boolean = false, onProgress?: (msg: string) => void): Promise<string> {
+  async runImageGenerationRust(promptText: string, localPath: string, isTurbo: boolean = false, onProgress?: (msg: string) => void, width?: number, height?: number): Promise<string> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_text_to_image");
+      if (mode === "cloud") {
+        onProgress?.("Routing image generation to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        const base64 = await unifiedAI.generateImage(promptText);
+        
+        // Convert to Uint8Array and write to localPath
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const { writeFile } = await import("@tauri-apps/plugin-fs");
+        await writeFile(localPath, bytes);
+        onProgress?.(`Saved cloud image to ${localPath}`);
+        return localPath;
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud Image Gen Routing failed, falling back to local:", e);
+    }
+
     onProgress?.("Building workflow...");
     const defaultWorkflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
-    const workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
+    let workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
+    if (width && height) {
+      workflow = this.applyDimensionsToWorkflow(workflow, width, height);
+    }
     
     try {
       // Step 1: Issue the submit generation command to get prompt_id
@@ -389,9 +442,25 @@ export class ComfyService {
     }
   }
 
-  async runImageGeneration(promptText: string, isTurbo: boolean = false, onProgress?: (msg: string) => void): Promise<string[]> {
+  async runImageGeneration(promptText: string, isTurbo: boolean = false, onProgress?: (msg: string) => void, width?: number, height?: number): Promise<string[]> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_text_to_image");
+      if (mode === "cloud") {
+        onProgress?.("Routing image generation to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        const base64 = await unifiedAI.generateImage(promptText);
+        return [`data:image/jpeg;base64,${base64}`];
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud Simple Image Gen Routing failed, falling back to local:", e);
+    }
+
     const defaultWorkflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
-    const workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
+    let workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
+    if (width && height) {
+      workflow = this.applyDimensionsToWorkflow(workflow, width, height);
+    }
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     
@@ -443,6 +512,19 @@ export class ComfyService {
   }
 
   async runTTS(text: string, referenceAudio: string, onProgress?: (msg: string) => void): Promise<string[]> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_tts");
+      if (mode === "cloud") {
+        onProgress?.("Routing TTS to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        const base64Audio = await unifiedAI.synthesizeSpeech(text);
+        return [`data:audio/mp3;base64,${base64Audio}`];
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud TTS Routing failed, falling back to local:", e);
+    }
+
     const defaultWorkflow = this.getTTSWorkflow(text, referenceAudio);
     const workflow = await resolveWorkflow('tts', { prompt: text, audio: referenceAudio }, defaultWorkflow);
     const promptId = await this.submitPrompt(workflow);
@@ -483,7 +565,7 @@ export class ComfyService {
     return audios;
   }
 
-  async runVideoGeneration(imagePath: string, audioPath: string, prompt: string, onProgress?: (msg: string) => void): Promise<string[]> {
+  async runVideoGeneration(imagePath: string, audioPath: string, prompt: string, onProgress?: (msg: string) => void, width?: number, height?: number): Promise<string[]> {
     onProgress?.("Uploading assets to ComfyUI...");
     let uploadedImage = imagePath;
     let uploadedAudio = audioPath;
@@ -497,8 +579,17 @@ export class ComfyService {
     }
 
     onProgress?.("Configuring video generation workflow...");
-    const defaultWorkflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt);
-    const workflow = await resolveWorkflow('video_generation', { prompt, image: uploadedImage, audio: uploadedAudio }, defaultWorkflow);
+    const defaultWorkflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt, width, height);
+    let workflow = await resolveWorkflow('video_generation', { prompt, image: uploadedImage, audio: uploadedAudio }, defaultWorkflow);
+    if (width && height) {
+      workflow = this.applyDimensionsToWorkflow(workflow, width, height);
+      if (workflow["5382"] && workflow["5382"].inputs) {
+        workflow["5382"].inputs.value = height;
+      }
+      if (workflow["5383"] && workflow["5383"].inputs) {
+        workflow["5383"].inputs.value = width;
+      }
+    }
     const promptId = await this.submitPrompt(workflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     
@@ -581,6 +672,58 @@ export class ComfyService {
   }
 
   async runASRQwen(audioFilename: string, onProgress?: (msg: string) => void): Promise<{ srtText: string; plainText: string; rawJson?: string; dialogues?: any[] }> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_asr");
+      if (mode === "cloud") {
+        onProgress?.("Routing Subtitle ASR to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        
+        // Resolve file bytes from audioFilename
+        let fileData: Uint8Array | null = null;
+        try {
+          const { readFile } = await import("@tauri-apps/plugin-fs");
+          fileData = await readFile(audioFilename);
+        } catch (e) {
+          // If not absolute, look into ComfyUI input folder
+          try {
+            const root = await getSetting("comfyui_root_path");
+            if (root) {
+              const path = `${root}/input/${audioFilename}`.replace(/\\/g, '/');
+              const { readFile } = await import("@tauri-apps/plugin-fs");
+              fileData = await readFile(path);
+            }
+          } catch (_) {}
+        }
+
+        if (!fileData) {
+          throw new Error("Unable to read audio file for Cloud ASR");
+        }
+
+        // Convert fileData to base64
+        let binary = "";
+        const len = fileData.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(fileData[i]);
+        }
+        const audioBase64 = btoa(binary);
+
+        const textContent = await unifiedAI.transcribeAudio(audioBase64, "audio/mp3");
+        onProgress?.("Cloud ASR transcription finished!");
+        
+        // Format as srtText and plainText
+        const plainText = textContent || "";
+        const srtText = `1\n00:00:00,000 --> 00:00:10,000\n${plainText}`;
+        return {
+          srtText,
+          plainText,
+          dialogues: [{ start: 0, end: 10, text: plainText }]
+        };
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud ASR Routing failed, fallback to local:", e);
+    }
+
     onProgress?.("Building Qwen3-ASR 3.0 Workflow...");
     const defaultWorkflow = {
       "2": {
@@ -798,6 +941,18 @@ export class ComfyService {
   }
 
   async runTranslationHYMT(text: string, targetLanguage: string = "en | 英语", onProgress?: (msg: string) => void): Promise<string> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_translation");
+      if (mode === "cloud") {
+        onProgress?.("Routing translation to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        return await unifiedAI.translateText(text, targetLanguage);
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud Translation Routing failed, fallback to local:", e);
+    }
+
     onProgress?.("Building HY-MT Translation Workflow...");
     const defaultWorkflow = {
       "1": {
@@ -950,6 +1105,19 @@ export class ComfyService {
   }
 
   async runQwenTTSVoiceAllInOne(text: string, whisperPrompt: string, language: string = "中文", onProgress?: (msg: string) => void): Promise<string[]> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_tts");
+      if (mode === "cloud") {
+        onProgress?.("Routing Qwen3-TTS to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        const base64Audio = await unifiedAI.synthesizeSpeech(text, whisperPrompt);
+        return [`data:audio/mp3;base64,${base64Audio}`];
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud QwenTTS Routing failed, falling back to local:", e);
+    }
+
     onProgress?.("Building Qwen3-TTS All-In-One Workflow...");
     const mappedLanguage = this.mapLanguageToQwen3(language);
     const defaultWorkflow = {
@@ -1053,6 +1221,39 @@ export class ComfyService {
     language: string = "中文", 
     onProgress?: (msg: string) => void
   ): Promise<string> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_tts");
+      if (mode === "cloud") {
+        onProgress?.("Routing Qwen3-TTS to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        // Synthesize text
+        const base64Audio = await unifiedAI.synthesizeSpeech(text, whisperPrompt);
+        
+        // Convert base64 to Uint8Array
+        const binaryString = atob(base64Audio);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Save to localPath if it's there
+        if (localPath) {
+          try {
+            const { writeFile } = await import("@tauri-apps/plugin-fs");
+            await writeFile(localPath, bytes);
+            onProgress?.(`Saved cloud TTS audio to ${localPath}`);
+            return localPath;
+          } catch (fsErr: any) {
+            console.error("Write local path failed, returning data URL:", fsErr);
+          }
+        }
+        return `data:audio/mp3;base64,${base64Audio}`;
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud QwenTTS Rust Routing failed, falling back to local:", e);
+    }
+
     onProgress?.("Building Qwen3-TTS All-In-One Workflow...");
     const mappedLanguage = this.mapLanguageToQwen3(language);
     const defaultWorkflow = {
@@ -1735,7 +1936,7 @@ export class ComfyService {
     return savedPath;
   }
 
-  private getVideoWorkflow(imagePath: string, audioPath: string, prompt: string) {
+  private getVideoWorkflow(imagePath: string, audioPath: string, prompt: string, width?: number, height?: number) {
     // Note: The original workflow 101 uses VHS_LoadImagePath and VHS_LoadAudio which might need local absolute paths if ComfyUI is configured to allow them.
     // Or we might need to upload them first.
     const workflow: any = {
@@ -1752,8 +1953,8 @@ export class ComfyService {
         "591": { "inputs": { "vae_name": "taeltx2_3.safetensors" }, "class_type": "VAELoader" },
         "700": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["211", 0] }, "class_type": "LTXVChunkFeedForward" },
         "5376": { "inputs": { "lora_name": "ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors", "strength_model": 1, "model": ["211", 0] }, "class_type": "LTXICLoRALoaderModelOnly" },
-        "5382": { "inputs": { "value": 1088 }, "class_type": "INTConstant" },
-        "5383": { "inputs": { "value": 1920 }, "class_type": "INTConstant" },
+        "5382": { "inputs": { "value": height || 1088 }, "class_type": "INTConstant" },
+        "5383": { "inputs": { "value": width || 1920 }, "class_type": "INTConstant" },
         "5387": { "inputs": { "expression": "a*b+1", "a": ["196", 0], "b": ["5445", 0] }, "class_type": "MathExpression|pysssss" },
         "5392": { "inputs": { "chunks": 4, "dim_threshold": 4096, "model": ["5376", 0] }, "class_type": "LTXVChunkFeedForward" },
         "5429": { "inputs": { "resize_type": "scale dimensions", "resize_type.width": ["5383", 0], "resize_type.height": ["5382", 0], "resize_type.crop": "center", "scale_method": "lanczos", "input": ["5565", 0] }, "class_type": "ResizeImageMaskNode" },

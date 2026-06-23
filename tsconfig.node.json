@@ -4,7 +4,9 @@
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "noUnusedLocals": false,   // 👈 允许存在未使用的局部变量
+    "noUnusedParameters": false // 👈 允许存在未使用的函数参数
   },
   "include": ["vite.config.ts"]
 }

@@ -1,20 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import {
-  ArrowLeft, Plus, Search, Filter, MoreVertical,
-  Trash2, Edit2, Play, Image as ImageIcon,
+import { 
+  ArrowLeft, Plus, Search, Filter, MoreVertical, 
+  Trash2, Edit2, Play, Image as ImageIcon, 
   BookOpen, Hash, Music, Type, Check, X, FileJson, Upload, RefreshCw, Loader2
 } from 'lucide-react';
 import { exists, mkdir, writeFile } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { ask } from '@tauri-apps/plugin-dialog';
-import {
-  fetchProjectById,
-  fetchVocabularyByProject,
-  createVocabulary,
-  updateVocabulary,
+import { 
+  fetchProjectById, 
+  fetchVocabularyByProject, 
+  createVocabulary, 
+  updateVocabulary, 
   deleteVocabulary,
   getSetting,
   applyPromptHarnessRules,
@@ -27,21 +27,21 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { useTranslation } from '../contexts/LanguageContext';
 
-function VocabularyCard({
-  word,
+function VocabularyCard({ 
+  word, 
   projectRoot,
-  isGenerating,
-  generationProgress,
-  onGenerateAudio,
-  onGenerateImage,
+  isGenerating, 
+  generationProgress, 
+  onGenerateAudio, 
+  onGenerateImage, 
   onGenerateVideo,
   onPlayVideo,
   onPlayAudio,
   onEdit,
   onDelete
-}: {
+}: { 
   key?: number;
-  word: Vocabulary;
+  word: Vocabulary; 
   projectRoot: string;
   isGenerating: string | null;
   generationProgress: string | null;
@@ -53,30 +53,7 @@ function VocabularyCard({
   onEdit: (word: Vocabulary) => any;
   onDelete: (id: number) => any;
 }) {
-
   const imageSrc = useLocalImageBase64(word.imagePath);
-  const [imageExists, setImageExists] = useState(false);
-  const [coverImageBase64, setCoverImageBase64] = useState<string>('');
-
-  useEffect(() => {
-    async function checkImage() {
-      if (word.imagePath) {
-        try {
-          const existsFile = await exists(word.imagePath);
-          setImageExists(existsFile);
-          if (existsFile && !word.imagePath.startsWith('http')) {
-            const base64 = await invoke<string>('load_local_image', { path: word.imagePath });
-            setCoverImageBase64(`data:image/png;base64,${base64}`);
-          }
-        } catch (e) {
-          setImageExists(false);
-        }
-      } else {
-        setImageExists(false);
-      }
-    }
-    checkImage();
-  }, [word.imagePath]);
 
   // Extract custom fields if serialized in data
   let charactor = '';
@@ -88,7 +65,7 @@ function VocabularyCard({
       charactor = parsed.charactor || '';
       introduction = parsed.introduction || '';
       referencedHarnesses = parsed.referencedHarnesses || [];
-    } catch (e) { }
+    } catch (e) {}
   }
 
   return (
@@ -98,8 +75,8 @@ function VocabularyCard({
       exit={{ opacity: 0, scale: 0.95 }}
       className={cn(
         "group relative p-6 rounded-3xl bg-white/2 border transition-all flex flex-col gap-4 overflow-hidden",
-        word.imagePath
-          ? "border-green-500/30 bg-green-500/[0.02]"
+        word.imagePath 
+          ? "border-green-500/30 bg-green-500/[0.02]" 
           : "border-white/5 hover:border-brand-primary/20"
       )}
     >
@@ -114,16 +91,16 @@ function VocabularyCard({
       )}
       {/* Background Decor */}
       <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none group-hover:opacity-10 transition-opacity">
-        <Type className="w-24 h-24" />
+         <Type className="w-24 h-24" />
       </div>
 
       {/* Vocabulary Card Cover */}
       <div className="aspect-[16/10] bg-[#111114] -mx-6 -mt-6 mb-4 relative overflow-hidden">
-        {coverImageBase64 ? (
-          <img
-            src={coverImageBase64}
-            alt={word.word}
-            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700"
+        {imageSrc ? (
+          <img 
+            src={imageSrc} 
+            alt={word.word} 
+            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center opacity-10 bg-gradient-to-br from-brand-primary/20 to-transparent">
@@ -145,13 +122,13 @@ function VocabularyCard({
           <span className="text-xs text-brand-primary/60 mono-text">{word.phoneticSymbols || '/No symbols/'}</span>
         </div>
         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
+          <button 
             onClick={() => onEdit(word)}
             className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
           >
             <Edit2 className="w-4 h-4" />
           </button>
-          <button
+          <button 
             onClick={() => onDelete(word.id)}
             className="p-2 hover:bg-red-500/20 rounded-lg text-gray-400 hover:text-red-400 transition-colors"
           >
@@ -211,96 +188,96 @@ function VocabularyCard({
       </div>
 
       <div className="flex items-center justify-between pt-4 border-t border-white/5 z-10">
-        <div className="flex gap-2">
-          {word.audioPath ? (
-            <div className="flex items-center gap-1 bg-green-500/5 rounded-md p-0.5 border border-green-500/10">
-              <button
-                type="button"
-                onClick={() => onPlayAudio?.(word)}
-                disabled={!!isGenerating}
-                className="p-1.5 rounded text-green-400 hover:bg-green-500/10 transition-all"
-                title="Play audio preview"
-              >
-                <Music className="w-3.5 h-3.5 animate-pulse" />
-              </button>
-              <button
+         <div className="flex gap-2">
+            {word.audioPath ? (
+              <div className="flex items-center gap-1 bg-green-500/5 rounded-md p-0.5 border border-green-500/10">
+                <button 
+                  type="button"
+                  onClick={() => onPlayAudio?.(word)}
+                  disabled={!!isGenerating}
+                  className="p-1.5 rounded text-green-400 hover:bg-green-500/10 transition-all"
+                  title="Play audio preview"
+                >
+                  <Music className="w-3.5 h-3.5 animate-pulse" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => onGenerateAudio(word)}
+                  disabled={!!isGenerating}
+                  className="p-1.5 rounded text-gray-400 hover:text-green-500 hover:bg-white/5 transition-all"
+                  title="Regenerate audio"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <button 
                 type="button"
                 onClick={() => onGenerateAudio(word)}
                 disabled={!!isGenerating}
-                className="p-1.5 rounded text-gray-400 hover:text-green-500 hover:bg-white/5 transition-all"
-                title="Regenerate audio"
+                className={cn(
+                  "p-1.5 rounded-md transition-all", 
+                  "bg-white/5 text-gray-500 hover:text-brand-primary",
+                  isGenerating === 'audio' && "animate-pulse"
+                )}
+                title="Generate audio"
               >
-                <RefreshCw className="w-3 h-3" />
+                <Music className="w-3.5 h-3.5" />
               </button>
-            </div>
-          ) : (
-            <button
+            )}
+
+            <button 
               type="button"
-              onClick={() => onGenerateAudio(word)}
+              onClick={() => onGenerateImage(word)}
               disabled={!!isGenerating}
               className={cn(
-                "p-1.5 rounded-md transition-all",
-                "bg-white/5 text-gray-500 hover:text-brand-primary",
-                isGenerating === 'audio' && "animate-pulse"
+                "p-1.5 rounded-md transition-all", 
+                word.imagePath ? "bg-blue-500/10 text-blue-500" : "bg-white/5 text-gray-500 hover:text-brand-primary",
+                isGenerating === 'image' && "animate-pulse"
               )}
-              title="Generate audio"
+              title="Generate / Update Image"
             >
-              <Music className="w-3.5 h-3.5" />
+              <ImageIcon className="w-3.5 h-3.5" />
             </button>
-          )}
 
-          <button
-            type="button"
-            onClick={() => onGenerateImage(word)}
-            disabled={!!isGenerating}
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              word.imagePath ? "bg-blue-500/10 text-blue-500" : "bg-white/5 text-gray-500 hover:text-brand-primary",
-              isGenerating === 'image' && "animate-pulse"
-            )}
-            title="Generate / Update Image"
-          >
-            <ImageIcon className="w-3.5 h-3.5" />
-          </button>
-
-          {word.videoPath ? (
-            <div className="flex items-center gap-1 bg-purple-500/5 rounded-md p-0.5 border border-purple-500/10">
-              <button
-                type="button"
-                onClick={() => onPlayVideo?.(word)}
-                disabled={!!isGenerating}
-                className="p-1.5 rounded text-purple-400 hover:bg-purple-500/10 transition-all font-bold flex items-center gap-1"
-                title="Play video preview"
-              >
-                <Play className="w-3.5 h-3.5 fill-current" />
-              </button>
-              <button
+            {word.videoPath ? (
+              <div className="flex items-center gap-1 bg-purple-500/5 rounded-md p-0.5 border border-purple-500/10">
+                <button 
+                  type="button"
+                  onClick={() => onPlayVideo?.(word)}
+                  disabled={!!isGenerating}
+                  className="p-1.5 rounded text-purple-400 hover:bg-purple-500/10 transition-all font-bold flex items-center gap-1"
+                  title="Play video preview"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => onGenerateVideo(word)}
+                  disabled={!!isGenerating || !word.audioPath || !word.imagePath}
+                  className="p-1.5 rounded text-gray-400 hover:text-purple-400 hover:bg-white/5 transition-all"
+                  title="Regenerate video"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <button 
                 type="button"
                 onClick={() => onGenerateVideo(word)}
                 disabled={!!isGenerating || !word.audioPath || !word.imagePath}
-                className="p-1.5 rounded text-gray-400 hover:text-purple-400 hover:bg-white/5 transition-all"
-                title="Regenerate video"
+                className={cn(
+                  "p-1.5 rounded-md transition-all", 
+                  "bg-white/5 text-gray-500 hover:text-brand-primary disabled:opacity-30",
+                  isGenerating === 'video' && "animate-pulse"
+                )}
+                title="Generate video"
               >
-                <RefreshCw className="w-3 h-3" />
+                <Play className="w-3.5 h-3.5" />
               </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onGenerateVideo(word)}
-              disabled={!!isGenerating || !word.audioPath || !word.imagePath}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                "bg-white/5 text-gray-500 hover:text-brand-primary disabled:opacity-30",
-                isGenerating === 'video' && "animate-pulse"
-              )}
-              title="Generate video"
-            >
-              <Play className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        <span className="text-[10px] mono-text text-gray-500 uppercase tracking-widest">ID: {word.id}</span>
+            )}
+         </div>
+         <span className="text-[10px] mono-text text-gray-500 uppercase tracking-widest">ID: {word.id}</span>
       </div>
     </motion.div>
   );
@@ -336,7 +313,7 @@ export function WordManagement() {
       }
     }
   };
-
+  
   const hasActiveTask = isBatchGenerating || isImporting || Object.values(isGenerating).some(v => v !== null);
 
   useEffect(() => {
@@ -357,12 +334,12 @@ export function WordManagement() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasActiveTask]);
-
+  
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWord, setEditingWord] = useState<Vocabulary | null>(null);
   const [formData, setFormData] = useState<Partial<Vocabulary>>({});
-  const [modalImageBase64, setModalImageBase64] = useState<string>('');
+  const modalImageBase64 = useLocalImageBase64(formData.imagePath);
 
   // Prompt Harness and Visual Assets States
   const [promptHarnesses, setPromptHarnesses] = useState<PromptHarness[]>([]);
@@ -439,16 +416,16 @@ export function WordManagement() {
       }
       const projectUuid = project?.id || '';
       const localImgPath = await join(workspacePath, projectUuid, 'image', `${formData.word.trim()}.png`);
-
+      
       const promptPrefix = project?.prompt ? `${project.prompt}, ` : '';
       const basePrompt = formData.qwenImagePrompt || `${promptPrefix}${formData.word}, 8K, high resolution, ${formData.chinese || ''}`;
-
+      
       const prompt = await applyPromptHarnessRules(basePrompt, id);
       console.log(`Generating inline image with prompt (harness applied): ${prompt}`);
 
       const savedPath = await comfy.runImageGenerationRust(prompt, localImgPath, true, (msg) => {
         setInlineProgress(msg);
-      });
+      }, project?.width, project?.height);
 
       if (savedPath) {
         console.log(`Saved generated inline image to ${savedPath}`);
@@ -494,7 +471,6 @@ export function WordManagement() {
   };
 
   const handleOpenModal = (word: Vocabulary | null = null) => {
-
     if (word) {
       let customCharactor = '';
       let customIntroduction = '';
@@ -503,7 +479,7 @@ export function WordManagement() {
           const parsed = JSON.parse(word.data);
           customCharactor = parsed.charactor || '';
           customIntroduction = parsed.introduction || '';
-        } catch (e) { }
+        } catch (e) {}
       }
 
       setEditingWord(word);
@@ -512,23 +488,6 @@ export function WordManagement() {
         charactor: customCharactor,
         introduction: customIntroduction
       } as any);
-
-      let abort = false;
-      if (word&&word.imagePath) {
-        const loadImg = async () => {
-          try {
-            const existsFile = await exists(word.imagePath!);
-            if (abort || !existsFile) return;
-            console.log(`word.imagePath :${word.imagePath}`);
-            const base64 = await invoke<string>('load_local_image', { path: word.imagePath });
-            setModalImageBase64(`data:image/png;base64,${base64}`);
-          } catch (e) {
-            if (!abort) console.error('读取图片失败', word.imagePath, e);
-          }
-        };
-
-        loadImg();
-      }
     } else {
       setEditingWord(null);
       setFormData({
@@ -551,7 +510,7 @@ export function WordManagement() {
 
   const handleSave = async () => {
     if (!formData.word || !id) return;
-
+    
     try {
       // Extract active prompt consistency harnesses referenced in the prompt texts
       const promptText = (formData.qwenImagePrompt || '') + ' ' + (formData.ltx23Prompt || '');
@@ -629,7 +588,7 @@ export function WordManagement() {
       }
       const projectUuid = project?.id || '';
       const localImgPath = await join(workspacePath, projectUuid, 'image', `${word.word.trim()}.png`);
-
+      
       // Check if file already exists in workspace
       if (await exists(localImgPath)) {
         console.log(`Image for ${word.word} already exists at ${localImgPath}, skipping generation.`);
@@ -644,13 +603,13 @@ export function WordManagement() {
       const basePrompt = word.qwenImagePrompt || `${promptPrefix}${word.word}, 8K, high resolution, ${word.chinese || ''}`;
       // Apply Prompt Consistency Harness Rules
       const prompt = await applyPromptHarnessRules(basePrompt, id!);
-
+      
       console.log(`Generating image for ${word.word} with prompt (harness applied): ${prompt}`);
-
+      
       const savedPath = await comfy.runImageGenerationRust(prompt, localImgPath, true, (msg) => {
         setGenerationProgress(prev => ({ ...prev, [word.id]: msg }));
-      });
-
+      }, project?.width, project?.height);
+      
       if (savedPath) {
         console.log(`Saved generated image via Rust backend to ${savedPath}`);
 
@@ -721,10 +680,10 @@ export function WordManagement() {
       }
 
       const localAudioPath = await join(audioDir, `${word.word}.mp3`);
-
+      
       const audios = await comfy.runTTS(word.word, "max.mp3", (msg) => {
         setGenerationProgress(prev => ({ ...prev, [word.id]: msg }));
-      });
+      }); 
       if (audios.length > 0) {
         setGenerationProgress(prev => ({ ...prev, [word.id]: 'Downloading...' }));
         const audioUrl = audios[0];
@@ -773,10 +732,10 @@ export function WordManagement() {
       const baseVideoPrompt = word.ltx23Prompt || word.word;
       // Apply Prompt Consistency Harness Rules
       const prompt = await applyPromptHarnessRules(baseVideoPrompt, id!);
-
+      
       const videos = await comfy.runVideoGeneration(word.imagePath, word.audioPath, prompt, (msg) => {
         setGenerationProgress(prev => ({ ...prev, [word.id]: msg }));
-      });
+      }, project?.width, project?.height);
       if (videos.length > 0) {
         setGenerationProgress(prev => ({ ...prev, [word.id]: 'Downloading...' }));
         const videoUrl = videos[0];
@@ -839,7 +798,7 @@ export function WordManagement() {
           status: item.status !== undefined ? Number(item.status) : 1
         });
       }
-
+      
       alert(`Successfully imported ${data.length} scenes!`);
       loadData(id);
     } catch (error) {
@@ -851,8 +810,8 @@ export function WordManagement() {
     }
   };
 
-  const filteredWords = words.filter(w =>
-    w.word.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredWords = words.filter(w => 
+    w.word.toLowerCase().includes(searchQuery.toLowerCase()) || 
     w.chineseDefinition?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -882,8 +841,8 @@ export function WordManagement() {
       <header className="border-b border-white/5 bg-black/50 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link
-              to={`/project/${id}/details`}
+            <Link 
+              to={`/project/${id}/details`} 
               onClick={async (e) => {
                 if (hasActiveTask) {
                   e.preventDefault();
@@ -908,35 +867,35 @@ export function WordManagement() {
               </p>
             </div>
           </div>
-
+          
           <div className="flex items-center gap-3">
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
               accept=".json"
-              onChange={handleImportJson}
+              onChange={handleImportJson} 
             />
-            <button
+            <button 
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 bg-white/5 text-gray-300 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-white/10 transition-all"
             >
               <Upload className="w-4 h-4" /> Import JSON
             </button>
-            <button
+            <button 
               onClick={handleBatchGenerateImages}
               disabled={isBatchGenerating}
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-all",
-                isBatchGenerating
-                  ? "bg-brand-primary/20 text-brand-primary cursor-wait"
+                isBatchGenerating 
+                  ? "bg-brand-primary/20 text-brand-primary cursor-wait" 
                   : "bg-white/5 text-gray-300 hover:bg-brand-primary/10 hover:text-brand-primary"
               )}
             >
-              <RefreshCw className={cn("w-4 h-4", isBatchGenerating && "animate-spin")} />
+              <RefreshCw className={cn("w-4 h-4", isBatchGenerating && "animate-spin")} /> 
               {isBatchGenerating ? "Generating..." : "Generate Images"}
             </button>
-            <button
+            <button 
               onClick={() => handleOpenModal()}
               className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-black rounded-lg text-xs font-bold uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all"
             >
@@ -951,7 +910,7 @@ export function WordManagement() {
         <div className="flex flex-col md:flex-row gap-6 mb-12 items-center justify-between">
           <div className="relative w-full md:w-96 group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-brand-primary transition-colors" />
-            <input
+            <input 
               type="text"
               placeholder="Search by word or definition..."
               value={searchQuery}
@@ -959,7 +918,7 @@ export function WordManagement() {
               className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3 text-sm outline-none focus:border-brand-primary transition-colors"
             />
           </div>
-
+          
           <div className="flex items-center gap-8">
             <div className="text-center">
               <div className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Total Words</div>
@@ -976,7 +935,7 @@ export function WordManagement() {
         {/* Word Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence>
-            {filteredWords.map((word, idx) => (
+            {filteredWords.map((word) => (
               <VocabularyCard
                 key={word.id}
                 word={word}
@@ -995,7 +954,7 @@ export function WordManagement() {
           </AnimatePresence>
 
           {/* Add Placeholder */}
-          <button
+          <button 
             onClick={() => handleOpenModal()}
             className="p-6 rounded-3xl border-2 border-dashed border-white/5 hover:border-brand-primary/20 hover:bg-white/2 transition-all flex flex-col items-center justify-center gap-3 text-gray-500 hover:text-brand-primary group h-[280px]"
           >
@@ -1031,20 +990,20 @@ export function WordManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Target Word / Scene Name</label>
-                    <input
+                    <input 
                       autoFocus
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-primary"
                       value={formData.word || ''}
-                      onChange={(e) => setFormData({ ...formData, word: e.target.value })}
+                      onChange={(e) => setFormData({...formData, word: e.target.value})}
                       placeholder="e.g. mountain"
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Phonetic Symbols / Accents</label>
-                    <input
+                    <input 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-serif outline-none focus:border-brand-primary"
                       value={formData.phoneticSymbols || ''}
-                      onChange={(e) => setFormData({ ...formData, phoneticSymbols: e.target.value })}
+                      onChange={(e) => setFormData({...formData, phoneticSymbols: e.target.value})}
                       placeholder="e.g. /ˈmaʊntɪn/"
                     />
                   </div>
@@ -1053,19 +1012,19 @@ export function WordManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Index Character</label>
-                    <input
+                    <input 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-primary"
                       value={formData.indexChar || ''}
-                      onChange={(e) => setFormData({ ...formData, indexChar: e.target.value })}
+                      onChange={(e) => setFormData({...formData, indexChar: e.target.value})}
                       placeholder="e.g. M"
                     />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Character / Voice Actor</label>
-                    <input
+                    <input 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-primary"
                       value={(formData as any).charactor || ''}
-                      onChange={(e) => setFormData({ ...formData, charactor: e.target.value } as any)}
+                      onChange={(e) => setFormData({...formData, charactor: e.target.value} as any)}
                       placeholder="e.g. Narrator / Max"
                     />
                   </div>
@@ -1073,40 +1032,40 @@ export function WordManagement() {
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">AI Voice Script</label>
-                  <textarea
+                  <textarea 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm min-h-[60px] outline-none focus:border-brand-primary resize-none"
                     value={formData.script || ''}
-                    onChange={(e) => setFormData({ ...formData, script: e.target.value })}
+                    onChange={(e) => setFormData({...formData, script: e.target.value})}
                     placeholder="Input voice over or spoken narrative line..."
                   />
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Script Translation</label>
-                  <textarea
+                  <textarea 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm min-h-[60px] outline-none focus:border-brand-primary resize-none"
                     value={formData.chinese || ''}
-                    onChange={(e) => setFormData({ ...formData, chinese: e.target.value })}
+                    onChange={(e) => setFormData({...formData, chinese: e.target.value})}
                     placeholder="Translation of the spoken script..."
                   />
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Scene Introduction</label>
-                  <textarea
+                  <textarea 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm min-h-[60px] outline-none focus:border-brand-primary resize-none"
                     value={(formData as any).introduction || formData.chineseDefinition || ''}
-                    onChange={(e) => setFormData({ ...formData, introduction: e.target.value, chineseDefinition: e.target.value } as any)}
+                    onChange={(e) => setFormData({...formData, introduction: e.target.value, chineseDefinition: e.target.value} as any)}
                     placeholder="Brief description or context of the scene..."
                   />
                 </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Contextual Example (Optional)</label>
-                  <input
+                  <input 
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-brand-primary"
                     value={formData.example || ''}
-                    onChange={(e) => setFormData({ ...formData, example: e.target.value })}
+                    onChange={(e) => setFormData({...formData, example: e.target.value})}
                     placeholder="Example of scene context..."
                   />
                 </div>
@@ -1114,10 +1073,10 @@ export function WordManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Image Generation Prompt</label>
-                    <textarea
+                    <textarea 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs min-h-[80px] outline-none focus:border-brand-primary resize-none"
                       value={formData.qwenImagePrompt || ''}
-                      onChange={(e) => setFormData({ ...formData, qwenImagePrompt: e.target.value })}
+                      onChange={(e) => setFormData({...formData, qwenImagePrompt: e.target.value})}
                       placeholder="Detailed image generation prompt..."
                     />
 
@@ -1163,10 +1122,10 @@ export function WordManagement() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Video Motion Prompt</label>
-                    <textarea
+                    <textarea 
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-xs min-h-[80px] outline-none focus:border-brand-primary resize-none"
                       value={formData.ltx23Prompt || ''}
-                      onChange={(e) => setFormData({ ...formData, ltx23Prompt: e.target.value })}
+                      onChange={(e) => setFormData({...formData, ltx23Prompt: e.target.value})}
                       placeholder="Detailed video motion prompt..."
                     />
 
@@ -1215,18 +1174,18 @@ export function WordManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                   <div className="space-y-4">
                     <div className="p-4 rounded-xl bg-white/2 border border-white/5 flex items-center justify-between group cursor-pointer hover:bg-white/5 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <Music className="w-4 h-4 text-gray-500 group-hover:text-brand-primary" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">Sync Pronunciation</span>
-                      </div>
-                      {formData.audioPath ? <Check className="w-4 h-4 text-green-500" /> : <div className="w-2 h-2 rounded-full bg-gray-700" />}
+                        <div className="flex items-center gap-3">
+                          <Music className="w-4 h-4 text-gray-500 group-hover:text-brand-primary" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Sync Pronunciation</span>
+                        </div>
+                        {formData.audioPath ? <Check className="w-4 h-4 text-green-500" /> : <div className="w-2 h-2 rounded-full bg-gray-700" />}
                     </div>
                     <div className="p-4 rounded-xl bg-white/2 border border-white/5 flex items-center justify-between group cursor-pointer hover:bg-white/5 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <ImageIcon className="w-4 h-4 text-gray-500 group-hover:text-brand-primary" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest">Visual Asset</span>
-                      </div>
-                      {formData.imagePath ? <Check className="w-4 h-4 text-green-500" /> : <div className="w-2 h-2 rounded-full bg-gray-700" />}
+                        <div className="flex items-center gap-3">
+                          <ImageIcon className="w-4 h-4 text-gray-500 group-hover:text-brand-primary" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Visual Asset</span>
+                        </div>
+                        {formData.imagePath ? <Check className="w-4 h-4 text-green-500" /> : <div className="w-2 h-2 rounded-full bg-gray-700" />}
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -1263,8 +1222,8 @@ export function WordManagement() {
                       )}
 
                       {formData.imagePath ? (
-                        <img
-                          src={modalImageBase64}
+                        <img 
+                          src={modalImageBase64} 
                           alt="Visual asset preview"
                           className="w-full h-full object-cover"
                         />
@@ -1279,13 +1238,13 @@ export function WordManagement() {
               </div>
 
               <div className="p-8 bg-white/2 border-t border-white/5 flex justify-end gap-4">
-                <button
+                <button 
                   onClick={() => setIsModalOpen(false)}
                   className="px-6 py-2 text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-white"
                 >
                   Discard
                 </button>
-                <button
+                <button 
                   onClick={handleSave}
                   className="px-8 py-3 bg-brand-primary text-black rounded-xl text-xs font-bold uppercase tracking-widest hover:scale-[1.02] active:scale-95 transition-all"
                 >
@@ -1301,7 +1260,7 @@ export function WordManagement() {
       <AnimatePresence>
         {activePlaybackVideo && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-            <motion.div
+            <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
@@ -1309,7 +1268,7 @@ export function WordManagement() {
             >
               <div className="flex items-center justify-between p-4 border-b border-white/5">
                 <span className="text-xs uppercase tracking-widest font-mono font-bold text-gray-300">Cinema Scene Preview</span>
-                <button
+                <button 
                   onClick={() => setActivePlaybackVideo(null)}
                   className="p-1.5 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 text-white transition-colors cursor-pointer"
                 >
@@ -1317,7 +1276,7 @@ export function WordManagement() {
                 </button>
               </div>
               <div className="aspect-video w-full bg-black relative flex items-center justify-center">
-                <video
+                <video 
                   src={getAssetUrl(activePlaybackVideo)}
                   controls
                   autoPlay

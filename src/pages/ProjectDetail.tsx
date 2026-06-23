@@ -103,7 +103,9 @@ export function ProjectDetail() {
         isTurbo, 
         (progressMsg) => {
           setGenerationMsg(progressMsg);
-        }
+        },
+        project.width,
+        project.height
       );
 
       if (savedPath) {

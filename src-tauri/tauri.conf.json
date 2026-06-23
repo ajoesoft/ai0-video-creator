@@ -18,11 +18,13 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; video-src 'self' asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost; audio-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline';",
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost stream: http://stream.localhost; media-src 'self' blob: data: stream: http://stream.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "**/*"
+          "**/*.mp4",
+          "**/*.mp3",
+          "**/*.wav"
         ]
       }
     }

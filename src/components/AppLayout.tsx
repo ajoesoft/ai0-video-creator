@@ -3,13 +3,58 @@ import { Sidebar } from './Sidebar';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation, LANGUAGE_LABELS, LanguageCode } from '../contexts/LanguageContext';
-import { Globe, ChevronDown, Check } from 'lucide-react';
+import { 
+  Globe, 
+  ChevronDown, 
+  Check, 
+  MessageSquare, 
+  Send, 
+  Copy, 
+  Trash2, 
+  X, 
+  RefreshCw, 
+  Loader2, 
+  Bot, 
+  Sliders 
+} from 'lucide-react';
+import { getSetting, setSetting } from '../lib/db';
+
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { language, setLanguage, t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Chat States
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [systemPrompt, setSystemPrompt] = useState('You are a professional video translation and editing assistant. Help the user configure settings, translate text, write scripts, or answer questions about audio, voice cloning, and model execution.');
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  const [userMsg, setUserMsg] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState('qwen:7b');
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  
+  const [ollamaAddr, setOllamaAddr] = useState('127.0.0.1');
+  const [ollamaPort, setOllamaPort] = useState('11434');
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Auto scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    if (chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isSending]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -21,6 +66,126 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Fetch Ollama connection info and active models
+  const openChatAndLoad = async () => {
+    setIsChatOpen(true);
+    setErrorMsg(null);
+    try {
+      const addr = await getSetting('ollama_address') || '127.0.0.1';
+      const port = await getSetting('ollama_port') || '11434';
+      const activeModel = await getSetting('model_ollama_active_model') || 'qwen:7b';
+      
+      setOllamaAddr(addr);
+      setOllamaPort(port);
+      setSelectedModel(activeModel);
+
+      await fetchModelsForChat(addr, port, activeModel);
+    } catch (err: any) {
+      console.error("Failed to load settings:", err);
+    }
+  };
+
+  const fetchModelsForChat = async (addr: string, port: string, activeModel: string) => {
+    setIsFetchingModels(true);
+    setErrorMsg(null);
+    try {
+      const cleanAddr = addr.startsWith('http://') || addr.startsWith('https://') 
+        ? addr 
+        : `http://${addr}`;
+      const response = await fetch(`${cleanAddr}:${port}/api/tags`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.models)) {
+          const names = data.models.map((m: any) => m.name);
+          setOllamaModels(names);
+          if (names.length > 0) {
+            if (names.includes(activeModel)) {
+              setSelectedModel(activeModel);
+            } else {
+              setSelectedModel(names[0]);
+            }
+          }
+        } else {
+          setOllamaModels([activeModel]);
+        }
+      } else {
+        throw new Error(`Server returned status ${response.status}`);
+      }
+    } catch (err: any) {
+      console.warn("Failed to fetch Ollama models in chat:", err);
+      setErrorMsg(`Cannot connect to Ollama at ${addr}:${port}. Ensure service is running and CORS is allowed.`);
+      setOllamaModels([activeModel]);
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userMsg.trim() || isSending) return;
+
+    const currentMsg = userMsg;
+    setUserMsg('');
+    setErrorMsg(null);
+
+    const newUserMessage: ChatMessage = { role: 'user', content: currentMsg };
+    const updatedMessages = [...chatMessages, newUserMessage];
+    setChatMessages(updatedMessages);
+
+    setIsSending(true);
+
+    try {
+      const cleanAddr = ollamaAddr.startsWith('http://') || ollamaAddr.startsWith('https://') 
+        ? ollamaAddr 
+        : `http://${ollamaAddr}`;
+      
+      const payloadMessages = [];
+      if (systemPrompt.trim()) {
+        payloadMessages.push({ role: 'system', content: systemPrompt });
+      }
+      payloadMessages.push(...updatedMessages);
+
+      const response = await fetch(`${cleanAddr}:${ollamaPort}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: payloadMessages,
+          stream: false
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Ollama responds with error status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data && data.message) {
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message.content
+        }]);
+      } else {
+        throw new Error("Invalid response format received from Ollama.");
+      }
+    } catch (err: any) {
+      console.error("Failed to query Ollama:", err);
+      setErrorMsg(`Failed to query Ollama API. Connection status: Offline. Details: ${err.message || err}`);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => {
+      setCopiedIndex(null);
+    }, 2000);
+  };
 
   return (
     <div className="flex h-screen w-screen overflow-hidden text-gray-100 font-sans">
@@ -37,51 +202,55 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-6">
              {/* Language Selector Dropdown */}
-             <div className="relative" ref={dropdownRef}>
-                <button 
-                  onClick={() => setIsOpen(!isOpen)}
-                  className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/5 hover:border-brand-primary/30 rounded-md transition-all text-sm hover:bg-white/10"
-                >
-                   <Globe className="w-4 h-4 text-brand-primary" />
-                   <span className="mono-text tracking-wide whitespace-nowrap text-xs font-semibold">{LANGUAGE_LABELS[language]}</span>
-                   <ChevronDown className="w-3.5 h-3.5 text-white/40" />
-                </button>
+              <div className="relative" ref={dropdownRef}>
+                 <button 
+                   onClick={() => setIsOpen(!isOpen)}
+                   className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/5 hover:border-brand-primary/30 rounded-md transition-all text-sm hover:bg-white/10"
+                 >
+                    <Globe className="w-4 h-4 text-brand-primary" />
+                    <span className="mono-text tracking-wide whitespace-nowrap text-xs font-semibold">{LANGUAGE_LABELS[language]}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-white/40" />
+                 </button>
 
-                <AnimatePresence>
-                  {isOpen && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 8 }}
-                      className="absolute right-0 mt-2 w-48 bg-[#09090b] border border-white/15 rounded-md shadow-2xl z-50 py-1.5 overflow-hidden"
-                    >
-                      {(Object.keys(LANGUAGE_LABELS) as LanguageCode[]).map((lang) => (
-                        <button
-                          key={lang}
-                          onClick={() => {
-                            setLanguage(lang);
-                            setIsOpen(false);
-                          }}
-                          className="w-full flex items-center justify-between px-4 py-2 hover:bg-brand-primary hover:text-black transition-all text-xs font-medium text-white/80 active:opacity-75 text-left"
-                          style={{ textAlign: language === 'ar' ? 'right' : 'left' }}
-                        >
-                          <span>{LANGUAGE_LABELS[lang]}</span>
-                          {language === lang && (
-                            <Check className="w-3.5 h-3.5 shrink-0 ml-2" />
-                          )}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-             </div>
+                 <AnimatePresence>
+                   {isOpen && (
+                     <motion.div 
+                       initial={{ opacity: 0, y: 8 }}
+                       animate={{ opacity: 1, y: 0 }}
+                       exit={{ opacity: 0, y: 8 }}
+                       className="absolute right-0 mt-2 w-48 bg-[#09090b] border border-white/15 rounded-md shadow-2xl z-50 py-1.5 overflow-hidden"
+                     >
+                       {(Object.keys(LANGUAGE_LABELS) as LanguageCode[]).map((lang) => (
+                         <button
+                           key={lang}
+                           onClick={() => {
+                             setLanguage(lang);
+                             setIsOpen(false);
+                           }}
+                           className="w-full flex items-center justify-between px-4 py-2 hover:bg-brand-primary hover:text-black transition-all text-xs font-medium text-white/80 active:opacity-75 text-left"
+                           style={{ textAlign: language === 'ar' ? 'right' : 'left' }}
+                         >
+                           <span>{LANGUAGE_LABELS[lang]}</span>
+                           {language === lang && (
+                             <Check className="w-3.5 h-3.5 shrink-0 ml-2" />
+                           )}
+                         </button>
+                       ))}
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
+              </div>
 
              <div className="flex items-center gap-2 hidden sm:flex">
                 <div className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse" />
                 <span className="text-[10px] font-mono text-brand-primary font-bold uppercase tracking-widest">{t('masterNodeLink')}</span>
              </div>
-             <button className="desktop-button-primary">
-                {t('render4K')}
+             <button 
+               onClick={openChatAndLoad}
+               className="desktop-button-primary flex items-center gap-2 cursor-pointer transition-all duration-200"
+             >
+                <MessageSquare className="w-4 h-4 text-black shrink-0" />
+                <span>Chat</span>
              </button>
           </div>
         </header>
@@ -101,6 +270,228 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Dynamic Ollama Chat Dialogue Popup Modal (句中显示) */}
+      <AnimatePresence>
+        {isChatOpen && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="bg-[#0e0e11] border border-white/10 rounded-xl w-full max-w-2xl h-[600px] flex flex-col overflow-hidden shadow-2xl relative text-white"
+            >
+              {/* Modal Header */}
+              <div className="h-14 border-b border-white/5 bg-black/30 flex items-center justify-between px-5 py-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 bg-brand-primary/10 rounded-md flex items-center justify-center text-brand-primary">
+                    <Bot className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold tracking-tight">Ollama AI Chat Assistant</h2>
+                    <p className="text-[10px] font-mono text-gray-400">Connected to http://{ollamaAddr}:{ollamaPort}</p>
+                  </div>
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => setIsChatOpen(false)}
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors text-gray-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Collapsible System Prompt Settings Block */}
+              <div className="border-b border-white/5 bg-[#121215]">
+                <button
+                  type="button"
+                  onClick={() => setShowSystemPrompt(!showSystemPrompt)}
+                  className="w-full px-5 py-2 flex items-center justify-between text-xs text-gray-400 hover:text-white transition-colors border-b border-white/5 hover:bg-white/[0.02]"
+                >
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Sliders className="w-3.5 h-3.5 text-brand-primary" />
+                    Configure System Prompt
+                  </span>
+                  <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded font-mono">
+                    {showSystemPrompt ? 'Hide' : 'Show'}
+                  </span>
+                </button>
+                
+                <AnimatePresence>
+                  {showSystemPrompt && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden px-5 py-3 space-y-2 bg-black/20"
+                    >
+                      <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block font-sans">System Persona指令</label>
+                      <textarea
+                        value={systemPrompt}
+                        onChange={(e) => setSystemPrompt(e.target.value)}
+                        rows={3}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs focus:border-brand-primary focus:outline-none focus:ring-1 focus:ring-brand-primary/30 text-gray-200 resize-none font-sans"
+                        placeholder="Define how the assistant should behave..."
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Chat Message Stream Panel */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar bg-black/10">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-gray-500 border border-white/5">
+                      <MessageSquare className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1 max-w-sm">
+                      <p className="text-xs text-gray-200 font-semibold">Welcome to local LLM Sandbox Chat</p>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        This dialog queries the local Ollama daemon directly. You can use it to compose translations, troubleshoot pipeline scripts, or configure system behavior.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  chatMessages.map((msg, index) => {
+                    const isUser = msg.role === 'user';
+                    return (
+                      <div
+                        key={index}
+                        className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
+                      >
+                        {!isUser && (
+                          <div className="w-7 h-7 bg-brand-primary/10 border border-brand-primary/20 text-brand-primary font-bold rounded-md flex items-center justify-center text-xs shrink-0 mt-0.5">
+                            AI
+                          </div>
+                        )}
+                        <div
+                          className={`group relative rounded-xl px-4 py-2.5 text-xs shadow-sm max-w-[80%] leading-relaxed ${
+                            isUser
+                              ? 'bg-brand-primary text-black font-semibold rounded-tr-none'
+                              : 'bg-white/5 border border-white/10 text-gray-200 rounded-tl-none font-sans'
+                          }`}
+                        >
+                          <div className="whitespace-pre-wrap">{msg.content}</div>
+                          
+                          {/* Copy trigger absolute position inside AI bubble */}
+                          {!isUser && (
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(msg.content, index)}
+                              className="absolute right-2.5 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded-md bg-[#0e0e11] hover:bg-white/10 text-gray-400 hover:text-white cursor-pointer"
+                              title="Copy generated result"
+                            >
+                              {copiedIndex === index ? (
+                                <Check className="w-3.5 h-3.5 text-brand-primary" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+
+                {/* Loading indicator balloon */}
+                {isSending && (
+                  <div className="flex gap-3 justify-start">
+                    <div className="w-7 h-7 bg-brand-primary/10 border border-brand-primary/20 text-brand-primary font-bold rounded-md flex items-center justify-center text-xs shrink-0 animate-pulse mt-0.5">
+                      AI
+                    </div>
+                    <div className="bg-white/5 border border-white/10 text-gray-400 rounded-xl rounded-tl-none px-4 py-3 text-xs flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-brand-primary" />
+                      <span>Thinking and responding from Ollama model ({selectedModel})...</span>
+                    </div>
+                  </div>
+                )}
+
+                {errorMsg && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg text-[11px] leading-relaxed flex items-start gap-2 max-w-lg mx-auto animate-fade-in">
+                    <X className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Ollama API Error:</span> {errorMsg}
+                    </div>
+                  </div>
+                )}
+                
+                <div ref={chatBottomRef} />
+              </div>
+
+              {/* Model Selection and Controls Footer bar */}
+              <div className="px-5 py-3.5 bg-black/40 border-t border-white/5 flex items-center justify-between text-xs gap-4 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 font-medium">Active Model:</span>
+                  <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded px-2.5 py-1">
+                    <select
+                      value={selectedModel}
+                      onChange={async (e) => {
+                        const val = e.target.value;
+                        setSelectedModel(val);
+                        await setSetting('model_ollama_active_model', val);
+                      }}
+                      className="bg-transparent border-0 text-white focus:outline-none focus:ring-0 text-xs font-medium pr-1 cursor-pointer"
+                    >
+                      {ollamaModels.map(name => (
+                        <option key={name} value={name} className="bg-[#121214] text-white">
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    <button
+                      type="button"
+                      onClick={() => fetchModelsForChat(ollamaAddr, ollamaPort, selectedModel)}
+                      disabled={isFetchingModels}
+                      className="text-gray-400 hover:text-white disabled:opacity-50 cursor-pointer"
+                      title="Rescan models"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isFetchingModels ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setChatMessages([])}
+                  className="flex items-center gap-1.5 text-[10px] uppercase font-mono tracking-widest text-red-400 hover:text-red-300 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear Chat
+                </button>
+              </div>
+
+              {/* Dialogue prompt form */}
+              <form onSubmit={handleSendMessage} className="p-4 bg-black/60 border-t border-white/15 flex items-center gap-3 shrink-0">
+                <input
+                  type="text"
+                  value={userMsg}
+                  onChange={(e) => setUserMsg(e.target.value)}
+                  placeholder="Type message to Ollama AI assistant..."
+                  className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-xs focus:outline-none focus:border-brand-primary placeholder:text-gray-500 font-sans text-white bg-black/40"
+                  disabled={isSending}
+                />
+                
+                <button
+                  type="submit"
+                  disabled={isSending || !userMsg.trim()}
+                  className="bg-brand-primary text-black disabled:bg-white/10 disabled:text-white/30 rounded-lg p-2.5 font-bold transition-all shrink-0 flex items-center justify-center cursor-pointer"
+                >
+                  {isSending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

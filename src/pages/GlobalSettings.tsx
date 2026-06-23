@@ -47,6 +47,8 @@ export function GlobalSettings() {
   const [ollamaFetchError, setOllamaFetchError] = useState<string | null>(null);
   const [comfyuiAddress, setComfyuiAddress] = useState('127.0.0.1');
   const [comfyuiPort, setComfyuiPort] = useState('8188');
+  const [ollamaAddress, setOllamaAddress] = useState('127.0.0.1');
+  const [ollamaPort, setOllamaPort] = useState('11434');
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -56,11 +58,16 @@ export function GlobalSettings() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const fetchOllamaModels = async () => {
+  const fetchOllamaModels = async (customAddr?: string, customPort?: string) => {
     setIsFetchingModels(true);
     setOllamaFetchError(null);
     try {
-      const response = await fetch('http://127.0.0.1:11434/api/tags');
+      const addr = customAddr || ollamaAddress || '127.0.0.1';
+      const port = customPort || ollamaPort || '11434';
+      const cleanAddr = addr.startsWith('http://') || addr.startsWith('https://') 
+        ? addr 
+        : `http://${addr}`;
+      const response = await fetch(`${cleanAddr}:${port}/api/tags`);
       if (!response.ok) {
         throw new Error(`HTTP Error: status ${response.status}`);
       }
@@ -88,7 +95,7 @@ export function GlobalSettings() {
     }
   };
 
-  const fetchVersions = async (pyPath: string, ffPath: string) => {
+  const fetchVersions = async (pyPath: string, ffPath: string, customOllamaAddr?: string, customOllamaPort?: string) => {
     const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
     
     if (!isTauri) {
@@ -97,7 +104,12 @@ export function GlobalSettings() {
       setFfmpegVer('Web Mode (FFmpeg Webassembly Simulation Active)');
       
       try {
-        const response = await fetch('http://127.0.0.1:11434/api/version');
+        const addr = customOllamaAddr || ollamaAddress || '127.0.0.1';
+        const port = customOllamaPort || ollamaPort || '11434';
+        const cleanAddr = addr.startsWith('http://') || addr.startsWith('https://') 
+          ? addr 
+          : `http://${addr}`;
+        const response = await fetch(`${cleanAddr}:${port}/api/version`);
         const data = await response.json();
         if (data && data.version) {
           setOllamaVer(`Ollama v${data.version} (Active via Local Loopback)`);
@@ -142,9 +154,14 @@ export function GlobalSettings() {
         const ollamaResult = await invoke<string>('get_ollama_version');
         setOllamaVer(ollamaResult);
       } catch (err: any) {
-        // Fallback to fetch API on localhost
+        // Fallback to fetch API
         try {
-          const response = await fetch('http://127.0.0.1:11434/api/version');
+          const addr = customOllamaAddr || ollamaAddress || '127.0.0.1';
+          const port = customOllamaPort || ollamaPort || '11434';
+          const cleanAddr = addr.startsWith('http://') || addr.startsWith('https://') 
+            ? addr 
+            : `http://${addr}`;
+          const response = await fetch(`${cleanAddr}:${port}/api/version`);
           const data = await response.json();
           if (data && data.version) {
             setOllamaVer(`Ollama v${data.version} (Active via local API)`);
@@ -200,9 +217,17 @@ export function GlobalSettings() {
       const savedComfyPort = await getSetting('comfyui_port');
       setComfyuiPort(savedComfyPort || '8188');
 
+      const savedOllamaAddr = await getSetting('ollama_address');
+      const resolvedOllamaAddr = savedOllamaAddr || '127.0.0.1';
+      setOllamaAddress(resolvedOllamaAddr);
+
+      const savedOllamaPort = await getSetting('ollama_port');
+      const resolvedOllamaPort = savedOllamaPort || '11434';
+      setOllamaPort(resolvedOllamaPort);
+
       // Fetch dynamic version tags & models
-      await fetchVersions(resolvedPyPath, resolvedFfPath);
-      await fetchOllamaModels();
+      await fetchVersions(resolvedPyPath, resolvedFfPath, resolvedOllamaAddr, resolvedOllamaPort);
+      await fetchOllamaModels(resolvedOllamaAddr, resolvedOllamaPort);
     }
     loadSettings();
   }, []);
@@ -284,9 +309,11 @@ export function GlobalSettings() {
       await setSetting('model_ollama_active_model', selectedOllamaModel);
       await setSetting('comfyui_address', comfyuiAddress);
       await setSetting('comfyui_port', comfyuiPort);
+      await setSetting('ollama_address', ollamaAddress);
+      await setSetting('ollama_port', ollamaPort);
       setSaveStatus('saved');
-      await fetchVersions(pythonPath, ffmpegPath);
-      await fetchOllamaModels();
+      await fetchVersions(pythonPath, ffmpegPath, ollamaAddress, ollamaPort);
+      await fetchOllamaModels(ollamaAddress, ollamaPort);
     } catch (e) {
       console.error('Failed to save settings:', e);
       setSaveStatus('idle');
@@ -462,6 +489,29 @@ export function GlobalSettings() {
                     <div className="w-10 h-5 bg-brand-primary rounded-full relative cursor-pointer">
                        <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full transition-all" />
                     </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-4">
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Address (服务地址)</label>
+                     <input 
+                       type="text" 
+                       value={ollamaAddress} 
+                       onChange={(e) => setOllamaAddress(e.target.value)}
+                       className="desktop-input w-full font-mono text-xs" 
+                       placeholder="127.0.0.1"
+                     />
+                   </div>
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Port (端口号)</label>
+                     <input 
+                       type="text" 
+                       value={ollamaPort} 
+                       onChange={(e) => setOllamaPort(e.target.value)}
+                       className="desktop-input w-full font-mono text-xs" 
+                       placeholder="11434"
+                     />
+                   </div>
                  </div>
 
                  <div className="space-y-2">

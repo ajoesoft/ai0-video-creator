@@ -48,6 +48,8 @@ interface TimelineClip {
   duration: number; // In seconds
   assetPath?: string; // Local storage file path or remote URL
   text?: string; // Subtitle text
+  transitionType?: 'none' | 'fade' | 'dip_black' | 'dip_white' | 'wipe_left' | 'wipe_right' | 'zoom_in';
+  transitionDuration?: number;
 }
 
 export function TimelineEditor() {
@@ -179,7 +181,9 @@ export function TimelineEditor() {
           title: segment.word || `Scene_${segment.id}.mp4`,
           startTime: currentStart,
           duration: duration,
-          assetPath: segment.videoPath
+          assetPath: segment.videoPath,
+          transitionType: 'none',
+          transitionDuration: 0.8
         });
       }
 
@@ -288,6 +292,58 @@ export function TimelineEditor() {
     currentPlayTimeSec <= (c.startTime + c.duration)
   );
 
+  let videoStyle: React.CSSProperties = {};
+  let transitionOverlay: React.ReactNode = null;
+
+  if (activeVisualClip && !previewVideoUrl && !isPlaySynthesizedMode) {
+    const offsetInClip = currentPlayTimeSec - activeVisualClip.startTime;
+    const transType = activeVisualClip.transitionType || 'none';
+    const transDur = activeVisualClip.transitionDuration || 0.8;
+    
+    if (transType !== 'none' && offsetInClip < transDur) {
+      const progress = offsetInClip / transDur; // 0 to 1
+      
+      if (transType === 'fade' || transType === 'dip_black') {
+        const opacity = Math.max(0, 1 - progress);
+        transitionOverlay = (
+          <div 
+            className="absolute inset-0 bg-[#070709] pointer-events-none z-15 transition-opacity"
+            style={{ opacity }}
+          />
+        );
+      } else if (transType === 'dip_white') {
+        const opacity = Math.max(0, 1 - progress);
+        transitionOverlay = (
+          <div 
+            className="absolute inset-0 bg-white pointer-events-none z-15 transition-opacity"
+            style={{ opacity }}
+          />
+        );
+      } else if (transType === 'wipe_left') {
+        const percent = Math.min(100, Math.max(0, progress * 100));
+        transitionOverlay = (
+          <div 
+            className="absolute inset-0 bg-[#070709] pointer-events-none z-15"
+            style={{ clipPath: `polygon(${percent}% 0, 100% 0, 100% 100%, ${percent}% 100%)` }}
+          />
+        );
+      } else if (transType === 'wipe_right') {
+        const percent = Math.min(100, Math.max(0, (1 - progress) * 100));
+        transitionOverlay = (
+          <div 
+            className="absolute inset-0 bg-[#070709] pointer-events-none z-15"
+            style={{ clipPath: `polygon(0 0, ${percent}% 0, ${percent}% 100%, 0 100%)` }}
+          />
+        );
+      } else if (transType === 'zoom_in') {
+        const scaleVal = 1.15 - (0.15 * progress);
+        videoStyle = {
+          transform: `scale(${scaleVal})`,
+        };
+      }
+    }
+  }
+
   // Synchronize simulated video player
   useEffect(() => {
     if (!videoPlayerRef.current) return;
@@ -362,7 +418,9 @@ export function TimelineEditor() {
         title: item.word || 'Added Scene',
         startTime: playheadTime,
         duration: 4.5,
-        assetPath: item.videoPath
+        assetPath: item.videoPath,
+        transitionType: 'none',
+        transitionDuration: 0.8
       };
     } else if (type === 'audio' && item.audioPath) {
       newClip = {
@@ -631,7 +689,7 @@ export function TimelineEditor() {
       const promptText = await applyPromptHarnessRules(basePromptText, projectId);
       const savedPath = await comfy.runImageGenerationRust(promptText, localImgPath, true, (msg) => {
         setGenerationMsg(msg);
-      });
+      }, project?.width, project?.height);
 
       if (savedPath) {
         await updateVocabulary(segment.id, { imagePath: savedPath });
@@ -703,7 +761,9 @@ export function TimelineEditor() {
         promptText,
         (msg) => {
           setGenerationMsg(`ComfyUI: ${msg}`);
-        }
+        },
+        project?.width,
+        project?.height
       );
 
       if (videos.length > 0) {
@@ -893,6 +953,10 @@ export function TimelineEditor() {
       "Opening input files... Success.",
       "Parsing h264 elementary bitstreams... Success.",
       "Reading audio AAC payloads... Success.",
+      "",
+      "== STAGE 1.5: Applying Video Transition Offsets (xfade filter) ==",
+      ...visualClips.map((c, i) => `  - Sequence ${i+1}: "${c.title}" -> Transition: ${c.transitionType ? c.transitionType.toUpperCase() : 'NONE'} (${c.transitionDuration || 0.8}s)`),
+      "Compiling complex graph transitions... Completed successfully.",
       "",
       "== STAGE 2: Transcoding & Burning Subtitles (libass filter) ==",
       `Applying CSS subtitle style matrices... [PresetStyle: ${subtitleStyle === 'burnt' ? 'Burned-In Video Render' : 'Soft-mux Sub-container'}]`,
@@ -1528,9 +1592,66 @@ export function TimelineEditor() {
                   />
                 </div>
               ) : (
-                <div className="text-[10px] text-gray-500 truncate">
-                  <span className="block">绑定资源 Path</span>
-                  <span className="font-mono text-gray-400 block mt-0.5 truncate bg-black px-1.5 py-1 rounded border border-white/5">{selectedClip.assetPath || 'No Resource Link.'}</span>
+                <div className="space-y-4">
+                  <div className="text-[10px] text-gray-500 truncate">
+                    <span className="block">绑定资源 Path</span>
+                    <span className="font-mono text-gray-400 block mt-0.5 truncate bg-black px-1.5 py-1 rounded border border-white/5" title={selectedClip.assetPath}>{selectedClip.assetPath || 'No Resource Link.'}</span>
+                  </div>
+
+                  {selectedClip.trackType === 'visual' && (
+                    <div className="border-t border-white/5 pt-3 space-y-2.5">
+                      <div className="flex items-center gap-1.5 text-[10px] text-purple-400 font-bold uppercase tracking-wider">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>画面入场转场 TRANSITION EFFECT</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <span className="text-[9px] text-gray-400 block">转场效果 Type</span>
+                          <select
+                            value={selectedClip.transitionType || 'none'}
+                            onChange={e => {
+                              const val = e.target.value as any;
+                              const updated = clips.map(c => c.id === selectedClip.id ? { 
+                                ...c, 
+                                transitionType: val,
+                                transitionDuration: c.transitionDuration || 0.8
+                              } : c);
+                              setClips(updated);
+                              saveClips(updated);
+                            }}
+                            className="w-full bg-black border border-white/10 px-2 py-1.5 rounded text-white text-[11px] mt-1 outline-none focus:border-purple-500"
+                          >
+                            <option value="none">无效果 (None)</option>
+                            <option value="fade">淡入淡出 (Fade In)</option>
+                            <option value="dip_black">闪黑 (Dip to Black)</option>
+                            <option value="dip_white">闪白 (Dip to White)</option>
+                            <option value="wipe_left">向左擦除 (Wipe Left)</option>
+                            <option value="wipe_right">向右擦除 (Wipe Right)</option>
+                            <option value="zoom_in">缩放过渡 (Zoom In)</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <span className="text-[9px] text-gray-400 block">时间 Duration (s)</span>
+                          <input 
+                            type="number" 
+                            step="0.1"
+                            min="0.1"
+                            max="3.0"
+                            value={selectedClip.transitionDuration || 0.8} 
+                            onChange={e => {
+                              const val = Math.max(0.1, parseFloat(e.target.value) || 0.8);
+                              const updated = clips.map(c => c.id === selectedClip.id ? { ...c, transitionDuration: val } : c);
+                              setClips(updated);
+                              saveClips(updated);
+                            }}
+                            className="w-full bg-black border border-white/10 px-2 py-1.5 rounded text-white text-[11px] mt-1 outline-none focus:border-purple-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1573,7 +1694,11 @@ export function TimelineEditor() {
                     }
                   }}
                   className="w-full h-full object-contain absolute inset-0 z-10"
+                  style={videoStyle}
                 />
+
+                {/* Live Real-time Transition Simulation Overlay Panel */}
+                {transitionOverlay}
 
                 {/* Subtitle float Overlay */}
                 {activeSubtitleClip && !previewVideoUrl && !isPlaySynthesizedMode && (
@@ -1922,7 +2047,9 @@ export function TimelineEditor() {
                         startTime: dropTime,
                         duration: 4.0,
                         title: segment.word || 'Dropped Scene',
-                        assetPath: segment.videoPath || undefined
+                        assetPath: segment.videoPath || undefined,
+                        transitionType: 'none',
+                        transitionDuration: 0.8
                       };
                       const updated = [...clips, newClip];
                       setClips(updated);
@@ -1994,9 +2121,20 @@ export function TimelineEditor() {
                           width: `${widthPx}px`
                         }}
                       >
+                        {/* Optional track transition tag */}
+                        {clip.trackType === 'visual' && clip.transitionType && clip.transitionType !== 'none' && (
+                          <div 
+                            className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-purple-800/90 via-purple-800/70 to-transparent text-[8px] font-bold text-white pl-1.5 pr-4 flex items-center select-none z-15 pointer-events-none"
+                            title={`转场效果: ${clip.transitionType} (${clip.transitionDuration || 0.8}s)`}
+                          >
+                            <Sparkles className="w-2.5 h-2.5 mr-1 text-purple-300" />
+                            <span className="text-[7.5px] tracking-wide text-purple-200">{clip.transitionType.toUpperCase()}</span>
+                          </div>
+                        )}
+
                         {/* Title of clip */}
                         <div className="flex items-center justify-between gap-1.5 min-w-0">
-                          <span className="font-bold truncate opacity-90 uppercase text-[9px]">{clip.title}</span>
+                          <span className={cn("font-bold truncate opacity-90 uppercase text-[9px]", clip.trackType === 'visual' && clip.transitionType && clip.transitionType !== 'none' ? "pl-14" : "")}>{clip.title}</span>
                           <span className="opacity-40 text-[8px] flex-shrink-0">{clip.duration.toFixed(1)}s</span>
                         </div>
 

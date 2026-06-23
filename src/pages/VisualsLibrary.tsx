@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import {
-  Palette,
-  Sparkles,
-  Download,
-  Trash2,
-  Video,
-  RefreshCcw,
+import { 
+  Palette, 
+  Sparkles, 
+  Download, 
+  Trash2, 
+  Video, 
+  RefreshCcw, 
   Maximize2,
   Filter,
   Plus,
@@ -28,13 +28,13 @@ import {
 } from 'lucide-react';
 import { cn, useMediaUrl, useLocalImageBase64 } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-  fetchProjectById,
-  fetchVocabularyByProject,
+import { 
+  fetchProjectById, 
+  fetchVocabularyByProject, 
   updateVocabulary,
-  fetchVisualLibraryByProject,
-  createVisualLibraryItem,
-  updateVisualLibraryItem,
+  fetchVisualLibraryByProject, 
+  createVisualLibraryItem, 
+  updateVisualLibraryItem, 
   deleteVisualLibraryItem,
   fetchPromptHarnessByProject,
   createPromptHarness,
@@ -51,9 +51,9 @@ import { useTranslation } from '../contexts/LanguageContext';
 function VisualAssetItemImage({ path, title, className = "w-full h-full object-cover" }: { path: string | undefined | null, title?: string, className?: string }) {
   const src = useLocalImageBase64(path);
   return (
-    <img
-      src={src}
-      alt={title || ""}
+    <img 
+      src={src} 
+      alt={title || ""} 
       referrerPolicy="no-referrer"
       className={className}
     />
@@ -63,14 +63,14 @@ function VisualAssetItemImage({ path, title, className = "w-full h-full object-c
 export function VisualsLibrary() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
-
+  
   // App context states
   const [project, setProject] = useState<VideoProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
+  
   // Interactive workspace toggle
   const [workspaceTab, setWorkspaceTab] = useState<'visual_db' | 'storyboard' | 'harness'>('visual_db');
-
+  
   // Prompt Harness Workspace States (IP Consistency)
   const [promptHarnesses, setPromptHarnesses] = useState<PromptHarness[]>([]);
   const [newHarnessTrigger, setNewHarnessTrigger] = useState('');
@@ -79,22 +79,22 @@ export function VisualsLibrary() {
   const [testPlaygroundInput, setTestPlaygroundInput] = useState('在废墟边缘，@主角 紧握着拳头。突然，空中出现了 @盔甲_IP，它们开始加速拼接。');
   const [testPlaygroundOutput, setTestPlaygroundOutput] = useState('');
   const [isTestingHarness, setIsTestingHarness] = useState(false);
-
+  
   // AI Prompt / Context / Harness Blueprint Ecosystem States
   const [selectedBlueprintIndex, setSelectedBlueprintIndex] = useState<number>(0);
   const [isDeployingBlueprint, setIsDeployingBlueprint] = useState<boolean>(false);
   const [blueprintFeedback, setBlueprintFeedback] = useState<string>('');
-
+  
   // New Visual Assets Database Tab States
   const [visualItems, setVisualItems] = useState<VisualLibraryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('All');
-
+  
   // Storyboards Tab States (from previous codebase version)
   const [storyboardAssets, setStoryboardAssets] = useState<Vocabulary[]>([]);
   const [storyboardTab, setStoryboardTab] = useState<'all' | 'images' | 'videos'>('all');
   const [isGeneratingStory, setIsGeneratingStory] = useState<Record<number, boolean>>({});
-
+  
   // Custom Audio Manager for List playback
   const [activePlayingAudioId, setActivePlayingAudioId] = useState<number | null>(null);
   const [activeStoryAudioId, setActiveStoryAudioId] = useState<number | null>(null);
@@ -107,7 +107,7 @@ export function VisualsLibrary() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Partial<VisualLibraryItem> | null>(null);
   const editingItemImageBase64 = useLocalImageBase64(editingItem?.imagePath);
-
+  
   // Inline Generation Logs & Loaders in Detail Dialog
   const [detailGenType, setDetailGenType] = useState<'image' | 'audio' | 'video' | null>(null);
   const [detailGenLogs, setDetailGenLogs] = useState<string[]>([]);
@@ -134,7 +134,7 @@ export function VisualsLibrary() {
         // Load original Vocabulary records
         const storybKeys = await fetchVocabularyByProject(projectId);
         setStoryboardAssets([...storybKeys].sort((a, b) => a.id - b.id));
-
+        
         // Load our custom database assets matching the requested schema
         await loadVisualAssets(projectId);
         // Load our prompt consistency harness rules
@@ -175,7 +175,7 @@ export function VisualsLibrary() {
       alert("Please select a target Visual Asset to reference! (请选择一个目标视觉资产)");
       return;
     }
-
+    
     // Check if duplicate trigger keyword exists for this project
     const duplicate = promptHarnesses.some(h => h.triggerKeyword.toLowerCase() === newHarnessTrigger.trim().toLowerCase());
     if (duplicate) {
@@ -211,7 +211,7 @@ export function VisualsLibrary() {
   };
 
   const handleDeleteHarness = async (harnessId: number) => {
-    if (confirm("Are you sure you want to delete this prompt harness mapping? (确定要删除这个一致性触发映射吗？)")) {
+    if (confirm("Are you sure you want to delete this prompt harness mapping?")) {
       try {
         await deletePromptHarness(harnessId);
         await loadHarnessData(id || '');
@@ -235,47 +235,47 @@ export function VisualsLibrary() {
 
   const blueprints = [
     {
-      name: "赛博朋克霓虹风 (Cyberpunk)",
+      name: "Cyberpunk Neon (Cyberpunk)",
       trigger: "@Cyberpunk",
       type: "IP",
-      title: "赛博朋克世界观与角色设定",
-      description: "高对比度霓虹交融色调、荧光背光与细腻的晶体反射镜面，提供未来硬核科幻分镜支持。",
+      title: "Cyberpunk World & Character Settings",
+      description: "High-contrast neon colors, fluorescent backlighting, and subtle metallic reflections to fuel futuristic cyberpunk screenplays.",
       imagePrompt: "cyberpunk portrait, high-tech cybernetic clothing, ambient neon lighting, deep blue and hot magenta highlights, detailed reflections in eyes, volumetric smoke, ray-traced, ultra-detailed, octane render, Unreal Engine 5 aesthetic, photorealistic 8k",
       videoPrompt: "slow camera dolly forward, micro-dust particles swirling in neon beams, dramatic slow-motion eye blink, depth of field"
     },
     {
-      name: "3D迪士尼皮克斯 (Pixar Style)",
+      name: "3D Disney Pixar (Pixar Style)",
       trigger: "@Pixar",
       type: "IP",
-      title: "三维超轻质拟真黏土角色设定",
-      description: "软萌治愈的面部温散射光、饱满灵动的戏剧化大眼眸，极大提升分镜动画一脉相承的无缝风格衔接。",
+      title: "3D Expressive Claymation Character Settings",
+      description: "Adorable soft subsurface scattering clay skin, giant expressive stylized eyes, and lively cinematic lighting for delightful character arcs.",
       imagePrompt: "3d animated cute character, soft Pixar lighting, clay render finish, big expressive eyes, masterfully detailed hair groom, pastel colored background, sub-surface scattering skin, Disney model aesthetic, high-fidelity render",
       videoPrompt: "subtle comical head tilt, slow expressive eye contact, background soft focal shift, whimsical animation physics"
     },
     {
-      name: "吉卜力手绘水彩 (Ghibli Watercolor)",
+      name: "Ghibli Hand-Drawn Watercolor (Ghibli Watercolor)",
       trigger: "@Ghibli",
       type: "环境",
-      title: "吉卜力梦幻手绘清新画风",
-      description: "手绘水彩痕迹、充满怀旧感与饱满绿意的自然色盘、温润积雨云，为影片营造出生机盎然的温馨氛围环境。",
+      title: "Dreamy Ghibli Watercolor Scenic Painting",
+      description: "Traditional hand-painted textures, nostalgic rich color schemes, and volumetric white cumulus clouds for deep, touching atmospheric backdrops.",
       imagePrompt: "Studio Ghibli painting style, hand-drawn watercolor aesthetic, lush summer clouds, direct brilliant sunlight, gentle nostalgic wind rustling green grass, warm saturated palette, anime-movie keyframe, high-fidelity classic animation",
       videoPrompt: "gentle slow breeze shifting clover field petals, clouds drifting across blue atmosphere, nostalgic watercolor animation timing"
     },
     {
-      name: "1950s黑白电影胶片 (Film Noir Cinema)",
+      name: "1950s Black & White Film (Film Noir Cinema)",
       trigger: "@FilmNoir",
       type: "环境",
-      title: "1950年代黑色电影光影世界",
-      description: "剧烈的 Chiaroscuro 明暗对照阴影关系、百叶窗在灰墙上的斜射几何斑驳、复古深邃烟雾感，极具故事情景张力。",
+      title: "1950s Detective/Crime Noir Cinemascape",
+      description: "Dramatic cinematic shadows, street lamp light cast against wet pavement, thick retro atmospheric haze, and moody monochrome setups.",
       imagePrompt: "classic 1950s film noir cinematography, high-contrast chiaroscuro shadows, Venetian blind light bars on walls, wet asphalt, dark trench coat, retro detective office mood, professional monochrome black and white photography, smoky atmosphere",
       videoPrompt: "slow panning shot, cigarette smoke curling upwards into soft lighting, crisp vintage camera lens focus pull"
     },
     {
-      name: "东方古典浮世绘版画 (Traditional Ukiyo-e)",
+      name: "Classic Oriental Ukiyo-e (Traditional Ukiyo-e)",
       trigger: "@UkiyoE",
       type: "IP",
-      title: "传统东方古典浮世绘极简设定",
-      description: "饱满刚劲墨线勾勒、高雅质朴扁平矿物配色、古旧桑皮纸张底图质感，使动画散发出典雅的中式/日式古典视觉美感。",
+      title: "Classical Oriental Woodblock Engraving Preset",
+      description: "Graceful flat mineral strokes, dynamic ink wash borders, and vintage organic mulberry paper papercraft textures for classical visual excellence.",
       imagePrompt: "traditional Ukiyo-e woodblock print aesthetic, elegant ink wash outlines, flat organic colors, vintage textured mulberry paper, flowing silk robes, iconic wave and pine leaf motifs, classic Edo-period flat illustration style",
       videoPrompt: "flat horizontal 2D camera pan, stylized ink ripples flowing softly, subtle paper texture jitter animating organic lines"
     }
@@ -284,16 +284,16 @@ export function VisualsLibrary() {
   const handleDeployBlueprint = async (index: number) => {
     const bp = blueprints[index];
     setIsDeployingBlueprint(true);
-    setBlueprintFeedback("正在部署一致性包...");
+    setBlueprintFeedback("Deploying style pack template...");
     try {
       const hasAsset = visualItems.some(v => v.title === bp.title);
       const hasHarness = promptHarnesses.some(h => h.triggerKeyword.toLowerCase() === bp.trigger.toLowerCase());
-
+      
       let assetId = 0;
       if (hasAsset) {
         const found = visualItems.find(v => v.title === bp.title);
         assetId = found?.id || 0;
-        setBlueprintFeedback("检测到已存在同名视觉预设，直接复用其标识 ID。");
+        setBlueprintFeedback("Identical preset found. Re-using visual asset ID.");
       } else {
         await createVisualLibraryItem({
           projectId: id || "",
@@ -308,34 +308,34 @@ export function VisualsLibrary() {
         setVisualItems(currentItems);
         const newlyCreated = currentItems.find(v => v.title === bp.title);
         assetId = newlyCreated?.id || 0;
-        setBlueprintFeedback("已成功向视觉库内注入高一致性模版！");
+        setBlueprintFeedback("Style pack successfully registered in library database!");
       }
 
       if (assetId) {
         if (hasHarness) {
-          setBlueprintFeedback("该一致性控制触发词已经建立映射关系，部署完成！");
+          setBlueprintFeedback("Character prompt harness token is already registered!");
         } else {
-          setBlueprintFeedback("正在映射一致性控制触发词规则...");
+          setBlueprintFeedback("Setting up prompt harness mapping rules...");
           await createPromptHarness({
             projectId: id || "",
             triggerKeyword: bp.trigger,
             visualAssetId: assetId,
             active: 1
           });
-          setBlueprintFeedback("部署成功！你可以在分镜或词汇卡中直接使用对应触发词进行高精画帧生成。");
+          setBlueprintFeedback("Style pack deployed successfully! Start using the trigger token in your storyboards.");
         }
       }
-
+      
       await loadHarnessData(id || '');
       await loadVisualAssets(id || '');
-
+      
       setTimeout(() => {
         setBlueprintFeedback("");
       }, 3500);
 
     } catch (err) {
       console.error("Blueprint deployment error:", err);
-      setBlueprintFeedback("部署失败，请检查数据库配置。");
+      setBlueprintFeedback("Deployment failed. Please check your database settings.");
     } finally {
       setIsDeployingBlueprint(false);
     }
@@ -365,10 +365,10 @@ export function VisualsLibrary() {
     }
 
     try {
-      currentRef.src = audioPath.startsWith('http') || audioPath.startsWith('data:')
-        ? audioPath
+      currentRef.src = audioPath.startsWith('http') || audioPath.startsWith('data:') 
+        ? audioPath 
         : `http://localhost:3000/view_file?path=${encodeURIComponent(audioPath)}`;
-
+      
       currentRef.play()
         .then(() => {
           if (isStoryboard) {
@@ -408,7 +408,7 @@ export function VisualsLibrary() {
     setDetailValidationErr(null);
     setDetailGenLogs([]);
     setDetailGenType(null);
-
+    
     // Create pre-populated partial visual library item
     setEditingItem({
       projectId: id || '',
@@ -447,17 +447,17 @@ export function VisualsLibrary() {
     if (!editingItem) return;
 
     if (!editingItem.title?.trim()) {
-      setDetailValidationErr("Please enter an asset title (标题不能为空)");
+      setDetailValidationErr("Please enter an asset title (Title cannot be empty)");
       return;
     }
 
-    const hasAtLeastOnePrompt =
-      editingItem.imagePrompt?.trim() ||
-      editingItem.videoPrompt?.trim() ||
+    const hasAtLeastOnePrompt = 
+      editingItem.imagePrompt?.trim() || 
+      editingItem.videoPrompt?.trim() || 
       editingItem.audioPrompt?.trim();
 
     if (!hasAtLeastOnePrompt) {
-      setDetailValidationErr("At least one prompt requirement (image, audio, or video prompt) is needed to save (至少包含一个生成提示词)");
+      setDetailValidationErr("At least one prompt requirement (image, audio, or video prompt) is needed to save");
       return;
     }
 
@@ -482,7 +482,7 @@ export function VisualsLibrary() {
   // Asset deletion
   const handleDeleteItem = async (itemId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Confirm permanent removal of this visual library asset? (确定删除这个视觉资产吗？)")) {
+    if (confirm("Confirm permanent removal of this visual library asset?")) {
       const deleted = await deleteVisualLibraryItem(itemId);
       if (deleted) {
         loadVisualAssets();
@@ -497,15 +497,15 @@ export function VisualsLibrary() {
 
     // Validate prompt availability for specific mode
     if (mode === 'image' && !editingItem.imagePrompt?.trim()) {
-      setDetailValidationErr("Fill the Image Prompt field to execute render! (图片提示词不能为空)");
+      setDetailValidationErr("Fill the Image Prompt field to execute render! (Image prompt cannot be empty)");
       return;
     }
     if (mode === 'audio' && !editingItem.audioPrompt?.trim()) {
-      setDetailValidationErr("Fill the Audio Prompt field to execute synth! (音频提示词不能为空)");
+      setDetailValidationErr("Fill the Audio Prompt field to execute synth! (Audio prompt cannot be empty)");
       return;
     }
     if (mode === 'video' && !editingItem.videoPrompt?.trim()) {
-      setDetailValidationErr("Fill the Video Prompt field to trigger motion! (视频提示词不能为空)");
+      setDetailValidationErr("Fill the Video Prompt field to trigger motion! (Video prompt cannot be empty)");
       return;
     }
 
@@ -520,27 +520,29 @@ export function VisualsLibrary() {
       // Step the logs
       await new Promise(r => setTimeout(r, 600));
       log("Analyzing semantic description...");
-
+      
       const projectRoot = project?.projectPath || '';
       const assetsDir = projectRoot ? await join(projectRoot, mode) : mode;
-
+      
       let generatedPath = "";
 
       if (mode === 'image') {
         log("Executing SDXL Turbo diffusion matrix...");
         await new Promise(r => setTimeout(r, 800));
         log("Rendering latent samples (8 steps schedule)...");
-
+        
         try {
           const filename = `visual_image_${Date.now()}.png`;
           const localDest = projectRoot ? await join(assetsDir, filename) : filename;
-
+          
           // Call Comfy if active
           generatedPath = await comfy.runImageGenerationRust(
-            editingItem.imagePrompt || '',
-            localDest,
-            true,
-            (prog) => log(`Rendering matrix: ${prog}`)
+            editingItem.imagePrompt || '', 
+            localDest, 
+            true, 
+            (prog) => log(`Rendering matrix: ${prog}`),
+            project?.width,
+            project?.height
           );
         } catch (comfyErr) {
           log("ComfyUI server disconnected. Activating seamless local backup image generator...");
@@ -549,7 +551,7 @@ export function VisualsLibrary() {
           const sig = Math.floor(Math.random() * 1000);
           generatedPath = `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80&sig=${sig}`;
         }
-
+        
         log(`Image render succeeded: ${generatedPath}`);
         editingItem.imagePath = generatedPath;
 
@@ -587,7 +589,7 @@ export function VisualsLibrary() {
       }
 
       setEditingItem(savedItem);
-      log("Data records flushed. Visual asset synchronized! (资源已保存并在其预览区展示)");
+      log("Data records flushed. Visual asset synchronized! (Asset saved and synchronized dynamically)");
     } catch (err: any) {
       log(`Error during creation: ${err?.message || err?.toString()}`);
     } finally {
@@ -598,26 +600,26 @@ export function VisualsLibrary() {
 
   // Filter items logic
   const filteredVisualItems = visualItems.filter(item => {
-    const matchesSearch =
+    const matchesSearch = 
       item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.imagePrompt?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.shortName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.uuid?.toLowerCase().includes(searchQuery.toLowerCase());
-
+    
     if (selectedTypeFilter === 'All') return matchesSearch;
     return matchesSearch && item.type === selectedTypeFilter;
   });
 
   return (
     <div className="min-h-screen bg-[#070709] text-white selection:bg-brand-primary selection:text-black">
-
+      
       {/* Background ambient highlights */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-brand-primary/5 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute bottom-20 right-1/4 w-80 h-80 bg-purple-500/5 rounded-full blur-[120px] pointer-events-none" />
 
       {/* Main Container */}
       <div className="max-w-7xl mx-auto px-6 py-8">
-
+        
         {/* Navigation Breadcrumbs & Top Section */}
         <div id="visuals-breadcrumb" className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6 mb-8">
           <div className="space-y-1.5 animate-fadeIn">
@@ -626,24 +628,24 @@ export function VisualsLibrary() {
               <span>/</span>
               <Link id="nav-pname" to={`/project/${id}`} className="hover:text-white transition-colors max-w-[120px] truncate block">{project?.projectName || 'Project Workspace'}</Link>
               <span>/</span>
-              <span className="text-white/80 font-medium">视觉资产库 (Visuals)</span>
+              <span className="text-white/80 font-medium">Visual Assets Gallery</span>
             </div>
             <h1 id="visuals-title" className="editorial-title text-4xl font-semibold tracking-tight text-white flex items-center gap-2">
               <Palette className="w-8 h-8 text-brand-primary" />
-              <span>视觉库资产中心</span>
+              <span>Visuals Database</span>
             </h1>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              id="back-ref"
-              to={`/project/${id}`}
+            <Link 
+              id="back-ref" 
+              to={`/project/${id}`} 
               className="px-4 py-2 border border-white/10 hover:border-white/25 hover:bg-white/5 text-xs font-bold uppercase tracking-widest rounded-sm transition-all flex items-center gap-2"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Back to Editor</span>
             </Link>
-
+            
             <button
               id="add-visual-btn"
               onClick={handleOpenCreateModal}
@@ -662,8 +664,8 @@ export function VisualsLibrary() {
             onClick={() => setWorkspaceTab('visual_db')}
             className={cn(
               "px-5 py-3 text-xs font-bold uppercase tracking-widest relative transition-all duration-300 flex items-center gap-2",
-              workspaceTab === 'visual_db'
-                ? "text-brand-primary border-b-2 border-brand-primary"
+              workspaceTab === 'visual_db' 
+                ? "text-brand-primary border-b-2 border-brand-primary" 
                 : "text-white/45 hover:text-white"
             )}
           >
@@ -678,8 +680,8 @@ export function VisualsLibrary() {
             onClick={() => setWorkspaceTab('storyboard')}
             className={cn(
               "px-5 py-3 text-xs font-bold uppercase tracking-widest relative transition-all duration-300 flex items-center gap-2",
-              workspaceTab === 'storyboard'
-                ? "text-brand-primary border-b-2 border-brand-primary"
+              workspaceTab === 'storyboard' 
+                ? "text-brand-primary border-b-2 border-brand-primary" 
                 : "text-white/45 hover:text-white"
             )}
           >
@@ -694,8 +696,8 @@ export function VisualsLibrary() {
             onClick={() => setWorkspaceTab('harness')}
             className={cn(
               "px-5 py-3 text-xs font-bold uppercase tracking-widest relative transition-all duration-300 flex items-center gap-2",
-              workspaceTab === 'harness'
-                ? "text-brand-primary border-b-2 border-brand-primary"
+              workspaceTab === 'harness' 
+                ? "text-brand-primary border-b-2 border-brand-primary" 
                 : "text-white/45 hover:text-white"
             )}
           >
@@ -713,10 +715,10 @@ export function VisualsLibrary() {
           /* SECTION A: DETAILED VISUAL LIBRARY DATABASE ASSET MANAGER */
           /* ========================================================= */
           <div id="visual-db-section" className="space-y-6">
-
+            
             {/* Filter and query bar */}
             <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white/[0.02] border border-white/5 p-4 rounded-sm">
-
+              
               {/* Type Category Filter Badges */}
               <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
                 <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-white/30 mr-2 flex items-center gap-1"><Filter className="w-3 h-3" /> Filter:</span>
@@ -734,8 +736,8 @@ export function VisualsLibrary() {
                       onClick={() => setSelectedTypeFilter(category)}
                       className={cn(
                         "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all",
-                        selectedTypeFilter === category
-                          ? "bg-brand-primary text-black"
+                        selectedTypeFilter === category 
+                          ? "bg-brand-primary text-black" 
                           : "bg-white/5 border border-white/5 text-white/60 hover:text-white hover:bg-white/10"
                       )}
                     >
@@ -777,10 +779,10 @@ export function VisualsLibrary() {
                     {/* Media Aspect Preview Frame */}
                     <div className="aspect-video bg-[#0b0b0d] border-b border-white/5 overflow-hidden relative group/cover">
                       {item.imagePath ? (
-                        <VisualAssetItemImage
-                          path={item.imagePath}
-                          title={item.title}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000"
+                        <VisualAssetItemImage 
+                          path={item.imagePath} 
+                          title={item.title} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000" 
                         />
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 opacity-20 bg-gradient-to-br from-brand-primary/10 to-transparent">
@@ -809,15 +811,15 @@ export function VisualsLibrary() {
                         <span className={cn(
                           "mono-text text-[8px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-sm border backdrop-blur-md",
                           item.type === 'IP' ? "bg-pink-500/25 border-pink-500/30 text-pink-300" :
-                            item.type === '环境' ? "bg-cyan-500/25 border-cyan-500/30 text-cyan-300" :
-                              item.type === '物品' ? "bg-green-500/25 border-green-500/30 text-green-300" :
-                                "bg-slate-500/25 border-slate-500/30 text-slate-300"
+                          item.type === '环境' ? "bg-cyan-500/25 border-cyan-500/30 text-cyan-300" :
+                          item.type === '物品' ? "bg-green-500/25 border-green-500/30 text-green-300" :
+                          "bg-slate-500/25 border-slate-500/30 text-slate-300"
                         )}>
                           {item.type === 'IP' ? 'IP Character' :
-                            item.type === '环境' ? 'Environment' :
-                              item.type === '物品' ? 'Props' :
-                                item.type === '其它' ? 'Others' :
-                                  item.type || 'Other'}
+                           item.type === '环境' ? 'Environment' :
+                           item.type === '物品' ? 'Props' :
+                           item.type === '其它' ? 'Others' :
+                           item.type || 'Other'}
                         </span>
                       </div>
 
@@ -830,7 +832,7 @@ export function VisualsLibrary() {
 
                     {/* Metadata Content area */}
                     <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
-
+                      
                       <div className="space-y-2">
                         <div className="flex items-start justify-between">
                           <div className="space-y-1">
@@ -845,14 +847,14 @@ export function VisualsLibrary() {
                           </div>
 
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <button
+                            <button 
                               onClick={() => handleOpenEditModal(item)}
                               className="p-1.5 bg-white/5 hover:bg-brand-primary hover:text-black rounded transition-all"
                               title="Edit details"
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
-                            <button
+                            <button 
                               onClick={(e) => handleDeleteItem(item.id, e)}
                               className="p-1.5 bg-white/5 hover:bg-red-500/20 text-white/60 hover:text-red-400 rounded transition-all"
                               title="Delete"
@@ -866,19 +868,19 @@ export function VisualsLibrary() {
                         <div className="space-y-1 bg-black/25 p-2.5 rounded border border-white/[0.02]">
                           {item.imagePrompt && (
                             <p className="text-[10px] text-white/50 leading-relaxed font-mono line-clamp-1">
-                              <span className="text-[9px] text-brand-primary font-bold mr-1">Image:</span>
+                              <span className="text-[9px] text-brand-primary font-bold mr-1">Image:</span> 
                               {item.imagePrompt}
                             </p>
                           )}
                           {item.audioPrompt && (
                             <p className="text-[10px] text-white/50 leading-relaxed font-mono line-clamp-1">
-                              <span className="text-[9px] text-purple-400 font-bold mr-1">Audio:</span>
+                              <span className="text-[9px] text-purple-400 font-bold mr-1">Audio:</span> 
                               {item.audioPrompt}
                             </p>
                           )}
                           {item.videoPrompt && (
                             <p className="text-[10px] text-white/50 leading-relaxed font-mono line-clamp-1">
-                              <span className="text-[9px] text-blue-400 font-bold mr-1">Video:</span>
+                              <span className="text-[9px] text-blue-400 font-bold mr-1">Video:</span> 
                               {item.videoPrompt}
                             </p>
                           )}
@@ -887,7 +889,7 @@ export function VisualsLibrary() {
 
                       {/* Dynamic Playback controls row */}
                       <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-
+                        
                         {/* Audio play button */}
                         <div className="flex items-center gap-1.5">
                           {item.audioPath ? (
@@ -954,8 +956,8 @@ export function VisualsLibrary() {
                     onClick={() => setStoryboardTab(tabKey)}
                     className={cn(
                       "px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest font-mono transition-all",
-                      storyboardTab === tabKey
-                        ? "bg-brand-primary text-black"
+                      storyboardTab === tabKey 
+                        ? "bg-brand-primary text-black" 
                         : "bg-white/5 hover:bg-white/10 text-white/60"
                     )}
                   >
@@ -976,13 +978,13 @@ export function VisualsLibrary() {
                 })
                 .map(asset => (
                   <div key={asset.id} className="group border border-white/5 bg-white/[0.01] p-5 rounded relative flex flex-col justify-between gap-4">
-
+                    
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-xs text-brand-primary/80 font-bold">SEQUENCE #{asset.id}</span>
                         <span className="text-[9px] font-mono text-white/35">{asset.category || 'prose'}</span>
                       </div>
-
+                      
                       {asset.imagePath ? (
                         <div className="aspect-video w-full rounded overflow-hidden relative border border-white/10 bg-black">
                           <VisualAssetItemImage path={asset.imagePath} title={asset.word || ""} className="w-full h-full object-cover" />
@@ -1037,7 +1039,7 @@ export function VisualsLibrary() {
           /* SECTION C: IP CONSISTENCY PROMPT HARNESS CONTROL PANEL     */
           /* ========================================================= */
           <div id="harness-workspace" className="space-y-8 animate-fadeIn">
-
+            
             {/* Upper banner alert */}
             <div className="p-4 bg-brand-primary/5 border border-brand-primary/20 rounded-md flex items-start gap-3">
               <Info className="w-5 h-5 text-brand-primary mt-0.5 flex-shrink-0" />
@@ -1061,7 +1063,7 @@ export function VisualsLibrary() {
                     Deploy industry-standard Prompt/Context/Harness engineering templates in seconds to establish highly unified visual, audio, and motion multimodal synergy solutions.
                   </p>
                 </div>
-
+                
                 {/* Active Diagnostic Badges */}
                 <div className="flex flex-wrap gap-2">
                   <span className="px-2.5 py-1 bg-green-500/10 border border-green-500/20 text-green-400 text-[10px] font-mono rounded-full flex items-center gap-1.5 uppercase font-bold">
@@ -1077,14 +1079,14 @@ export function VisualsLibrary() {
 
               {/* Grid: Left: Educational Playbook, Right: 1-Click Interactive Blueprint Deployer */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
+                
                 {/* Left: Playbook Quickguide */}
                 <div className="lg:col-span-4 bg-white/[0.01] border border-white/5 rounded-xl p-5 space-y-4">
                   <div className="space-y-1">
                     <span className="text-[9px] font-mono font-bold text-orange-400 uppercase tracking-widest block font-sans">Core Solutions Manual</span>
                     <h4 className="text-xs font-bold text-white uppercase font-sans">Three Principles of Multimodal Consistency</h4>
                   </div>
-
+                  
                   <div className="space-y-3.5 text-xs font-sans">
                     <div className="p-3 bg-black/40 rounded-lg space-y-1">
                       <div className="flex items-center gap-2 text-white">
@@ -1200,7 +1202,7 @@ export function VisualsLibrary() {
                         </>
                       )}
                     </button>
-
+                    
                     {blueprintFeedback ? (
                       <span className="text-[11px] font-mono text-brand-primary tracking-wide animate-pulse block">
                         ℹ️ {blueprintFeedback}
@@ -1219,7 +1221,7 @@ export function VisualsLibrary() {
 
             {/* Split row: Config form on left (5 columns), active lists & diagram on right (7 columns) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
+              
               {/* Left Form column */}
               <div className="lg:col-span-5 space-y-6">
                 <div className="bg-white/[0.02] border border-white/5 p-6 rounded-md space-y-4">
@@ -1231,7 +1233,7 @@ export function VisualsLibrary() {
                   {visualItems.length === 0 ? (
                     <div className="py-8 text-center space-y-2">
                       <p className="text-xs text-white/40">Visual library database is empty. Please register assets first!</p>
-                      <button
+                      <button 
                         onClick={() => setWorkspaceTab('visual_db')}
                         className="px-3 py-1 bg-white/10 hover:bg-white/20 text-[10px] font-mono rounded"
                       >
@@ -1316,7 +1318,7 @@ export function VisualsLibrary() {
 
               {/* Right column: Active rules list & visual mappings */}
               <div className="lg:col-span-7 space-y-6">
-
+                
                 {/* Active Rules Card list */}
                 <div className="bg-[#0b0b0d] border border-white/5 p-6 rounded-md space-y-4">
                   <div className="flex items-center justify-between pb-2 border-b border-white/5">
@@ -1340,8 +1342,8 @@ export function VisualsLibrary() {
                             key={rule.id}
                             className={cn(
                               "p-3.5 border rounded flex items-center justify-between transition-all duration-200",
-                              rule.active === 1
-                                ? "bg-white/[0.02] border-white/10 hover:border-white/20"
+                              rule.active === 1 
+                                ? "bg-white/[0.02] border-white/10 hover:border-white/20" 
                                 : "bg-black/40 border-white/5 opacity-45"
                             )}
                           >
@@ -1349,10 +1351,10 @@ export function VisualsLibrary() {
                               {/* Left Thumbnail reference */}
                               <div className="w-10 h-10 bg-black border border-white/10 rounded overflow-hidden flex-shrink-0 relative">
                                 {targetAsset?.imagePath ? (
-                                  <VisualAssetItemImage
-                                    path={targetAsset.imagePath}
-                                    title={targetAsset.title}
-                                    className="w-full h-full object-cover"
+                                  <VisualAssetItemImage 
+                                    path={targetAsset.imagePath} 
+                                    title={targetAsset.title} 
+                                    className="w-full h-full object-cover" 
                                   />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center text-white/20">
@@ -1385,8 +1387,8 @@ export function VisualsLibrary() {
                                 onClick={() => handleToggleHarnessActive(rule.id, rule.active)}
                                 className={cn(
                                   "px-2.5 py-1 text-[9px] font-mono font-bold uppercase rounded transition-colors",
-                                  rule.active === 1
-                                    ? "bg-green-500/10 text-green-400 border border-green-500/25 hover:bg-green-500/20"
+                                  rule.active === 1 
+                                    ? "bg-green-500/10 text-green-400 border border-green-500/25 hover:bg-green-500/20" 
                                     : "bg-white/5 text-white/40 border border-white/5 hover:bg-white/10"
                                 )}
                               >
@@ -1438,7 +1440,7 @@ export function VisualsLibrary() {
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                         <span className="text-[9px] font-mono text-white/40 uppercase">Parser Engine Loaded</span>
                       </div>
-
+                      
                       <button
                         onClick={handleRunHarnessTest}
                         disabled={isTestingHarness}
@@ -1488,13 +1490,13 @@ export function VisualsLibrary() {
       <AnimatePresence>
         {isDetailModalOpen && editingItem && (
           <div id="asset-manager-modal" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-[2px] animate-fadeIn">
-            <motion.div
+            <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-[#0c0c0f] border border-white/10 w-full max-w-4xl rounded-lg overflow-hidden flex flex-col shadow-2xl max-h-[90vh]"
             >
-
+              
               {/* Modal Header */}
               <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/40">
                 <div className="flex items-center gap-2.5">
@@ -1503,7 +1505,7 @@ export function VisualsLibrary() {
                     {editingItem.id ? 'Manage Asset Details' : 'Register New Visual Asset'}
                   </h3>
                 </div>
-                <button
+                <button 
                   onClick={handleCloseDetailModal}
                   className="p-1.5 hover:bg-white/5 text-gray-400 hover:text-white rounded transition-colors cursor-pointer"
                 >
@@ -1513,10 +1515,10 @@ export function VisualsLibrary() {
 
               {/* Modal Body Scroll Container */}
               <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 custom-scrollbar">
-
+                
                 {/* Left Form (7 columns) */}
                 <div className="lg:col-span-7 space-y-5">
-
+                  
                   {/* General Configs row */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
@@ -1685,11 +1687,11 @@ export function VisualsLibrary() {
                       <label className="text-[9px] font-mono text-pink-300 font-bold block mb-1">Image cover preview:</label>
                       {editingItem.imagePath ? (
                         <div className="aspect-video w-full relative rounded border border-white/10 overflow-hidden shadow-md group/cover-modal">
-                          <img
-                            src={editingItemImageBase64}
-                            alt=""
+                          <img 
+                            src={editingItemImageBase64} 
+                            alt="" 
                             referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover" 
                           />
                           <div className="absolute top-2 right-2 bg-pink-500 text-black text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded">
                             Sync OK
@@ -1717,10 +1719,10 @@ export function VisualsLibrary() {
                               Helix output
                             </span>
                           </div>
-
-                          <audio
-                            src={editingItem.audioPath}
-                            controls
+                          
+                          <audio 
+                            src={editingItem.audioPath} 
+                            controls 
                             className="w-full h-8 max-h-[30px] rounded focus:outline-none mt-1 opacity-75"
                           />
                         </div>
@@ -1737,7 +1739,7 @@ export function VisualsLibrary() {
                       <label className="text-[9px] font-mono text-blue-300 font-bold block mb-1">Motion Video Player render:</label>
                       {editingItem.videoPath ? (
                         <div className="aspect-video w-full rounded border border-white/10 bg-black relative overflow-hidden flex flex-col justify-end shadow-md">
-                          <video
+                          <video 
                             src={editingItem.videoPath}
                             controls
                             autoPlay
@@ -1778,7 +1780,7 @@ export function VisualsLibrary() {
 
                     {/* Dialog Actions */}
                     <div className="pt-4 border-t border-white/5 flex gap-2 justify-end bg-black/10 p-4 rounded-sm">
-
+                      
                       <button
                         type="button"
                         onClick={handleCloseDetailModal}
@@ -1817,12 +1819,12 @@ export function VisualsLibrary() {
       {/* ========================================================= */}
       <AnimatePresence>
         {fullscreenVideoPath && (
-          <div
+          <div 
             id="standalone-video-player"
             onClick={() => setFullscreenVideoPath(null)}
             className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/95 backdrop-blur-[5px]"
           >
-            <motion.div
+            <motion.div 
               initial={{ scale: 0.92, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.92, opacity: 0 }}
@@ -1840,7 +1842,7 @@ export function VisualsLibrary() {
 
               {/* Looping video container */}
               <div className="aspect-video w-full bg-black relative">
-                <video
+                <video 
                   src={fullscreenVideoPath}
                   autoPlay
                   controls
@@ -1858,7 +1860,7 @@ export function VisualsLibrary() {
                   </span>
                   <p className="text-[10px] font-mono text-white/35">Rendering standard 24fps high Action frames</p>
                 </div>
-
+                
                 <span className="text-[10px] font-mono text-white/50 bg-white/5 px-2.5 py-1 rounded">
                   Source: Local render
                 </span>

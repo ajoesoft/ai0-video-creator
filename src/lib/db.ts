@@ -1,5 +1,5 @@
 import Database from "@tauri-apps/plugin-sql";
-import { remove, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { remove, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -7,6 +7,20 @@ let db: Database | null = null;
 let dbError: string | null = null;
 
 const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+
+async function safeRemove(pathOrFilename: string, options?: { baseDir?: BaseDirectory }): Promise<void> {
+  try {
+    const fileExists = await exists(pathOrFilename, options);
+    if (fileExists) {
+      await remove(pathOrFilename, options);
+      console.log(`Successfully removed file: ${pathOrFilename}`);
+    } else {
+      console.log(`File does not exist: ${pathOrFilename}, skipping removal.`);
+    }
+  } catch (err) {
+    console.warn(`Pre-emptive exist-check or removal failed for ${pathOrFilename}:`, err);
+  }
+}
 
 export function getDbError(): string | null {
   return dbError;
@@ -24,317 +38,402 @@ export async function getDbPath(): Promise<string> {
   return "LocalBrowser Fallback (localStorage / IndexedDB)";
 }
 
+export async function runDatabaseMigrations(database: Database): Promise<void> {
+  // Database migrations have been successfully migrated to the Rust backend and run automatically on startup.
+  return;
+  // Auto-alter video_projects to support width, height, aspect_ratio, visual_style
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN width INTEGER DEFAULT 1920");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN height INTEGER DEFAULT 1080");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN visual_style TEXT DEFAULT 'Cinematic'");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN video_url TEXT");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN audio_url TEXT");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN audio_duration REAL DEFAULT 0.0");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN srt_original TEXT");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN text_original TEXT");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_projects ADD COLUMN detected_language TEXT");
+  } catch (_) {}
+
+  // Auto-alter video_translation_timeline to support segment video and audio url storage
+  try {
+    await database.execute("ALTER TABLE video_translation_timeline ADD COLUMN video_url TEXT");
+  } catch (_) {}
+  try {
+    await database.execute("ALTER TABLE video_translation_timeline ADD COLUMN audio_url TEXT");
+  } catch (_) {}
+
+  // Auto-create visual_library table if missing
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS visual_library (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        scene_id TEXT,
+        title TEXT,
+        type TEXT,
+        uuid TEXT,
+        short_name TEXT,
+        image_prompt TEXT,
+        video_prompt TEXT,
+        audio_prompt TEXT,
+        image_path TEXT,
+        video_path TEXT,
+        audio_path TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+    `);
+  } catch (errTable) {
+    console.error("Failed to create visual_library table:", errTable);
+  }
+
+  // Auto-create prompt_harness table if missing
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS prompt_harness (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        trigger_keyword TEXT,
+        visual_asset_id INTEGER,
+        active INTEGER DEFAULT 1,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+    `);
+  } catch (errHarnessTable) {
+    console.error("Failed to create prompt_harness table:", errHarnessTable);
+  }
+
+  // Auto-create background_tasks table if missing
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS background_tasks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        name TEXT,
+        type TEXT,
+        status TEXT,
+        params TEXT,
+        result TEXT,
+        error TEXT,
+        progress INTEGER DEFAULT 0,
+        scheduled_at INTEGER,
+        created_at INTEGER,
+        started_at INTEGER,
+        completed_at INTEGER,
+        priority INTEGER DEFAULT 0
+      );
+    `);
+  } catch (errTasksTable) {
+    console.error("Failed to create background_tasks table:", errTasksTable);
+  }
+
+  // Safe check and auto-creation / migration for video_translation_projects with v2 schema check to clear foreign key constraints
+  try {
+    let isMigrated = false;
+    try {
+      const res = await database.select<any[]>("SELECT value FROM app_settings WHERE key = 'video_translation_schema_v2' LIMIT 1");
+      if (res && res.length > 0 && res[0].value === "true") {
+        isMigrated = true;
+      }
+    } catch (_) {}
+
+    if (!isMigrated) {
+      console.warn("video_translation_schema_v2 not yet active. Purging old video_translation_ tables to resolve any legacy foreign key mismatches...");
+      await database.execute("PRAGMA foreign_keys = OFF;");
+      await database.execute("DROP TABLE IF EXISTS video_translation_timeline;");
+      await database.execute("DROP TABLE IF EXISTS video_translation_logs;");
+      await database.execute("DROP TABLE IF EXISTS video_translation_projects;");
+      await database.execute("PRAGMA foreign_keys = ON;");
+      
+      try {
+        await database.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+        await database.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('video_translation_schema_v2', 'true', CURRENT_TIMESTAMP);");
+      } catch (settErr) {
+        console.error("Failed to mark video_translation_schema_v2 in app_settings:", settErr);
+      }
+    }
+  } catch (errMigrate) {
+    console.error("Failed to execute video_translation schema check/migration:", errMigrate);
+  }
+
+  // Recreate video_translation_projects table
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS video_translation_projects (
+        project_id TEXT PRIMARY KEY,
+        name TEXT,
+        video_url TEXT,
+        cover_url TEXT,
+        audio_url TEXT,
+        audio_duration REAL,
+        srt_original TEXT,
+        text_original TEXT,
+        detected_language TEXT,
+        status TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+    `);
+  } catch (err) {
+    console.error("Failed to create video_translation_projects table:", err);
+  }
+
+  // Recreate video_translation_timeline table
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS video_translation_timeline (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        segment_index INTEGER,
+        start_sec REAL,
+        end_sec REAL,
+        text TEXT,
+        translated_text TEXT,
+        video_url TEXT,
+        audio_url TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+    `);
+  } catch (err) {
+    console.error("Failed to create video_translation_timeline table:", err);
+  }
+
+  // Recreate video_translation_logs table
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS video_translation_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        log_type TEXT,
+        message TEXT,
+        timestamp INTEGER
+      );
+    `);
+  } catch (err) {
+    console.error("Failed to create video_translation_logs table:", err);
+  }
+
+  // Self-migration: Merge all unique translation projects inside video_translation_projects table into unified video_projects table
+  try {
+    console.log("[Migration] Merging video_translation_projects rows into video_projects...");
+    const transProjects = await database.select<any[]>("SELECT * FROM video_translation_projects");
+    if (transProjects && transProjects.length > 0) {
+      console.log(`[Migration] Found ${transProjects.length} candidate translation projects to migrate.`);
+      for (const tp of transProjects) {
+        const uuid = tp.project_id;
+        const existing = await database.select<any[]>("SELECT project_uuid FROM video_projects WHERE project_uuid = ? LIMIT 1", [uuid]);
+        if (!existing || existing.length === 0) {
+          console.log(`[Migration] Migrating Translation Project: [${tp.name}] (UUID: ${uuid}) into video_projects.`);
+          const statusVal = tp.status === 'completed' ? 4 : 2; // ProjectStatus.COMPLETED = 4, EDITING = 2
+          const now = Date.now();
+          await database.execute(
+            `INSERT INTO video_projects (
+              project_uuid, project_name, project_status, create_time, update_time, 
+              project_prompt, scene_type, cover_image_path, project_path, 
+              width, height, aspect_ratio, visual_style,
+              video_url, audio_url, audio_duration, srt_original, text_original, detected_language
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              uuid,
+              tp.name || "Untitled Translation",
+              statusVal,
+              tp.created_at || now,
+              tp.updated_at || now,
+              tp.srt_original ? (tp.srt_original.substring(0, 150) + "...") : "Video Translation Project configured.",
+              "video_translation",
+              tp.cover_url || null,
+              null,
+              1920,
+              1080,
+              "16:9",
+              "Cinematic",
+              tp.video_url || null,
+              tp.audio_url || null,
+              tp.audio_duration || 0.0,
+              tp.srt_original || null,
+              tp.text_original || null,
+              tp.detected_language || null
+            ]
+          );
+        } else {
+          // Row already exists in video_projects. Cleanly merge missing translation-specific schema properties.
+          await database.execute(
+            `UPDATE video_projects SET
+              video_url = COALESCE(video_url, ?),
+              audio_url = COALESCE(audio_url, ?),
+              audio_duration = COALESCE(audio_duration, ?),
+              srt_original = COALESCE(srt_original, ?),
+              text_original = COALESCE(text_original, ?),
+              detected_language = COALESCE(detected_language, ?)
+            WHERE project_uuid = ?`,
+            [
+              tp.video_url || null,
+              tp.audio_url || null,
+              tp.audio_duration || 0.0,
+              tp.srt_original || null,
+              tp.text_original || null,
+              tp.detected_language || null,
+              uuid
+            ]
+          );
+        }
+
+        // Construct state setting video_translation_data_${uuid} inside app_settings if not present
+        const settingKey = `video_translation_data_${uuid}`;
+        const existingSetting = await database.select<any[]>("SELECT value FROM app_settings WHERE key = ? LIMIT 1", [settingKey]);
+        if (!existingSetting || existingSetting.length === 0) {
+          console.log(`[Migration] Constructing translation state setting data for project ${uuid}...`);
+          // Fetch timeline segment rows
+          const segments = await database.select<any[]>(
+            "SELECT * FROM video_translation_timeline WHERE project_id = ? ORDER BY segment_index ASC",
+            [uuid]
+          );
+          const mappedDialogues = segments.map(s => ({
+            index: s.segment_index,
+            startSec: s.start_sec,
+            endSec: s.end_sec,
+            text: s.text,
+            videoUrl: s.video_url || null,
+            audioUrl: s.audio_url || null
+          }));
+          const mappedTranslatedDialogues = segments.map(s => ({
+            index: s.segment_index,
+            startSec: s.start_sec,
+            endSec: s.end_sec,
+            text: s.translated_text || "",
+            videoUrl: s.video_url || null,
+            audioUrl: s.audio_url || null
+          })).filter(s => s.text !== "");
+
+          const logsRows = await database.select<any[]>(
+            "SELECT message FROM video_translation_logs WHERE project_id = ? ORDER BY timestamp ASC",
+            [uuid]
+          );
+          const mappedLogs = logsRows.length > 0 ? logsRows.map(l => l.message) : [`[LOG] Loaded project from storage: ${tp.name}`];
+
+          const translationState = {
+            videoName: tp.name,
+            videoSize: "Unknown Size",
+            videoUrl: tp.video_url || "",
+            coverUrl: tp.cover_url || null,
+            audioUrl: tp.audio_url || null,
+            audioDuration: tp.audio_duration || 0,
+            srtOriginal: tp.srt_original || "",
+            srtTranslated: "",
+            textOriginal: tp.text_original || "",
+            textTranslated: "",
+            dialogues: mappedDialogues,
+            translatedDialogues: mappedTranslatedDialogues,
+            synthesizedAudioUrl: null,
+            outputVideoUrl: null,
+            status: tp.status || 'idle',
+            logs: mappedLogs,
+            selectedVoice: 'Kore',
+            sourceLang: 'Chinese',
+            targetLang: 'English',
+            ttsSpeed: 1.0,
+            lipsyncModel: 'LTX2.3 + LipSync-1.0'
+          };
+
+          await database.execute(
+            "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
+            [settingKey, JSON.stringify(translationState)]
+          );
+          console.log(`[Migration] Successfully constructed translation State inside app_settings for ${uuid}.`);
+        }
+      }
+    }
+  } catch (migrateErr) {
+    console.error("Failed to run video_translation merge self-migration:", migrateErr);
+  }
+}
+
 export async function getDb() {
   if (!isTauri) return null;
   if (!db) {
     try {
-      let dbPath = "main.db";
-      const path = await invoke<string>("get_db_file_path");
-      console.log("Invoked get_db_file_path, got:", path);
-      if (path) {
-        dbPath = path;
-      }
+      const dbPath = await getDbPath();
       db = await Database.load("sqlite:" + dbPath);
-
-      // Auto-alter video_projects to support width, height, aspect_ratio, visual_style
-      try {
-        await db.execute("ALTER TABLE video_projects ADD COLUMN width INTEGER DEFAULT 1920");
-      } catch (_) { }
-      try {
-        await db.execute("ALTER TABLE video_projects ADD COLUMN height INTEGER DEFAULT 1080");
-      } catch (_) { }
-      try {
-        await db.execute("ALTER TABLE video_projects ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'");
-      } catch (_) { }
-      try {
-        await db.execute("ALTER TABLE video_projects ADD COLUMN visual_style TEXT DEFAULT 'Cinematic'");
-      } catch (_) { }
-
-      // Auto-create visual_library table if missing
-      try {
-        await db.execute(`
-          CREATE TABLE IF NOT EXISTS visual_library (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT,
-            scene_id TEXT,
-            title TEXT,
-            type TEXT,
-            uuid TEXT,
-            short_name TEXT,
-            image_prompt TEXT,
-            video_prompt TEXT,
-            audio_prompt TEXT,
-            image_path TEXT,
-            video_path TEXT,
-            audio_path TEXT,
-            created_at INTEGER,
-            updated_at INTEGER
-          );
-        `);
-      } catch (errTable) {
-        console.error("Failed to create visual_library table:", errTable);
-      }
-
-      // Auto-create prompt_harness table if missing
-      try {
-        await db.execute(`
-          CREATE TABLE IF NOT EXISTS prompt_harness (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT,
-            trigger_keyword TEXT,
-            visual_asset_id INTEGER,
-            active INTEGER DEFAULT 1,
-            created_at INTEGER,
-            updated_at INTEGER
-          );
-        `);
-      } catch (errHarnessTable) {
-        console.error("Failed to create prompt_harness table:", errHarnessTable);
-      }
-
-      // Auto-create background_tasks table if missing
-      try {
-        await db.execute(`
-          CREATE TABLE IF NOT EXISTS background_tasks (
-            id TEXT PRIMARY KEY,
-            project_id TEXT,
-            name TEXT,
-            type TEXT,
-            status TEXT,
-            params TEXT,
-            result TEXT,
-            error TEXT,
-            progress INTEGER DEFAULT 0,
-            scheduled_at INTEGER,
-            created_at INTEGER,
-            started_at INTEGER,
-            completed_at INTEGER,
-            priority INTEGER DEFAULT 0
-          );
-        `);
-      } catch (errTasksTable) {
-        console.error("Failed to create background_tasks table:", errTasksTable);
-      }
-
-      // Safe check and auto-creation / migration for video_translation_projects with v2 schema check to clear foreign key constraints
-      try {
-        let isMigrated = false;
-        try {
-          const res = await db.select<any[]>("SELECT value FROM app_settings WHERE key = 'video_translation_schema_v2' LIMIT 1");
-          if (res && res.length > 0 && res[0].value === "true") {
-            isMigrated = true;
-          }
-        } catch (_) { }
-
-        if (!isMigrated) {
-          console.warn("video_translation_schema_v2 not yet active. Purging old video_translation_ tables to resolve any legacy foreign key mismatches...");
-          await db.execute("PRAGMA foreign_keys = OFF;");
-          await db.execute("DROP TABLE IF EXISTS video_translation_timeline;");
-          await db.execute("DROP TABLE IF EXISTS video_translation_logs;");
-          await db.execute("DROP TABLE IF EXISTS video_translation_projects;");
-          await db.execute("PRAGMA foreign_keys = ON;");
-
-          try {
-            await db.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-            await db.execute("INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES ('video_translation_schema_v2', 'true', CURRENT_TIMESTAMP);");
-          } catch (settErr) {
-            console.error("Failed to mark video_translation_schema_v2 in app_settings:", settErr);
-          }
-        }
-      } catch (errMigrate) {
-        console.error("Failed to execute video_translation schema check/migration:", errMigrate);
-      }
-
-      // Recreate video_translation_projects table
-      try {
-        await db.execute(`
-          CREATE TABLE IF NOT EXISTS video_translation_projects (
-            project_id TEXT PRIMARY KEY,
-            name TEXT,
-            video_url TEXT,
-            cover_url TEXT,
-            audio_url TEXT,
-            audio_duration REAL,
-            srt_original TEXT,
-            text_original TEXT,
-            detected_language TEXT,
-            status TEXT,
-            created_at INTEGER,
-            updated_at INTEGER
-          );
-        `);
-      } catch (err) {
-        console.error("Failed to create video_translation_projects table:", err);
-      }
-
-      // Recreate video_translation_timeline table
-      try {
-        await db.execute(`
-          CREATE TABLE IF NOT EXISTS video_translation_timeline (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT,
-            segment_index INTEGER,
-            start_sec REAL,
-            end_sec REAL,
-            text TEXT,
-            translated_text TEXT,
-            created_at INTEGER,
-            updated_at INTEGER
-          );
-        `);
-      } catch (err) {
-        console.error("Failed to create video_translation_timeline table:", err);
-      }
-
-      // Recreate video_translation_logs table
-      try {
-        await db.execute(`
-          CREATE TABLE IF NOT EXISTS video_translation_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT,
-            log_type TEXT,
-            message TEXT,
-            timestamp INTEGER
-          );
-        `);
-      } catch (err) {
-        console.error("Failed to create video_translation_logs table:", err);
-      }
-
-      // Self-migration: Merge all unique translation projects inside video_translation_projects table into unified video_projects table
-      try {
-        console.log("[Migration] Merging video_translation_projects rows into video_projects...");
-        const transProjects = await db.select<any[]>("SELECT * FROM video_translation_projects");
-        if (transProjects && transProjects.length > 0) {
-          console.log(`[Migration] Found ${transProjects.length} candidate translation projects to migrate.`);
-          for (const tp of transProjects) {
-            const uuid = tp.project_id;
-            const existing = await db.select<any[]>("SELECT project_uuid FROM video_projects WHERE project_uuid = ? LIMIT 1", [uuid]);
-            if (!existing || existing.length === 0) {
-              console.log(`[Migration] Migrating Translation Project: [${tp.name}] (UUID: ${uuid}) into video_projects.`);
-              const statusVal = tp.status === 'completed' ? 4 : 2; // ProjectStatus.COMPLETED = 4, EDITING = 2
-              const now = Date.now();
-              await db.execute(
-                `INSERT INTO video_projects (
-                  project_uuid, project_name, project_status, create_time, update_time, 
-                  project_prompt, scene_type, cover_image_path, project_path, 
-                  width, height, aspect_ratio, visual_style
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                  uuid,
-                  tp.name || "Untitled Translation",
-                  statusVal,
-                  tp.created_at || now,
-                  tp.updated_at || now,
-                  tp.srt_original ? (tp.srt_original.substring(0, 150) + "...") : "Video Translation Project configured.",
-                  "video_translation",
-                  tp.cover_url || null,
-                  null,
-                  1920,
-                  1080,
-                  "16:9",
-                  "Cinematic"
-                ]
-              );
-            }
-
-            // Construct state setting video_translation_data_${uuid} inside app_settings if not present
-            const settingKey = `video_translation_data_${uuid}`;
-            const existingSetting = await db.select<any[]>("SELECT value FROM app_settings WHERE key = ? LIMIT 1", [settingKey]);
-            if (!existingSetting || existingSetting.length === 0) {
-              console.log(`[Migration] Constructing translation state setting data for project ${uuid}...`);
-              // Fetch timeline segment rows
-              const segments = await db.select<any[]>(
-                "SELECT * FROM video_translation_timeline WHERE project_id = ? ORDER BY segment_index ASC",
-                [uuid]
-              );
-              const mappedDialogues = segments.map(s => ({
-                index: s.segment_index,
-                startSec: s.start_sec,
-                endSec: s.end_sec,
-                text: s.text,
-              }));
-              const mappedTranslatedDialogues = segments.map(s => ({
-                index: s.segment_index,
-                startSec: s.start_sec,
-                endSec: s.end_sec,
-                text: s.translated_text || "",
-              })).filter(s => s.text !== "");
-
-              const logsRows = await db.select<any[]>(
-                "SELECT message FROM video_translation_logs WHERE project_id = ? ORDER BY timestamp ASC",
-                [uuid]
-              );
-              const mappedLogs = logsRows.length > 0 ? logsRows.map(l => l.message) : [`[LOG] Loaded project from storage: ${tp.name}`];
-
-              const translationState = {
-                videoName: tp.name,
-                videoSize: "Unknown Size",
-                videoUrl: tp.video_url || "",
-                coverUrl: tp.cover_url || null,
-                audioUrl: tp.audio_url || null,
-                audioDuration: tp.audio_duration || 0,
-                srtOriginal: tp.srt_original || "",
-                srtTranslated: "",
-                textOriginal: tp.text_original || "",
-                textTranslated: "",
-                dialogues: mappedDialogues,
-                translatedDialogues: mappedTranslatedDialogues,
-                synthesizedAudioUrl: null,
-                outputVideoUrl: null,
-                status: tp.status || 'idle',
-                logs: mappedLogs,
-                selectedVoice: 'Kore',
-                sourceLang: 'Chinese',
-                targetLang: 'English',
-                ttsSpeed: 1.0,
-                lipsyncModel: 'LTX2.3 + LipSync-1.0'
-              };
-
-              await db.execute(
-                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP",
-                [settingKey, JSON.stringify(translationState)]
-              );
-              console.log(`[Migration] Successfully constructed translation State inside app_settings for ${uuid}.`);
-            }
-          }
-        }
-      } catch (migrateErr) {
-        console.error("Failed to run video_translation merge self-migration:", migrateErr);
-      }
+      
+      // Execute all centralized database schema migrations
+      await runDatabaseMigrations(db);
+      
     } catch (err: any) {
       console.error("Failed to load SQLite via Tauri plugin-sql:", err);
       const errMsg = err?.toString() || "";
-
-      // Auto-heal on migration conflicts
-      if (errMsg.includes("migration") && (errMsg.includes("modified") || errMsg.includes("previously applied"))) {
-        console.warn("Detected SQLite migration discrepancy. Attempting automatic self-healing by removing main.db...");
+      
+      // Auto-heal on migration conflicts or missing schema/columns
+      const isSchemaMismatch = errMsg.includes("migration") || 
+                              errMsg.includes("no such column") || 
+                              errMsg.includes("has no column") ||
+                              errMsg.includes("column") ||
+                              errMsg.includes("modified") || 
+                              errMsg.includes("previously applied");
+      if (isSchemaMismatch) {
+        console.warn("Detected SQLite schema or migration discrepancy. Attempting automatic self-healing by removing main.db...");
         try {
-          await remove("main.db", { baseDir: BaseDirectory.AppLocalData });
-          console.log("Deleted corrupt/outdated main.db from AppLocalData, reloading...");
-
-          let dbPath = "main.db";
+          const dbPath = await getDbPath();
+          await safeRemove(dbPath);
+          console.log(`Executed safe self-healing for path: ${dbPath}, reloading...`);
+          
           db = await Database.load("sqlite:" + dbPath);
+          await runDatabaseMigrations(db);
           dbError = null;
           return db;
         } catch (fsErr: any) {
-          console.error("Failed to delete main.db from AppLocalData:", fsErr);
-
-          // Try standard AppData location just in case
+          console.error("Failed to safely delete database file using getDbPath():", fsErr);
+          
+          // Try standard AppLocalData location as fallback
           try {
-            await remove("main.db", { baseDir: BaseDirectory.AppData });
-            console.log("Deleted corrupt/outdated main.db from AppData, reloading...");
-
-            let dbPath = "main.db";
-            db = await Database.load("sqlite:" + dbPath);
+            await safeRemove("main.db", { baseDir: BaseDirectory.AppLocalData });
+            console.log("Executed safe self-healing for main.db in AppLocalData, reloading...");
+            
+            const dbPathFallback = await getDbPath();
+            db = await Database.load("sqlite:" + dbPathFallback);
+            await runDatabaseMigrations(db);
             dbError = null;
             return db;
           } catch (fsErr2: any) {
-            console.error("Failed to delete main.db from AppData:", fsErr2);
+            console.error("Failed to safely delete main.db from AppLocalData:", fsErr2);
+            
+            // Try standard AppData location as second fallback just in case
+            try {
+              await safeRemove("main.db", { baseDir: BaseDirectory.AppData });
+              console.log("Executed safe self-healing for main.db in AppData, reloading...");
+              
+              const dbPathFallback2 = await getDbPath();
+              db = await Database.load("sqlite:" + dbPathFallback2);
+              await runDatabaseMigrations(db);
+              dbError = null;
+              return db;
+            } catch (fsErr3: any) {
+              console.error("Failed to safely delete main.db from AppData:", fsErr3);
+            }
           }
         }
       }
-
+      
       dbError = errMsg || "Unknown SQLite connection load error";
       return null;
     }
@@ -375,6 +474,12 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
             height: p.height || 1080,
             aspectRatio: p.aspect_ratio || '16:9',
             visualStyle: p.visual_style || 'Cinematic',
+            videoUrl: p.video_url || null,
+            audioUrl: p.audio_url || null,
+            audioDuration: p.audio_duration || 0,
+            srtOriginal: p.srt_original || null,
+            textOriginal: p.text_original || null,
+            detectedLanguage: p.detected_language || null,
           }));
         }
 
@@ -541,6 +646,12 @@ export async function fetchProjects(): Promise<VideoProject[]> {
         height: p.height || 1080,
         aspectRatio: p.aspect_ratio || '16:9',
         visualStyle: p.visual_style || 'Cinematic',
+        videoUrl: p.video_url || null,
+        audioUrl: p.audio_url || null,
+        audioDuration: p.audio_duration || 0,
+        srtOriginal: p.srt_original || null,
+        textOriginal: p.text_original || null,
+        detectedLanguage: p.detected_language || null,
       }));
     }
   }
@@ -756,7 +867,7 @@ export async function seedSystemHarnessesForProject(projectId: string, visualSty
   try {
     const allItemsRaw = localStorage.getItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY);
     const allItems: any[] = allItemsRaw ? JSON.parse(allItemsRaw) : [];
-
+    
     const allHarnessesRaw = localStorage.getItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY);
     const allHarnesses: any[] = allHarnessesRaw ? JSON.parse(allHarnessesRaw) : [];
 
@@ -804,11 +915,11 @@ export async function seedSystemHarnessesForProject(projectId: string, visualSty
 }
 
 export async function createProject(
-  name: string,
-  status: number,
-  prompt?: string,
-  sceneType: string = 'short_video',
-  projectPath?: string,
+  name: string, 
+  status: number, 
+  prompt?: string, 
+  sceneType: string = 'short_video', 
+  projectPath?: string, 
   explicitId?: string,
   width?: number,
   height?: number,
@@ -827,14 +938,14 @@ export async function createProject(
         [id, name, status, now, now, prompt || null, sceneType, actualProjectPath, width || 1920, height || 1080, aspectRatio || '16:9', visualStyle || 'Cinematic']
       );
       await seedSystemHarnessesForProject(id, visualStyle || 'Cinematic');
-      return {
-        id,
-        name,
-        status,
-        createdAt: now,
-        updatedAt: now,
-        prompt,
-        sceneType,
+      return { 
+        id, 
+        name, 
+        status, 
+        createdAt: now, 
+        updatedAt: now, 
+        prompt, 
+        sceneType, 
         projectPath: actualProjectPath,
         width: width || 1920,
         height: height || 1080,
@@ -890,6 +1001,12 @@ export async function fetchProjectById(id: string): Promise<VideoProject | null>
           height: p.height || 1080,
           aspectRatio: p.aspect_ratio || '16:9',
           visualStyle: p.visual_style || 'Cinematic',
+          videoUrl: p.video_url || null,
+          audioUrl: p.audio_url || null,
+          audioDuration: p.audio_duration || 0,
+          srtOriginal: p.srt_original || null,
+          textOriginal: p.text_original || null,
+          detectedLanguage: p.detected_language || null,
         };
       }
       return null;
@@ -913,7 +1030,25 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
     if (database) {
       // Map back to DB fields
       await database.execute(
-        "UPDATE video_projects SET project_name = ?, project_prompt = ?, project_status = ?, cover_image_path = ?, scene_type = ?, project_path = ?, update_time = ?, width = ?, height = ?, aspect_ratio = ?, visual_style = ? WHERE project_uuid = ?",
+        `UPDATE video_projects SET 
+          project_name = ?, 
+          project_prompt = ?, 
+          project_status = ?, 
+          cover_image_path = ?, 
+          scene_type = ?, 
+          project_path = ?, 
+          update_time = ?, 
+          width = ?, 
+          height = ?, 
+          aspect_ratio = ?, 
+          visual_style = ?,
+          video_url = ?,
+          audio_url = ?,
+          audio_duration = ?,
+          srt_original = ?,
+          text_original = ?,
+          detected_language = ?
+         WHERE project_uuid = ?`,
         [
           updated.name,
           updated.prompt,
@@ -926,6 +1061,12 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
           updated.height || 1080,
           updated.aspectRatio || '16:9',
           updated.visualStyle || 'Cinematic',
+          updated.videoUrl || null,
+          updated.audioUrl || null,
+          updated.audioDuration || 0,
+          updated.srtOriginal || null,
+          updated.textOriginal || null,
+          updated.detectedLanguage || null,
           id
         ]
       );
@@ -1056,7 +1197,7 @@ export async function updateVocabulary(id: number, updates: Partial<Vocabulary>)
       // Exclude id and projectUuid from potentially being updated
       const { id: _, projectUuid: __, ...rest } = updates;
       const entries = Object.entries(rest);
-
+      
       if (entries.length === 0) return true;
 
       const setClause = entries.map(([key]) => {
@@ -1274,7 +1415,7 @@ export async function fetchVisualLibraryByProject(projectId: string): Promise<Vi
 
 export async function createVisualLibraryItem(item: Partial<VisualLibraryItem>): Promise<VisualLibraryItem> {
   const now = Date.now();
-
+  
   if (isTauri) {
     const database = await getDb();
     if (database) {
@@ -1301,11 +1442,11 @@ export async function createVisualLibraryItem(item: Partial<VisualLibraryItem>):
             now
           ]
         );
-
+        
         // Retrive last inserted id in SQLite
         const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
         const insertedId = idResult[0]?.id || now;
-
+        
         return {
           id: insertedId,
           projectId: item.projectId || "",
@@ -1362,7 +1503,7 @@ export async function updateVisualLibraryItem(id: number, updates: Partial<Visua
       try {
         const { id: _, projectId: __, ...rest } = updates;
         const entries = Object.entries(rest);
-
+        
         if (entries.length === 0) return true;
 
         const setClause = entries.map(([key]) => {
@@ -1477,10 +1618,10 @@ export async function createPromptHarness(harness: Partial<PromptHarness>): Prom
           ) VALUES (?, ?, ?, ?, ?, ?)`,
           [projectId, triggerKeyword, visualAssetId, active, now, now]
         );
-
+        
         const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
         const insertedId = idResult[0]?.id || now;
-
+        
         return {
           id: insertedId,
           projectId,
@@ -1521,7 +1662,7 @@ export async function updatePromptHarness(id: number, updates: Partial<PromptHar
       try {
         const { id: _, projectId: __, ...rest } = updates;
         const entries = Object.entries(rest);
-
+        
         if (entries.length === 0) return true;
 
         const setClause = entries.map(([key]) => {
@@ -1604,7 +1745,7 @@ export async function applyPromptHarnessRules(promptText: string, projectId: str
     for (const match of matches) {
       const fullMatch = match[0]; // e.g. "@Character1"
       const tagName = match[1];   // e.g. "Character1"
-
+      
       if (processedTags.has(fullMatch)) continue;
       processedTags.add(fullMatch);
 
@@ -1852,29 +1993,26 @@ export async function clearCompletedTasks(): Promise<boolean> {
   return true;
 }
 
-export async function saveVideoTranslationData(
+export async function saveVideoTranslationProjectRecord(
   projectId: string,
   name: string,
   videoUrl: string,
-  coverUrl: string | null,
-  audioUrl: string | null,
-  audioDuration: number,
-  srtOriginal: string,
-  textOriginal: string,
-  detectedLanguage: string,
-  status: string,
-  segments: { index: number; startSec: number; endSec: number; text: string; translatedText?: string }[],
-  logs: string[]
-): Promise<void> {
+  coverUrl: string | null = null,
+  status: string = 'idle',
+  audioUrl: string | null = null,
+  audioDuration: number = 0,
+  srtOriginal: string = "",
+  textOriginal: string = "",
+  detectedLanguage: string = ""
+): Promise<boolean> {
   const now = Date.now();
   if (isTauri) {
     const database = await getDb();
     if (database) {
       try {
-        // 1. Save or update video_translation_projects
         await database.execute(
           `INSERT INTO video_translation_projects (
-            project_id, name, video_url, cover_url, audio_url, audio_duration, 
+            project_id, name, video_url, cover_url, audio_url, audio_duration,
             srt_original, text_original, detected_language, status, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(project_id) DO UPDATE SET
@@ -1891,33 +2029,151 @@ export async function saveVideoTranslationData(
           [
             projectId,
             name,
-            videoUrl,
-            coverUrl,
-            audioUrl,
-            audioDuration,
-            srtOriginal,
-            textOriginal,
-            detectedLanguage,
+            videoUrl || null,
+            coverUrl || null,
+            audioUrl || null,
+            audioDuration || 0.0,
+            srtOriginal || null,
+            textOriginal || null,
+            detectedLanguage || null,
+            status,
+            now,
+            now
+          ]
+        );
+        return true;
+      } catch (err) {
+        console.error("Failed to insert/update video_translation_projects record:", err);
+        return false;
+      }
+    }
+  }
+
+  // Fallback
+  try {
+    const projectsKey = "fallback_video_translation_projects";
+    const existingProjStr = localStorage.getItem(projectsKey);
+    const existingList: any[] = existingProjStr ? JSON.parse(existingProjStr) : [];
+    const updatedProj = {
+      project_id: projectId,
+      name,
+      video_url: videoUrl,
+      cover_url: coverUrl,
+      audio_url: audioUrl,
+      audio_duration: audioDuration,
+      srt_original: srtOriginal,
+      text_original: textOriginal,
+      detected_language: detectedLanguage,
+      status,
+      created_at: now,
+      updated_at: now
+    };
+    const projIdx = existingList.findIndex(p => p.project_id === projectId);
+    if (projIdx !== -1) {
+      existingList[projIdx] = { ...existingList[projIdx], ...updatedProj, updated_at: now };
+    } else {
+      existingList.push(updatedProj);
+    }
+    localStorage.setItem(projectsKey, JSON.stringify(existingList));
+    return true;
+  } catch (err) {
+    console.error("Failed in fallback saveVideoTranslationProjectRecord:", err);
+    return false;
+  }
+}
+
+export async function saveVideoTranslationData(
+  projectId: string,
+  name: string,
+  videoUrl: string,
+  coverUrl: string | null,
+  audioUrl: string | null,
+  audioDuration: number,
+  srtOriginal: string,
+  textOriginal: string,
+  detectedLanguage: string,
+  status: string,
+  segments: { index: number; startSec: number; endSec: number; text: string; translatedText?: string; videoUrl?: string; audioUrl?: string }[],
+  logs: string[]
+): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        // Also save to video_translation_projects
+        await database.execute(
+          `INSERT INTO video_translation_projects (
+            project_id, name, video_url, cover_url, audio_url, audio_duration,
+            srt_original, text_original, detected_language, status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            video_url = EXCLUDED.video_url,
+            cover_url = EXCLUDED.cover_url,
+            audio_url = EXCLUDED.audio_url,
+            audio_duration = EXCLUDED.audio_duration,
+            srt_original = EXCLUDED.srt_original,
+            text_original = EXCLUDED.text_original,
+            detected_language = EXCLUDED.detected_language,
+            status = EXCLUDED.status,
+            updated_at = EXCLUDED.updated_at`,
+          [
+            projectId,
+            name,
+            videoUrl || null,
+            coverUrl || null,
+            audioUrl || null,
+            audioDuration || 0.0,
+            srtOriginal || null,
+            textOriginal || null,
+            detectedLanguage || null,
             status,
             now,
             now
           ]
         );
 
-        // 1b. Reconcile and keep standard video_projects table fully in sync to align them into a single project structure
+        // 1. Save or update video_projects directly with all translation properties using native SQLite UPSERT
         await database.execute(
-          `UPDATE video_projects SET
-            project_name = ?,
-            cover_image_path = ?,
-            update_time = ?,
-            project_status = ?
-          WHERE project_uuid = ?`,
+          `INSERT INTO video_projects (
+            project_uuid, project_name, project_status, create_time, update_time, 
+            project_prompt, scene_type, cover_image_path, project_path, 
+            width, height, aspect_ratio, visual_style,
+            video_url, audio_url, audio_duration, srt_original, text_original, detected_language
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_uuid) DO UPDATE SET
+            project_name = EXCLUDED.project_name,
+            project_status = EXCLUDED.project_status,
+            update_time = EXCLUDED.update_time,
+            cover_image_path = EXCLUDED.cover_image_path,
+            video_url = EXCLUDED.video_url,
+            audio_url = EXCLUDED.audio_url,
+            audio_duration = EXCLUDED.audio_duration,
+            srt_original = EXCLUDED.srt_original,
+            text_original = EXCLUDED.text_original,
+            detected_language = EXCLUDED.detected_language,
+            project_prompt = EXCLUDED.project_prompt`,
           [
+            projectId,
             name,
-            coverUrl,
-            now,
             status === 'completed' ? 4 : 2, // ProjectStatus.COMPLETED = 4, EDITING = 2
-            projectId
+            now,
+            now,
+            srtOriginal ? (srtOriginal.substring(0, 150) + "...") : "Video Translation Project configured.",
+            "video_translation",
+            coverUrl || null,
+            null,
+            1920,
+            1080,
+            "16:9",
+            "Cinematic",
+            videoUrl || null,
+            audioUrl || null,
+            audioDuration || 0.0,
+            srtOriginal || null,
+            textOriginal || null,
+            detectedLanguage || null
           ]
         );
 
@@ -1930,8 +2186,8 @@ export async function saveVideoTranslationData(
         for (const segment of segments) {
           await database.execute(
             `INSERT INTO video_translation_timeline (
-              project_id, segment_index, start_sec, end_sec, text, translated_text, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              project_id, segment_index, start_sec, end_sec, text, translated_text, video_url, audio_url, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               projectId,
               segment.index,
@@ -1939,6 +2195,8 @@ export async function saveVideoTranslationData(
               segment.endSec,
               segment.text,
               segment.translatedText || "",
+              segment.videoUrl || null,
+              segment.audioUrl || null,
               now,
               now
             ]
@@ -1964,7 +2222,7 @@ export async function saveVideoTranslationData(
           );
         }
       } catch (err) {
-        console.error("Failed to write to video_translation_* SQLite tables:", err);
+        console.error("Failed to write to video_projects/video_translation_* SQLite tables:", err);
       }
       return;
     }
@@ -2009,7 +2267,13 @@ export async function saveVideoTranslationData(
           name,
           coverImagePath: coverUrl || undefined,
           updatedAt: now,
-          status: status === 'completed' ? 4 : 2
+          status: status === 'completed' ? 4 : 2,
+          videoUrl,
+          audioUrl,
+          audioDuration,
+          srtOriginal,
+          textOriginal,
+          detectedLanguage
         };
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(standardProjects));
       }
@@ -2019,7 +2283,7 @@ export async function saveVideoTranslationData(
     const timelineKey = "fallback_video_translation_timeline";
     const existingTimelineStr = localStorage.getItem(timelineKey);
     let allSegments: any[] = existingTimelineStr ? JSON.parse(existingTimelineStr) : [];
-
+    
     allSegments = allSegments.filter(s => s.project_id !== projectId);
     for (const segment of segments) {
       allSegments.push({
@@ -2039,7 +2303,7 @@ export async function saveVideoTranslationData(
     const logsKey = "fallback_video_translation_logs";
     const existingLogsStr = localStorage.getItem(logsKey);
     let allLogs: any[] = existingLogsStr ? JSON.parse(existingLogsStr) : [];
-
+    
     allLogs = allLogs.filter(l => l.project_id !== projectId);
     for (const logLine of logs) {
       allLogs.push({
@@ -2054,3 +2318,63 @@ export async function saveVideoTranslationData(
     console.error("Failed to write to fallback video_translation_* Web LocalStorage:", err);
   }
 }
+
+export async function saveVideoTranslationTimeline(
+  projectId: string, 
+  dialogues: { index: number; startSec: number; endSec: number; text: string; videoUrl?: string; audioUrl?: string }[], 
+  translatedDialogues: { index: number; startSec: number; endSec: number; text: string; videoUrl?: string; audioUrl?: string }[]
+): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      await database.execute("DELETE FROM video_translation_timeline WHERE project_id = ?", [projectId]);
+      for (const dlg of dialogues) {
+        const matchedTrans = translatedDialogues.find(t => t.index === dlg.index);
+        await database.execute(
+          `INSERT INTO video_translation_timeline (
+            project_id, segment_index, start_sec, end_sec, text, translated_text, video_url, audio_url, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            projectId,
+            dlg.index,
+            dlg.startSec,
+            dlg.endSec,
+            dlg.text,
+            matchedTrans ? matchedTrans.text : "",
+            dlg.videoUrl || null,
+            dlg.audioUrl || matchedTrans?.audioUrl || null,
+            now,
+            now
+          ]
+        );
+      }
+    }
+  } else {
+    // LocalStorage Fallback
+    try {
+      const timelineKey = "fallback_video_translation_timeline";
+      const existingTimelineStr = localStorage.getItem(timelineKey);
+      let allSegments: any[] = existingTimelineStr ? JSON.parse(existingTimelineStr) : [];
+      
+      allSegments = allSegments.filter(s => s.project_id !== projectId);
+      for (const dlg of dialogues) {
+        const matchedTrans = translatedDialogues.find(t => t.index === dlg.index);
+        allSegments.push({
+          project_id: projectId,
+          segment_index: dlg.index,
+          start_sec: dlg.startSec,
+          end_sec: dlg.endSec,
+          text: dlg.text,
+          translated_text: matchedTrans ? matchedTrans.text : "",
+          created_at: now,
+          updated_at: now
+        });
+      }
+      localStorage.setItem(timelineKey, JSON.stringify(allSegments));
+    } catch (err) {
+      console.error("Failed to write to fallback video_translation_timeline Web LocalStorage:", err);
+    }
+  }
+}
+

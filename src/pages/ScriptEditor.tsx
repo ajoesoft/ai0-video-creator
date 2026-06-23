@@ -33,7 +33,7 @@ import {
   ArrowDown,
   Image as ImageIcon
 } from 'lucide-react';
-import { cn } from '@/src/lib/utils';
+import { cn, getAssetUrl } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   fetchProjectById, 
@@ -41,7 +41,8 @@ import {
   createVocabulary, 
   updateVocabulary, 
   deleteVocabulary,
-  applyPromptHarnessRules
+  applyPromptHarnessRules,
+  getSetting
 } from '../lib/db';
 import { comfy } from '../lib/comfy';
 import { VideoProject, Vocabulary } from '../types';
@@ -65,7 +66,6 @@ import {
   cleanNarrationText,
   formatAssTime
 } from '../lib/subtitles';
-import { useLocalImageBase64 } from '../lib/utils';
 
 const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
 
@@ -149,9 +149,8 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
             } else {
               const fileExists = await exists(segment.imagePath);
               if (fileExists) {
-                const base64 =  await invoke<string>('load_local_image', { path: segment.imagePath });
-                //useLocalImageBase64(segment.imagePath );
-                setImageSrc(`data:image/png;base64,${base64}`);
+                const base64 = await invoke<string>('load_local_image', { path: segment.imagePath });
+                setImageSrc(base64);
               } else {
                 setImageSrc(null);
               }
@@ -223,12 +222,12 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
 
         savedPath = await comfy.runImageGenerationRust(fullPrompt, localImgPath, isTurbo, (msg) => {
           setProgress(msg);
-        });
+        }, project?.width, project?.height);
       } else {
         console.log(`Generating image in web mode (Model: ${selectedModel}) with prompt: ${fullPrompt}`);
         const urls = await comfy.runImageGeneration(fullPrompt, isTurbo, (msg) => {
           setProgress(msg);
-        });
+        }, project?.width, project?.height);
         if (urls && urls.length > 0) {
           savedPath = urls[0];
         } else {
@@ -788,9 +787,15 @@ export function ScriptEditor() {
 
     let aud = audioRefs.current[idString];
     if (!aud) {
-      const src = base64OrUrl.startsWith('data:') || base64OrUrl.startsWith('http') 
-        ? base64OrUrl 
-        : `data:audio/mp3;base64,${base64OrUrl}`;
+      let src = base64OrUrl;
+      if (!base64OrUrl.startsWith('data:') && !base64OrUrl.startsWith('http') && !base64OrUrl.startsWith('blob:') && !base64OrUrl.startsWith('stream:')) {
+        // If it looks like a local file path
+        if (base64OrUrl.includes('/') || base64OrUrl.includes('\\') || base64OrUrl.endsWith('.mp3') || base64OrUrl.endsWith('.wav')) {
+          src = getAssetUrl(base64OrUrl);
+        } else {
+          src = `data:audio/mp3;base64,${base64OrUrl}`;
+        }
+      }
       aud = new Audio(src);
       aud.onended = () => setCurrentlyPlayingAudio(null);
       audioRefs.current[idString] = aud;
@@ -968,13 +973,21 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    * Generates TTS sound audio.
    * If engine is 'online' or ComfyUI is unavailable, uses Gemini synthesizer 'gemini-3.1-flash-tts-preview' to generate base64 mp3.
    */
-  const handleGenerateSpeechTTS = async (segment: Vocabulary, isTranslated: boolean = false) => {
+  const handleGenerateSpeechTTS = async (segment: Vocabulary, isTranslated: boolean = false, overrideText?: string) => {
     if (!segment.id) return;
-    const txt = isTranslated ? (segment.chinese || '') : (segment.script || segment.word || '');
+    const txt = overrideText !== undefined ? overrideText : (isTranslated ? (segment.chinese || '') : (segment.script || segment.word || ''));
     if (!txt.trim()) return;
 
     const identifier = `${segment.id}_${isTranslated ? 'trans' : 'orig'}`;
     setActiveGenerations(prev => ({ ...prev, [identifier]: true }));
+
+    // Clear old cached audio Player object so the newly synthesized audio is played
+    if (audioRefs.current[identifier]) {
+      try {
+        audioRefs.current[identifier].pause();
+      } catch (err) {}
+      delete audioRefs.current[identifier];
+    }
 
     try {
       if (engine === 'online') {
@@ -1012,6 +1025,16 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
               await updateVocabulary(segment.id, { audioPath: localAudioPath });
             }
           }
+        } else {
+          // Web Preview persistent fallback: store standard base64 data URI
+          const base64Uri = base64AudioData.startsWith('data:') ? base64AudioData : `data:audio/mp3;base64,${base64AudioData}`;
+          if (isTranslated) {
+            const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+            currentCustomData.translatedAudioPath = base64Uri;
+            await updateVocabulary(segment.id, { data: JSON.stringify(currentCustomData) });
+          } else {
+            await updateVocabulary(segment.id, { audioPath: base64Uri });
+          }
         }
       } else {
         // ComfyUI TTS with Qwen3-TTS Voice Design
@@ -1045,6 +1068,15 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             } else {
               await updateVocabulary(segment.id, { audioPath: localAudioPath });
             }
+          } else {
+            // Web Preview persistent fallback: store Cloud audio URL directly
+            if (isTranslated) {
+              const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+              currentCustomData.translatedAudioPath = cloudUrl;
+              await updateVocabulary(segment.id, { data: JSON.stringify(currentCustomData) });
+            } else {
+              await updateVocabulary(segment.id, { audioPath: cloudUrl });
+            }
           }
         }
       }
@@ -1069,7 +1101,17 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
   const handleGenerateAllAudio = async () => {
     setIsBatchGenerating(true);
     try {
-      for (const segment of scriptSegments) {
+      // Fetch latest segment entries from database to avoid React closure/stale state bugs
+      const latestSegments = await fetchVocabularyByProject(id!);
+      const sortedSegments = [...latestSegments].sort((a, b) => a.id - b.id);
+
+      for (let i = 0; i < sortedSegments.length; i++) {
+        // Fetch up-to-date entry values on each iteration
+        const freshSegments = await fetchVocabularyByProject(id!);
+        const sortedFresh = [...freshSegments].sort((a, b) => a.id - b.id);
+        const segment = sortedFresh[i];
+        if (!segment) continue;
+
         const type = segment.category || 'prose';
         if (type !== 'prose') continue;
 
@@ -1104,8 +1146,12 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           }
         }
 
-        // Re-read scriptText
-        scriptText = segment.script || segment.word || scriptText;
+        // Get fresh state after potential ASR change
+        const freshSegmentsPostAsr = await fetchVocabularyByProject(id!);
+        const segmentPostAsr = freshSegmentsPostAsr.find(s => s.id === segment.id);
+        if (segmentPostAsr) {
+          scriptText = segmentPostAsr.script || segmentPostAsr.word || scriptText;
+        }
 
         // Step 2: Check if Translation is needed
         if (scriptText && !translationText) {
@@ -1130,14 +1176,20 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           }
         }
 
-        // Re-read translationText
-        translationText = segment.chinese || translationText;
+        // Get fresh state after potential translation change
+        const freshSegmentsPostTrans = await fetchVocabularyByProject(id!);
+        const segmentPostTrans = freshSegmentsPostTrans.find(s => s.id === segment.id);
+        if (segmentPostTrans) {
+          translationText = segmentPostTrans.chinese || translationText;
+        }
+
+        const activeSegment = segmentPostTrans || segmentPostAsr || segment;
 
         // Step 3: Check if TTS synthesizer is needed
         // Generate original speech if not present
         if (scriptText && !audioPath) {
           try {
-            await handleGenerateSpeechTTS(segment, false);
+            await handleGenerateSpeechTTS(activeSegment, false, scriptText);
           } catch (origTtsErr) {
             console.error("Auto Original Speech Synthesis failed:", origTtsErr);
           }
@@ -1146,10 +1198,10 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         // Generate translated speech if translation exists and translatedAudioPath isn't registered
         if (translationText) {
           const transIdentifier = `${segment.id}_trans`;
-          const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+          const currentCustomData = activeSegment.data ? JSON.parse(activeSegment.data) : {};
           if (!audioPlaybacks[transIdentifier] && !currentCustomData.translatedAudioPath) {
             try {
-              await handleGenerateSpeechTTS(segment, true);
+              await handleGenerateSpeechTTS(activeSegment, true, translationText);
             } catch (transTtsErr) {
               console.error("Auto Translated Speech Synthesis failed:", transTtsErr);
             }
@@ -1528,6 +1580,16 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                     const origIdentifier = `${segment.id}_orig`;
                     const transIdentifier = `${segment.id}_trans`;
 
+                    const transCustomData = (() => {
+                      try {
+                        return segment.data ? JSON.parse(segment.data) : {};
+                      } catch (e) {
+                        return {};
+                      }
+                    })();
+                    const translatedAudioPath = transCustomData.translatedAudioPath || "";
+                    const isTranslatedAudioReady = !!(audioPlaybacks[transIdentifier] || translatedAudioPath);
+
                     return (
                       <motion.div
                         key={segment.id}
@@ -1712,7 +1774,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     disabled={activeGenerations[transIdentifier]}
                                     className={cn(
                                       "flex items-center gap-2 px-3 py-1.5 rounded-md text-[9px] font-bold tracking-widest uppercase transition-all border",
-                                      audioPlaybacks[transIdentifier]
+                                      isTranslatedAudioReady
                                         ? "bg-brand-primary/10 border-brand-primary/20 text-brand-primary hover:bg-brand-primary/20" 
                                         : "bg-white/[0.01] border-white/5 text-white/40 hover:text-white hover:border-white/10"
                                     )}
@@ -1722,13 +1784,13 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     ) : (
                                       <Music className="w-3.5 h-3.5" />
                                     )}
-                                    <span>{audioPlaybacks[transIdentifier] ? 'TRANSLATED AUDIO READY' : 'BUILD TRANSLATED SPEECH'}</span>
+                                    <span>{isTranslatedAudioReady ? 'TRANSLATED AUDIO READY' : 'BUILD TRANSLATED SPEECH'}</span>
                                   </button>
 
                                   {/* Play synthesized translated audio */}
-                                  {audioPlaybacks[transIdentifier] && (
+                                  {isTranslatedAudioReady && (
                                     <button 
-                                      onClick={() => playAudioString(transIdentifier, audioPlaybacks[transIdentifier])}
+                                      onClick={() => playAudioString(transIdentifier, audioPlaybacks[transIdentifier] || translatedAudioPath)}
                                       className="p-1.5 rounded-full bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary flex items-center justify-center transition-all animate-pulse"
                                     >
                                       {currentlyPlayingAudio === transIdentifier ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
@@ -2248,6 +2310,58 @@ export function VideoGenModal({
   const [customAudioPath, setCustomAudioPath] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // States for fetching previous segment's video last frame
+  const [projectSegments, setProjectSegments] = useState<Vocabulary[]>([]);
+  const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState('');
+
+  useEffect(() => {
+    async function loadProjectSegments() {
+      if (project) {
+        try {
+          const vocab = await fetchVocabularyByProject(project.id);
+          const sorted = [...vocab].sort((a, b) => a.id - b.id);
+          setProjectSegments(sorted);
+        } catch (e) {
+          console.error("Failed to load project segments in VideoGenModal:", e);
+        }
+      }
+    }
+    loadProjectSegments();
+  }, [project, segment.id]);
+
+  const currentIndex = projectSegments.findIndex(s => s.id === segment.id);
+  const previousSegment = currentIndex > 0 ? projectSegments[currentIndex - 1] : null;
+  const hasPreviousVideo = previousSegment && !!previousSegment.videoPath;
+
+  const resolveProjectRoot = async (): Promise<string> => {
+    let projectRoot = project?.projectPath || '';
+    if (projectRoot && (
+      projectRoot.endsWith('.mp4') || 
+      projectRoot.endsWith('.png') || 
+      projectRoot.endsWith('.mp3') || 
+      projectRoot.endsWith('.wav') ||
+      projectRoot.toLowerCase().includes('.mp4') ||
+      projectRoot.toLowerCase().includes('.png') ||
+      projectRoot.toLowerCase().includes('.mp3')
+    )) {
+      const lastSlash = Math.max(projectRoot.lastIndexOf('/'), projectRoot.lastIndexOf('\\'));
+      if (lastSlash !== -1) {
+        projectRoot = projectRoot.substring(0, lastSlash);
+      }
+    }
+    if (!projectRoot && project?.id) {
+      try {
+        const { getSetting } = await import("../lib/db");
+        const workspacePath = await getSetting("workspace_path") || 'workspace';
+        projectRoot = await join(workspacePath, project.id);
+      } catch (err) {
+        console.error("Failed to resolve workspace path fallback:", err);
+      }
+    }
+    return projectRoot;
+  };
+
   // Parse list of existing image paths
   let customData: any = {};
   try {
@@ -2286,8 +2400,8 @@ export function VideoGenModal({
             } else {
               const existsFile = await exists(p);
               if (existsFile) {
-                const base64 = await invoke<string>('load_local_image', { path: p });
-                thumbs[p] = `data:image/png;base64,${base64}`;
+                const b64 = await invoke<string>('load_local_image', { path: p });
+                thumbs[p] = b64;
               }
             }
           } else {
@@ -2334,7 +2448,7 @@ export function VideoGenModal({
       let savedPath = '';
 
       if (isTauri) {
-        const projectRoot = project?.projectPath;
+        const projectRoot = await resolveProjectRoot();
         if (!projectRoot) throw new Error("Project folder path is missing");
 
         const imgDir = await join(projectRoot, 'image');
@@ -2347,12 +2461,12 @@ export function VideoGenModal({
 
         savedPath = await comfy.runImageGenerationRust(fullPrompt, localImgPath, isTurbo, (msg) => {
           setImageProgress(msg);
-        });
+        }, project?.width, project?.height);
       } else {
         console.log(`Generating reference image in web mode: ${fullPrompt}`);
         const urls = await comfy.runImageGeneration(fullPrompt, isTurbo, (msg) => {
           setImageProgress(msg);
-        });
+        }, project?.width, project?.height);
         if (urls && urls.length > 0) {
           savedPath = urls[0];
         } else {
@@ -2395,6 +2509,100 @@ export function VideoGenModal({
     }
   };
 
+  const handleExtractLastFrame = async () => {
+    if (!previousSegment || !previousSegment.videoPath) return;
+    if (isExtractingLastFrame) return;
+
+    setIsExtractingLastFrame(true);
+    setExtractionProgress('Extracting last frame of previous video...');
+
+    try {
+      let savedPath = '';
+
+      if (isTauri) {
+        const projectRoot = await resolveProjectRoot();
+        if (!projectRoot) throw new Error("Project folder path is missing");
+
+        const imgDir = await join(projectRoot, 'image');
+        if (!(await exists(imgDir))) {
+          await mkdir(imgDir, { recursive: true });
+        }
+
+        const filename = `prev_last_frame_${segment.id}_${Date.now()}.png`;
+        const localImgPath = await join(imgDir, filename);
+
+        // Retrieve configured FFmpeg path
+        const ffmpegPath = await getSetting('ffmpeg_path').catch(() => 'ffmpeg') || 'ffmpeg';
+
+        // Check if file operates on disk
+        const videoExists = await exists(previousSegment.videoPath);
+        if (!videoExists) {
+          throw new Error(`Previous video file not found at: ${previousSegment.videoPath}`);
+        }
+
+        // Invoke FFmpeg to grab the exact end frame
+        await invoke('run_ffmpeg_cmd', {
+          ffmpegPath,
+          args: [
+            '-y',
+            '-sseof', '-0.1',
+            '-i', previousSegment.videoPath,
+            '-vframes', '1',
+            '-update', '1',
+            localImgPath
+          ]
+        });
+
+        savedPath = localImgPath;
+      } else {
+        // Web mode translation/simulation fallback
+        console.log("Web Simulation Mode: using previous scene imagePath as approximation.");
+        if (previousSegment.imagePath) {
+          savedPath = previousSegment.imagePath;
+        } else {
+          savedPath = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800';
+        }
+      }
+
+      if (savedPath) {
+        let cData: any = {};
+        try {
+          cData = segment.data ? JSON.parse(segment.data) : {};
+        } catch (e) {}
+
+        const imgs = Array.isArray(cData.images) ? [...cData.images] : [];
+        if (segment.imagePath && !imgs.includes(segment.imagePath)) {
+          imgs.unshift(segment.imagePath);
+        }
+
+        if (!imgs.includes(savedPath)) {
+          imgs.push(savedPath);
+        }
+
+        const updatedData = {
+          ...cData,
+          images: imgs,
+          currentImageIndex: imgs.length - 1
+        };
+
+        await updateVocabulary(segment.id, {
+          imagePath: savedPath,
+          data: JSON.stringify(updatedData)
+        });
+
+        setStartFramePath(savedPath);
+        onRefresh();
+        alert('Successfully extracted last frame of previous video! Set as starting frame for this video.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Failed to extract previous last frame: ${err?.message || err}`);
+    } finally {
+      setIsExtractingLastFrame(false);
+      setExtractionProgress('');
+    }
+  };
+
   const handleStartVideoGen = async () => {
     if (isGeneratingVideo) return;
     setIsGeneratingVideo(true);
@@ -2430,15 +2638,49 @@ export function VideoGenModal({
         audio: audioPathToSend,
         duration: 4.0,
         fps: 24,
+        width: project?.width,
+        height: project?.height,
         seed: Math.floor(Math.random() * 100000)
       }, (progMsg) => {
         setVideoProgress(progMsg);
       });
 
       if (results && results.length > 0) {
-        const firstVideo = results[0];
+        let finalVideoPath = results[0];
+
+        const projectRoot = await resolveProjectRoot();
+        if (isTauri && projectRoot) {
+          try {
+            setVideoProgress('Saving video to workspace...');
+            const videoDir = await join(projectRoot, 'video');
+            if (!(await exists(videoDir))) {
+              await mkdir(videoDir, { recursive: true });
+            }
+            const filename = `regen_video_${segment.id}_${Date.now()}.mp4`;
+            const localVidPath = await join(videoDir, filename);
+
+            console.log(`Downloading video from ${finalVideoPath} to ${localVidPath}`);
+            let response;
+            try {
+              response = await tauriFetch(finalVideoPath);
+            } catch (e) {
+              response = await fetch(finalVideoPath);
+            }
+
+            if (!response.ok) {
+              throw new Error(`Failed to download video: ${response.statusText}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            await writeFile(localVidPath, new Uint8Array(arrayBuffer));
+            finalVideoPath = localVidPath;
+            console.log(`Video saved successfully to local path: ${finalVideoPath}`);
+          } catch (writeErr: any) {
+            console.error("Failed to save video to local workspace:", writeErr);
+          }
+        }
+
         await updateVocabulary(segment.id, {
-          videoPath: firstVideo,
+          videoPath: finalVideoPath,
           ltx23Prompt: ltxPrompt
         });
         onRefresh();
@@ -2458,8 +2700,8 @@ export function VideoGenModal({
 
   const handleCustomAudioUpload = async (file: File) => {
     try {
-      if (isTauri && project?.projectPath) {
-        const projectRoot = project.projectPath;
+      const projectRoot = await resolveProjectRoot();
+      if (isTauri && projectRoot) {
         const uploadDir = await join(projectRoot, 'audio');
         if (!(await exists(uploadDir))) {
           await mkdir(uploadDir, { recursive: true });
@@ -2740,6 +2982,28 @@ export function VideoGenModal({
                     );
                   })}
                 </div>
+              )}
+
+              {/* Grab previous last frame button */}
+              {hasPreviousVideo && (
+                <button
+                  type="button"
+                  disabled={isExtractingLastFrame || isGeneratingVideo || isGeneratingImage}
+                  onClick={handleExtractLastFrame}
+                  className="w-full py-2.5 px-4 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 hover:border-blue-500/40 text-[10px] text-blue-400 font-bold uppercase tracking-wider rounded flex items-center justify-center gap-2 transition-all"
+                >
+                  {isExtractingLastFrame ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                      <span>{extractionProgress || 'Extracting Last Frame...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileVideo className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                      <span>获取上一视频最后一帧 (Use Last Frame of Previous Video)</span>
+                    </>
+                  )}
+                </button>
               )}
 
               {/* Ref Image Generat Button (Multiple triggers) */}

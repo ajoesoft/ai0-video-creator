@@ -37,8 +37,13 @@ export interface VideoProject {
   height?: number;
   aspectRatio?: string;
   visualStyle?: string;
+  videoUrl?: string | null;
+  audioUrl?: string | null;
+  audioDuration?: number;
+  srtOriginal?: string | null;
+  textOriginal?: string | null;
+  detectedLanguage?: string | null;
 }
-
 
 export interface SceneConfig {
   configId: number;

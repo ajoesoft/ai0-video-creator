@@ -2,6 +2,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useState, useEffect } from 'react';
+import { getSetting } from './db';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -101,28 +102,46 @@ export function safeConvertFileSrc(filePath: string): string {
   // Normalize windows backslashes to unix slashes
   let absolutePath = filePath.replace(/\\/g, '/');
   
-  // Self-heal: normalize relative path to absolute workspace path
-  if (!absolutePath.startsWith('/') && !absolutePath.startsWith('\\') && !/^[a-zA-Z]:/.test(absolutePath)) {
-    absolutePath = `/data/workflow/workspace/${absolutePath}`;
+  // Clean prefix to get pure subpath
+  let subpath = absolutePath;
+  
+  // Smart detection: if path contains '/workspace/' or 'workspace/' in the middle (e.g. absolute desktop path), strip everything before it
+  const lowerPath = subpath.toLowerCase();
+  const workspaceIndex = lowerPath.indexOf('/workspace/');
+  if (workspaceIndex !== -1) {
+    subpath = subpath.slice(workspaceIndex + '/workspace/'.length);
+  } else {
+    const workspaceIndexNoSlash = lowerPath.indexOf('workspace/');
+    if (workspaceIndexNoSlash !== -1) {
+      subpath = subpath.slice(workspaceIndexNoSlash + 'workspace/'.length);
+    }
+  }
+
+  const prefixesToStrip = [
+    '/data/workflow/workspace/',
+    'data/workflow/workspace/',
+    '/workspace/',
+    'workspace/'
+  ];
+  for (const prefix of prefixesToStrip) {
+    if (subpath.toLowerCase().startsWith(prefix.toLowerCase())) {
+      subpath = subpath.slice(prefix.length);
+      break;
+    }
+  }
+  if (subpath.startsWith('/')) {
+    subpath = subpath.slice(1);
   }
 
   if (isTauri) {
     // If we are in Tauri and running in DEV mode (origin is localhost:3000 / 127.0.0.1:3000),
     // we should stream video.src / audio.src directly from our Vite dev server using HTTP!
-    // This completely resolves macOS WKWebView custom scheme (asset://) media range-request playback failures.
     const isDev = typeof window !== 'undefined' && 
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
     if (isDev) {
       const origin = window.location.origin;
-      let relativePath = absolutePath;
-      const workspacePrefix = '/data/workflow/workspace/';
-      if (relativePath.startsWith(workspacePrefix)) {
-        relativePath = relativePath.slice(workspacePrefix.length);
-      } else if (relativePath.startsWith('/')) {
-        relativePath = relativePath.slice(1);
-      }
-      return encodeUrlPath(`${origin}/workspace/${relativePath}`);
+      return encodeUrlPath(`${origin}/workspace/${subpath}`);
     }
 
     try {
@@ -161,14 +180,7 @@ export function safeConvertFileSrc(filePath: string): string {
   // Non-Tauri (Web Browser / AI Studio Workspace):
   // Convert to standard workspace web URL
   const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-  let relativePath = absolutePath;
-  const workspacePrefix = '/data/workflow/workspace/';
-  if (relativePath.startsWith(workspacePrefix)) {
-    relativePath = relativePath.slice(workspacePrefix.length);
-  } else if (relativePath.startsWith('/')) {
-    relativePath = relativePath.slice(1);
-  }
-  return encodeUrlPath(`${origin}/workspace/${relativePath}`);
+  return encodeUrlPath(`${origin}/workspace/${subpath}`);
 }
 
 export function getAssetUrl(path: string | undefined | null): string {
@@ -179,6 +191,10 @@ export function getAssetUrl(path: string | undefined | null): string {
 
   // Normalize backslashes (Windows) to forward slashes for unified parsing
   rawPath = rawPath.replace(/\\/g, '/');
+
+  // Strip http(s)://localhost:XXXX/ or http(s)://127.0.0.1:XXXX/ if present
+  const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
+  rawPath = rawPath.replace(localhostRegex, '');
 
   // Strip any assets:/// or assets://localhost/ or asset://localhost/ prefixes
   const tauriPrefixes = [
@@ -202,20 +218,20 @@ export function getAssetUrl(path: string | undefined | null): string {
     }
   }
 
-  // After cleaning prefixes, detect if it is a truly remote URL or data-URI
-  const isRemote = rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.startsWith('data:');
+  // After cleaning prefixes, detect if it is a truly remote URL or data-URI or blob URL
+  const isRemote = rawPath.startsWith('http://') || rawPath.startsWith('https://') || rawPath.startsWith('data:') || rawPath.startsWith('blob:');
   if (isRemote) {
     return rawPath;
   }
 
-  // Self-heal relative paths
-  if (!rawPath.startsWith('/') && !rawPath.startsWith('\\') && !/^[a-zA-Z]:/.test(rawPath)) {
-    rawPath = `/data/workflow/workspace/${rawPath}`;
-  }
-
   return safeConvertFileSrc(rawPath);
 }
-
+function stripWorkspacePrefix(fullPath, workspace) {
+  // 转义路径中的 / ，拼接开头匹配正则
+  const escaped = workspace.replace(/\//g, '\\/');
+  const reg = new RegExp(`^${escaped}`);
+  return fullPath.replace(reg, "");
+}
 export function useMediaUrl(path: string | undefined | null, mediaType: 'video' | 'audio' | 'image' = 'video') {
   const [url, setUrl] = useState<string>('');
 
@@ -224,13 +240,18 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       setUrl('');
       return;
     }
-
+    console.log(`## path: ${path}`);
     const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 
     // Clean up path similarly to getAssetUrl
     let cleanPath = decodeURIComponent(path);
     cleanPath = cleanPath.replace(/\\/g, '/');
 
+    // Strip http(s)://localhost:XXXX/ or http(s)://127.0.0.1:XXXX/ if present
+    const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
+    cleanPath = cleanPath.replace(localhostRegex, '');
+    console.log(`## cleanPath ${cleanPath} ##`);
+   
     const tauriPrefixes = [
       'assets://localhost/',
       'asset://localhost/',
@@ -259,41 +280,120 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       return;
     }
 
-    // Self-heal relative paths
-    if (!cleanPath.startsWith('/') && !cleanPath.startsWith('\\') && !/^[a-zA-Z]:/.test(cleanPath)) {
-      cleanPath = `/data/workflow/workspace/${cleanPath}`;
-    }
-
     let active = true;
     let blobUrl = '';
 
     const resolveUrl = async () => {
-      if (isTauri) {
-        try {
-          // Direct fallback to safeConvertFileSrc for video & audio to support range-requests / seekable streaming
-          if (mediaType === 'video' || mediaType === 'audio') {
-            setUrl(safeConvertFileSrc(cleanPath));
-            return;
-          }
+      // 1. Get raw subpath by stripping virtual workspace prefixes and the absolute workspace_path if present on disk
+      let subpath = cleanPath.replace(/\\/g, '/');
 
-          // Dynamically import Tauri's plugin-fs for smaller static assets / images
-          const { readFile } = await import('@tauri-apps/plugin-fs');
-          const fileData = await readFile(cleanPath);
-          const mimeType = 'image/png';
-          blobUrl = URL.createObjectURL(new Blob([fileData], { type: mimeType }));
-          if (active) {
-            setUrl(blobUrl);
-            console.log(`[useMediaUrl] Resolved ${mediaType} file as secure blob URL:`, blobUrl);
-          }
-          return;
-        } catch (err) {
-          console.warn(`[useMediaUrl] Direct handle failed for ${path}, falling back to convertFileSrc:`, err);
+      // Strip the real physical workspace path if it is prefixing our file path
+      const wsPathRaw = await getSetting('workspace_path') || '';
+      const wsPath = wsPathRaw.replace(/\\/g, '/');
+      if (wsPath) {
+        const wsPathNoTrailing = wsPath.endsWith('/') ? wsPath.slice(0, -1) : wsPath;
+        if (subpath.startsWith(wsPathNoTrailing)) {
+          subpath = subpath.slice(wsPathNoTrailing.length);
         }
       }
 
-      // Fallback (non-Tauri or error)
-      if (active) {
-        setUrl(getAssetUrl(cleanPath));
+      const prefixesToStrip = [
+        '/data/workflow/workspace/',
+        'data/workflow/workspace/',
+        '/workspace/',
+        'workspace/'
+      ];
+      for (const prefix of prefixesToStrip) {
+        if (subpath.startsWith(prefix)) {
+          subpath = subpath.slice(prefix.length);
+          break;
+        }
+      }
+      if (subpath.startsWith('/')) {
+        subpath = subpath.slice(1);
+      }
+
+      // Now subpath is pure relative, e.g. "10fb29a8-9eb9-4281-a777-3cc6b6aed7a2/video/s11.mp4"
+
+      if (isTauri) {
+        if (mediaType === 'video' || mediaType === 'audio') {
+          try {
+            // Determine if the subpath is absolute already (starts with '/' or drive letter like 'C:')
+            const isAbsolute = subpath.startsWith('/') || /^[a-zA-Z]:\//.test(subpath);
+            let absolutePath = '';
+            
+            if (isAbsolute) {
+              absolutePath = subpath;
+            } else {
+              const workspacePath = await getSetting('workspace_path') || '';
+              console.log(`## workspacePath ${workspacePath} ##`);
+              const normalizedWorkspace = workspacePath.replace(/\\/g, '/');
+              console.log(`## normalizedWorkspace ${normalizedWorkspace} ##`);
+              if (normalizedWorkspace) {
+                absolutePath = `${normalizedWorkspace}/${subpath}`.replace(/\/+/g, '/');
+              } else {
+                absolutePath = subpath;
+              }
+            }
+
+            // Encode each path segment while preserving drive letter colons if present
+            const uriPath = absolutePath.split('/').map(seg => {
+              if (seg.endsWith(':') && seg.length === 2) {
+                return seg;
+              }
+              return encodeURIComponent(decodeURIComponent(seg));
+            }).join('/');
+
+            const cleanUriPath = uriPath.startsWith('/') ? uriPath : `/${uriPath}`;
+            // const streamUrl = `stream://localhost${cleanUriPath}`;
+            const streamUrl = convertFileSrc(cleanUriPath);
+            console.log(`[useMediaUrl] Streaming via custom stream protocol:`, streamUrl);
+            const projectFilePath =  stripWorkspacePrefix(path,workspace_path);
+            console.log(`## projectFilePath: ${projectFilePath}`);
+            const port=4002;
+            const mediaServerAddress=`http://127.0.0.1:${port}`;
+            const projectFileUrl = mediaServerAddress+projectFilePath;
+            console.log(`## projectFilePath: ${projectFilePath}`);
+            if (active) {
+              setUrl(projectFileUrl);
+            }
+            return;
+          } catch (streamErr) {
+            console.warn('[useMediaUrl] Failed to load custom stream protocol, falling back:', streamErr);
+          }
+        }
+
+        // Static files (images, etc) in Tauri
+        try {
+          const workspacePath = await getSetting('workspace_path') || '';
+           console.log(`== workspacePath ${workspacePath} ##`);
+          const absolutePath = workspacePath ? `${workspacePath}/${subpath}`.replace(/\\/g, '/') : subpath;
+          console.log(`== absolutePath ${absolutePath} ##`);
+          const { readFile } = await import('@tauri-apps/plugin-fs');
+          const fileData = await readFile(absolutePath);
+          blobUrl = URL.createObjectURL(new Blob([fileData], { type: 'image/png' }));
+          if (active) {
+            setUrl(blobUrl);
+            console.log(`[useMediaUrl] Resolved image file as secure blob URL:`, blobUrl);
+          }
+          return;
+        } catch (err) {
+          console.warn(`[useMediaUrl] Direct handle failed, falling back to convertFileSrc:`, err);
+          // Let tauri's convertFileSrc compile
+          const workspacePath = await getSetting('workspace_path') || '';
+          const absolutePath = workspacePath ? `${workspacePath}/${subpath}`.replace(/\\/g, '/') : subpath;
+          if (active) {
+            setUrl(safeConvertFileSrc(absolutePath));
+          }
+        }
+      } else {
+        // Non-Tauri (Web Mode)
+        const origin = window.location.origin;
+        const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+        const webUrl = `${origin}/workspace/${encodedSubpath}`;
+        if (active) {
+          setUrl(webUrl);
+        }
       }
     };
 
@@ -359,14 +459,25 @@ export function useLocalImageBase64(path: string | undefined | null): string {
     const resolveBase64 = async () => {
       if (isTauri) {
         try {
+          // Normalize and resolve absolute path in Tauri
+          let absolutePath = cleanPath;
+          const isAbsolute = absolutePath.startsWith('/') || /^[a-zA-Z]:\//.test(absolutePath);
+          if (!isAbsolute) {
+            const workspacePath = await getSetting('workspace_path') || '';
+            const normalizedWorkspace = workspacePath.replace(/\\/g, '/');
+            if (normalizedWorkspace) {
+              absolutePath = `${normalizedWorkspace}/${absolutePath}`.replace(/\/+/g, '/');
+            }
+          }
+
           const { exists } = await import('@tauri-apps/plugin-fs');
-          const fileExists = await exists(cleanPath);
+          const fileExists = await exists(absolutePath);
           if (fileExists) {
             const { invoke } = await import('@tauri-apps/api/core');
-            let base64 = await invoke<string>('load_local_image', { path: cleanPath });
+            let base64 = await invoke<string>('load_local_image', { path: absolutePath });
             if (active) {
               if (base64 && !base64.startsWith('data:')) {
-                const extension = cleanPath.split('.').pop()?.toLowerCase() || 'png';
+                const extension = absolutePath.split('.').pop()?.toLowerCase() || 'png';
                 let mimeType = 'image/png';
                 if (extension === 'jpg' || extension === 'jpeg') {
                   mimeType = 'image/jpeg';

@@ -228,6 +228,9 @@ export function ModelManagement() {
   const [geminiActiveModel, setGeminiActiveModel] = useState('gemini-2.5-flash');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
 
+  // Default cloud provider selection
+  const [defaultCloudApi, setDefaultCloudApi] = useState<string>('gemini');
+
   // Dynamic engine mode state for each workflow category
   const [workflowModes, setWorkflowModes] = useState<Record<string, 'local' | 'cloud'>>({
     text_to_image: 'local',
@@ -263,6 +266,7 @@ export function ModelManagement() {
       // Load Gemini specs
       setGeminiApiKey(await getSettingSafe('model_gemini_api_key', ''));
       setGeminiActiveModel(await getSettingSafe('model_gemini_active_model', 'gemini-2.5-flash'));
+      setDefaultCloudApi(await getSettingSafe('default_cloud_api', 'gemini'));
 
       // Load workflow mode mappings
       const text_to_image_mode = await getSettingSafe('model_mode_text_to_image', 'local');
@@ -640,7 +644,7 @@ export function ModelManagement() {
   };
 
   // Save specific section
-  const handleSaveConfig = async (provider: 'ali' | 'volc' | 'gemini') => {
+  const handleSaveConfig = async (provider: 'ali' | 'volc' | 'gemini' | 'cloud_global') => {
     try {
       if (provider === 'ali') {
         await setSetting('model_ali_api_key', aliApiKey);
@@ -648,12 +652,14 @@ export function ModelManagement() {
       } else if (provider === 'gemini') {
         await setSetting('model_gemini_api_key', geminiApiKey);
         await setSetting('model_gemini_active_model', geminiActiveModel);
-      } else {
+      } else if (provider === 'volc') {
         await setSetting('model_volc_appid', volcAppId);
         await setSetting('model_volc_ak', volcAK);
         await setSetting('model_volc_sk', volcSK);
         await setSetting('model_volc_active_voice', volcActiveVoice);
         await setSetting('model_volc_endpoint_id', volcEndpointId);
+      } else if (provider === 'cloud_global') {
+        await setSetting('default_cloud_api', defaultCloudApi);
       }
       
       setSaveSuccess(provider);
@@ -1402,6 +1408,39 @@ export function ModelManagement() {
                       </button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Global Default Cloud Service Card */}
+            <div className="desktop-card p-6 bg-gradient-to-r from-purple-950/20 via-black/20 to-transparent border border-white/10 space-y-4 rounded-2xl text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex gap-3">
+                  <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center shrink-0">
+                    <Cpu className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base">全局默认云端 API (Global Default Cloud API)</h3>
+                    <p className="text-gray-400 text-xs">当上方任一创意工序切换为【云端接口】模式时，系统将默认路由调用您在此选中的第三方云端服务商进行处理。</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <select
+                    value={defaultCloudApi}
+                    onChange={(e) => setDefaultCloudApi(e.target.value)}
+                    className="bg-black/60 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-brand-primary min-w-[200px]"
+                  >
+                    <option value="gemini">Google Gemini API (默认)</option>
+                    <option value="ali">阿里云通义千问 (DashScope)</option>
+                    <option value="volc">火山引擎 (ByteDance Volcengine)</option>
+                  </select>
+                  <button
+                    onClick={() => handleSaveConfig('cloud_global')}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-all shadow shrink-0"
+                  >
+                    {saveSuccess === 'cloud_global' ? '已保存！' : '保存设置'}
+                  </button>
                 </div>
               </div>
             </div>

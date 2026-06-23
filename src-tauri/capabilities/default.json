@@ -5,13 +5,18 @@
   "windows": [
     "main"
   ],
+  "bundle": {
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
+  },
   "permissions": [
     "core:default",
-    "core:resources:default",
-    "core:webview:default",
+    "opener:default",
     "fs:scope-data",
     "fs:read-all",
-    "opener:default",
     "shell:default",
     "sql:default",
     "sql:allow-execute",
@@ -29,6 +34,7 @@
     "fs:allow-read-file",
     "fs:allow-resource-read",
     "fs:allow-app-read",
+    "core:webview:default",
     {
       "identifier": "fs:allow-mkdir",
       "allow": [
@@ -37,19 +43,7 @@
         },
         {
           "path": "**/*"
-        },
-        {
-          "path": "/**"
-        },
-        {
-          "path": "/**/*"
-        },
-        {
-          "path": "/data/**"
-        },
-        {
-          "path": "/data/**/*"
-        }
+        }       
       ]
     },
     {
@@ -66,13 +60,7 @@
         },
         {
           "path": "/**/*"
-        },
-        {
-          "path": "/data/**"
-        },
-        {
-          "path": "/data/**/*"
-        }
+        }        
       ]
     },
     {
@@ -89,12 +77,6 @@
         },
         {
           "path": "/**/*"
-        },
-        {
-          "path": "/data/**"
-        },
-        {
-          "path": "/data/**/*"
         }
       ]
     },
@@ -120,16 +102,9 @@
         },
         {
           "path": "/**/*"
-        },
-        {
-          "path": "/data/**"
-        },
-        {
-          "path": "/data/**/*"
         }
       ]
     },
-   
     {
       "identifier": "http:default",
       "allow": [
@@ -137,10 +112,14 @@
           "url": "http://127.0.0.1:8188/*"
         },
         {
+          "url": "http://127.0.0.1:4002/*"
+        },
+        {
           "url": "http://localhost:8188/*"
         }
       ]
     },
+    
     "log:default"
   ]
 }

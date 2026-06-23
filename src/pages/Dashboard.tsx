@@ -80,6 +80,7 @@ export function Dashboard() {
     
     try {
       const workspacePath = await getSetting('workspace_path');
+      console.log(`## workspacePath: ${workspacePath}`);
       const id = crypto.randomUUID();
       let projectPath = '';
 
@@ -87,12 +88,14 @@ export function Dashboard() {
       if (isTauri && workspacePath) {
         try {
           projectPath = await join(workspacePath, id);
+          console.log(`## projectPath: ${projectPath}`);
           await mkdir(projectPath, { recursive: true });
           
           const dirs = ['audio', 'video', 'image', 'script', 'cover'];
           for (const dir of dirs) {
             const subDir = await join(projectPath, dir);
             if (!(await exists(subDir))) {
+              console.log(`## subDir: ${subDir}`);
               await mkdir(subDir);
             }
           }

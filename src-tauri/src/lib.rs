@@ -1,14 +1,75 @@
+// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+pub mod db;
 use base64::{engine::general_purpose, Engine as _};
 use log::{error, info};
-use std::fs;
 use std::path::Path;
-use std::path::PathBuf;
-use std::process::Stdio;
+use std::fs;
+use http_range::HttpRange;
+use log::{debug, warn};
+use std::io::{Read, Seek,Write, SeekFrom};
 use std::time::Duration;
-use tauri::{AppHandle, Runtime};
-use tauri_plugin_sql::{Migration, MigrationKind};
-use tokio::process::Command;
-use uuid::Uuid;
+use http::{header::*, response::Builder as ResponseBuilder, status::StatusCode};
+
+
+fn random_boundary() -> String {
+    let mut x = [0_u8; 30];
+    getrandom::getrandom(&mut x).expect("failed to get random bytes");
+    (x[..])
+        .iter()
+        .map(|&x| format!("{x:x}"))
+        .fold(String::new(), |mut a, x| {
+            a.push_str(x.as_str());
+            a
+        })
+}
+fn read_setting_from_db(db_path: &str, key_name: &str) -> Result<Option<String>, rusqlite::Error> {
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_settings')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !table_exists {
+        return Ok(None);
+    }
+
+    let mut stmt = conn.prepare("SELECT value FROM app_settings WHERE key = ?1")?;
+    let mut rows = stmt.query([key_name])?;
+    if let Some(row) = rows.next()? {
+        let val: String = row.get(0)?;
+        Ok(Some(val))
+    } else {
+        Ok(None)
+    }
+}
+
+fn write_setting_to_db(
+    db_path: &str,
+    key_name: &str,
+    value_str: &str,
+) -> Result<(), rusqlite::Error> {
+    let conn = rusqlite::Connection::open(db_path)?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?1, ?2, CURRENT_TIMESTAMP)",
+        [key_name, value_str],
+    )?;
+    Ok(())
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -17,6 +78,7 @@ fn greet(name: &str) -> String {
         name
     )
 }
+
 #[tauri::command]
 fn get_fallback_cover_svg_base64() -> String {
     let svg_raw = r#"<svg xmlns='http://www.w3.org/2000/svg' width='300' height='170' viewBox='0 0 300 170'>
@@ -28,7 +90,11 @@ fn get_fallback_cover_svg_base64() -> String {
 }
 
 #[tauri::command]
-fn extract_video_cover(ffmpeg_path: String, video_path: String, output_dir: String) -> Result<String, String> {
+fn extract_video_cover(
+    ffmpeg_path: String,
+    video_path: String,
+    output_dir: String,
+) -> Result<String, String> {
     let path_to_use = if ffmpeg_path.is_empty() {
         "ffmpeg".to_string()
     } else {
@@ -39,13 +105,17 @@ fn extract_video_cover(ffmpeg_path: String, video_path: String, output_dir: Stri
     if let Some(parent) = out_path.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return Err(format!("Failed to create parent directory for cover: {}", e));
+                return Err(format!(
+                    "Failed to create parent directory for cover: {}",
+                    e
+                ));
             }
         }
     }
 
     let mut command = std::process::Command::new(&path_to_use);
-    command.arg("-y")
+    command
+        .arg("-y")
         .arg("-i")
         .arg(&video_path)
         .arg("-ss")
@@ -62,7 +132,10 @@ fn extract_video_cover(ffmpeg_path: String, video_path: String, output_dir: Stri
             if out.status.success() {
                 Ok(output_dir)
             } else {
-                Err(format!("FFmpeg cover extraction failed: {}\nStderr: {}", stdout, stderr))
+                Err(format!(
+                    "FFmpeg cover extraction failed: {}\nStderr: {}",
+                    stdout, stderr
+                ))
             }
         }
         Err(e) => Err(format!("FFmpeg process failed to start: {}", e)),
@@ -589,6 +662,7 @@ fn get_db_file_path() -> Result<String, String> {
             .map_err(|e| format!("Failed to create app data directory: {}", e))?;
     }
     let db_path = app_dir.join("main.db");
+    info!("## db_path:  {}", db_path.to_str().unwrap());
     db_path
         .to_str()
         .map(|s| s.to_string())
@@ -1013,306 +1087,363 @@ fn traverse_model_files(dir: &std::path::Path, list: &mut Vec<String>, base_dir:
     }
 }
 
+
+async fn serve_workspace_file(req: axum::http::Request<axum::body::Body>) -> impl axum::response::IntoResponse {
+    use axum::body::Body;
+    use axum::http::{StatusCode, Request};
+    use axum::response::{IntoResponse, Response};
+    use tower::ServiceExt;
+    use tower_http::services::ServeDir;
+
+    let db_path = match get_db_file_path() {
+        Ok(path) => path,
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to determine DB path: {}", e)))
+                .unwrap();
+        }
+    };
+
+    let workspace_path = match read_setting_from_db(&db_path, "workspace_path") {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("workspace_path setting not configured in database yet. Please configure it in settings page first."))
+                .unwrap();
+        }
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to read setting from database: {}", e)))
+                .unwrap();
+        }
+    };
+
+    if workspace_path.trim().is_empty() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("workspace_path setting is defined but currently empty. Please configure a valid path."))
+            .unwrap();
+    }
+
+    let uri = req.uri().clone();
+    let subpath = uri.path().trim_start_matches('/');
+    if subpath.contains("..") {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from("Directory traversal forbidden"))
+            .unwrap();
+    }
+
+    let full_path = std::path::PathBuf::from(&workspace_path).join(subpath);
+    if !full_path.exists() {
+        return Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from(format!("File not found in workspace: {} (Workspace: {})", subpath, workspace_path)))
+            .unwrap();
+    }
+
+    let headers = req.headers().clone();
+    let mut req_builder = Request::builder().uri(uri);
+    if let Some(headers_mut) = req_builder.headers_mut() {
+        *headers_mut = headers;
+    }
+
+    let serve_req = match req_builder.body(Body::empty()) {
+        Ok(r) => r,
+        Err(e) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(format!("Failed to build ServeDir request: {}", e)))
+                .unwrap();
+        }
+    };
+
+    let route_service = ServeDir::new(workspace_path);
+    match route_service.oneshot(serve_req).await {
+        Ok(res) => res.into_response(),
+        Err(e) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from(format!("Error running ServeDir oneshot: {}", e)))
+            .unwrap(),
+    }
+}
+
+async fn start_video_server() {
+    use std::net::SocketAddr;
+    use tower_http::cors::{Any, CorsLayer};
+
+    let db_path = match get_db_file_path() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("[Axum Server] Failed to determine DB file path: {}", e);
+            "main.db".to_string()
+        }
+    };
+
+    let app = axum::Router::new()
+        .fallback(serve_workspace_file)
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        );
+
+    let mut port = 4000;
+    if let Ok(Some(saved_port_str)) = read_setting_from_db(&db_path, "video_server_port") {
+        if let Ok(p) = saved_port_str.trim().parse::<u16>() {
+            port = p;
+        }
+    }
+
+    let mut listener = None;
+    let mut bound_port = port;
+
+    for p in port..(port + 100) {
+        let addr = SocketAddr::from(([0, 0, 0, 0], p));
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => {
+                listener = Some(l);
+                bound_port = p;
+                break;
+            }
+            Err(e) => {
+                log::warn!("[Axum Server] Port {} occupied: {}, trying next...", p, e);
+            }
+        }
+    }
+
+    let listener = match listener {
+        Some(l) => l,
+        None => {
+            let addr = SocketAddr::from(([0, 0, 0, 0], 0));
+            match tokio::net::TcpListener::bind(&addr).await {
+                Ok(l) => {
+                    let local_addr = l.local_addr().unwrap();
+                    bound_port = local_addr.port();
+                    l
+                }
+                Err(e) => {
+                    log::error!("[Axum Server] All port binding attempts failed: {}", e);
+                    return;
+                }
+            }
+        }
+    };
+
+    info!("## [Video Server] 视频服务器流通道正在监听: http://0.0.0.0:{}", bound_port);
+
+    if let Err(e) = write_setting_to_db(&db_path, "video_server_port", &bound_port.to_string()) {
+        log::error!("[Axum Server] Failed to save video_server_port to DB: {}", e);
+    }
+
+    if let Err(e) = axum::serve(listener, app.into_make_service()).await {
+        log::error!("[Axum Server] Video server crashed: {}", e);
+    }
+}
+
+fn get_stream_response(
+    request: http::Request<Vec<u8>>,
+) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error>> {
+    info!("[Stream Protocol] 收到请求 URI: {}", request.uri());
+
+    // 1. 获取请求的原始 Path 并进行 URL 解码
+    let mut path = percent_encoding::percent_decode(request.uri().path().as_bytes())
+        .decode_utf8_lossy()
+        .to_string();
+
+    debug!("[Stream Protocol] 原始解码 Path: {}", path);
+
+    // 2. 移除可能因为格式产生的残留多余斜杠
+    if path.starts_with("//") {
+        path = path.replacen("//", "/", 1);
+    }
+
+    // 3. 针对 Windows 系统的特殊处理
+    #[cfg(windows)]
+    if path.starts_with('/') && path.chars().nth(2) == Some(':') {
+        path = path.replacen('/', "", 1);
+    }
+
+    info!("[Stream Protocol] 最终试图读取的物理路径: {}", path);
+
+    // 4. 安全检查：确保文件在本地真的存在
+    if !std::path::Path::new(&path).exists() {
+        error!(
+            "[Stream Protocol] 错误：本地找不到该媒体文件！路径：{}",
+            path
+        );
+        return Ok(ResponseBuilder::new()
+            .status(StatusCode::NOT_FOUND)
+            .header(CONTENT_TYPE, "text/plain")
+            .body("Video file not found".as_bytes().to_vec())?);
+    }
+
+    // 5. 打开文件
+    let mut file = std::fs::File::open(&path)?;
+    // get file length
+    let len = {
+        let old_pos = file.stream_position()?;
+        let len = file.seek(SeekFrom::End(0))?;
+        file.seek(SeekFrom::Start(old_pos))?;
+        len
+    };
+
+    debug!("[Stream Protocol] 视频文件总长度 (Size): {} bytes", len);
+
+    let mut resp = ResponseBuilder::new()
+        .header(CONTENT_TYPE, "video/mp4")
+        .header(ACCEPT_RANGES, "bytes") // 关键：告诉浏览器我支持持续分片下载！
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Access-Control-Allow-Headers", "*")
+        .header("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+    // if the webview sent a range header, we need to send a 206 in return
+    let http_response = if let Some(range_header) = request.headers().get("range") {
+        let range_str = range_header.to_str().unwrap_or("");
+        info!(
+            "[Stream Protocol] 触发分片请求 -> Range 头数据: {}",
+            range_str
+        );
+
+        let not_satisfiable = || {
+            warn!(
+                "[Stream Protocol] 警告：Range 范围不合法或越界 -> {}",
+                range_str
+            );
+            ResponseBuilder::new()
+                .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                .header(CONTENT_RANGE, format!("bytes */{len}"))
+                .body(vec![])
+        };
+
+        // parse range header
+        let ranges = if let Ok(ranges) = HttpRange::parse(range_str, len) {
+            ranges
+                .iter()
+                .map(|r| (r.start, r.start + r.length - 1))
+                .collect::<Vec<_>>()
+        } else {
+            return Ok(not_satisfiable()?);
+        };
+
+        /// The Maximum bytes we send in one range
+        const MAX_LEN: u64 = 4000 * 1024;
+
+        if ranges.len() == 1 {
+            let &(start, mut end) = ranges.first().unwrap();
+
+            if start >= len || end >= len || end < start {
+                return Ok(not_satisfiable()?);
+            }
+
+            // ================== 【核心修正：滑动窗口智能修正】 ==================
+            // 如果浏览器请求的区间太小（比如 0-1445），会导致通道过早关闭引发内核 Trap。
+            // 我们强制将结束位置扩展到 start + MAX_LEN - 1，或者文件的末尾。
+            if (end - start) < MAX_LEN {
+                end = (start + MAX_LEN - 1).min(len - 1);
+            }
+            // ===================================================================
+
+            // 计算实际需要读取和返回的字节数
+            let bytes_to_read = end + 1 - start;
+            
+            debug!(
+                "[Stream Protocol] 智能滑动窗口修正 -> 实际读取区间: {}-{} (共 {} 字节)", 
+                start, end, bytes_to_read
+            );
+
+            let mut buf = Vec::with_capacity(bytes_to_read as usize);
+            file.seek(SeekFrom::Start(start))?;
+            file.take(bytes_to_read).read_to_end(&mut buf)?;
+
+            resp = resp.header(CONTENT_RANGE, format!("bytes {start}-{end}/{len}"));
+            resp = resp.header(CONTENT_LENGTH, bytes_to_read);
+            resp = resp.status(StatusCode::PARTIAL_CONTENT);
+            resp.body(buf)
+        } else {
+            debug!(
+                "[Stream Protocol] 多区间分片响应 -> 区间总数: {}",
+                ranges.len()
+            );
+            let mut buf = Vec::new();
+            let ranges = ranges
+                .iter()
+                .filter_map(|&(start, mut end)| {
+                    if start >= len || end >= len || end < start {
+                        None
+                    } else {
+                        end = start + (end - start).min(len - start).min(MAX_LEN - 1);
+                        Some((start, end))
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let boundary = random_boundary();
+            let boundary_sep = format!("\r\n--{boundary}\r\n");
+            let boundary_closer = format!("\r\n--{boundary}\r\n");
+
+            resp = resp.header(
+                CONTENT_TYPE,
+                format!("multipart/byteranges; boundary={boundary}"),
+            );
+
+            for (start, end) in ranges {
+                buf.write_all(boundary_sep.as_bytes())?;
+                buf.write_all(format!("{CONTENT_TYPE}: video/mp4\r\n").as_bytes())?;
+                buf.write_all(
+                    format!("{CONTENT_RANGE}: bytes {start}-{end}/{len}\r\n").as_bytes(),
+                )?;
+                buf.write_all("\r\n".as_bytes())?;
+
+                let bytes_to_read = end + 1 - start;
+                let mut local_buf = vec![0_u8; bytes_to_read as usize];
+                file.seek(SeekFrom::Start(start))?;
+                file.read_exact(&mut local_buf)?;
+                buf.extend_from_slice(&local_buf);
+            }
+            buf.write_all(boundary_closer.as_bytes())?;
+
+            resp.body(buf)
+        }
+    } else {
+        // 前端没有传 Range 头，一次性读取整个视频文件（不推荐大视频走这里）
+        warn!("[Stream Protocol] 注意：前端请求未携带 Range 头，正在一次性加载完整视频！");
+        resp = resp.header(CONTENT_LENGTH, len);
+        let mut buf = Vec::with_capacity(len as usize);
+        file.read_to_end(&mut buf)?;
+        resp.body(buf)
+    };
+
+    http_response.map_err(Into::into)
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db_path = get_db_file_path().unwrap_or_else(|_| "main.db".to_string());
     let connection_string = format!("sqlite:{}", db_path);
+    info!("Using unified database URL for all plugins: {}", connection_string);
 
-    let migrations = vec![
-        // v1: 基础表
-        Migration {
-            version: 1,
-            description: "initial_setup",
-            sql: "CREATE TABLE IF NOT EXISTS video_projects (
-                project_uuid TEXT PRIMARY KEY, 
-                project_name TEXT NOT NULL, 
-                project_prompt TEXT, 
-                cover_image_path TEXT, 
-                create_time INTEGER NOT NULL, 
-                update_time INTEGER NOT NULL, 
-                project_status INTEGER NOT NULL DEFAULT 0
-            );",
-            kind: MigrationKind::Up,
-        },
-        // v2: 新增列（SQLite 不支持 ADD COLUMN + CHECK，所以只加列）
-        Migration {
-            version: 2,
-            description: "add_scene_columns",
-            sql: "ALTER TABLE video_projects ADD COLUMN scene_type TEXT DEFAULT 'short_video';
-                  ALTER TABLE video_projects ADD COLUMN scene_config_id INTEGER;
-                  ALTER TABLE video_projects ADD COLUMN template_id INTEGER;",
-            kind: MigrationKind::Up,
-        },
-        // v3: 场景相关表
-        Migration {
-            version: 3,
-            description: "create_scene_tables",
-            sql: "CREATE TABLE IF NOT EXISTS scene_config (
-                    config_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scene_type TEXT NOT NULL,
-                    script_rules TEXT NOT NULL,
-                    ai_params TEXT NOT NULL,
-                    export_config TEXT NOT NULL,
-                    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS scene_template (
-                    template_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    scene_type TEXT NOT NULL,
-                    template_name TEXT NOT NULL,
-                    template_path TEXT NOT NULL,
-                    template_type TEXT NOT NULL,
-                    is_default INTEGER NOT NULL DEFAULT 0,
-                    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS dialogue_role (
-                    role_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_uuid TEXT NOT NULL,
-                    role_name TEXT NOT NULL,
-                    role_voice TEXT NOT NULL,
-                    role_avatar TEXT,
-                    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
-                );
-                CREATE TABLE IF NOT EXISTS word_detail (
-                    word_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_uuid TEXT NOT NULL,
-                    word TEXT NOT NULL,
-                    phonetic TEXT NOT NULL,
-                    paraphrase TEXT NOT NULL,
-                    example TEXT,
-                    audio_path TEXT,
-                    image_path TEXT,
-                    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
-                );",
-            kind: MigrationKind::Up,
-        },
-        // v4: 词汇表
-        Migration {
-            version: 4,
-            description: "add_vocabulary_table",
-            sql: "CREATE TABLE IF NOT EXISTS vocabulary (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project_uuid TEXT NOT NULL,
-                    word TEXT NOT NULL,
-                    audio_path TEXT,
-                    index_char TEXT,
-                    example TEXT,
-                    image_path TEXT,
-                    phonetic_symbols TEXT,
-                    chinese_definition TEXT,
-                    data TEXT,
-                    prompt TEXT,
-                    video_path TEXT,
-                    ltx23_prompt TEXT,
-                    t2v_prompt TEXT,
-                    qwen_image_prompt TEXT,
-                    category TEXT,
-                    script TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    status INTEGER DEFAULT 1,
-                    chinese TEXT,
-                    FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
-                );",
-            kind: MigrationKind::Up,
-        },
-        // v5: 设置表
-        Migration {
-            version: 5,
-            description: "add_settings_table",
-            sql: "CREATE TABLE IF NOT EXISTS app_settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );",
-            kind: MigrationKind::Up,
-        },
-        // v6: 项目路径
-        Migration {
-            version: 6,
-            description: "add_project_path_column",
-            sql: "ALTER TABLE video_projects ADD COLUMN project_path TEXT;",
-            kind: MigrationKind::Up,
-        },
-        // v7: 安全重建表（一次性完成！支持 video_translation）
-        Migration {
-            version: 7,
-            description: "recreate_video_projects_with_translation_support",
-            sql: "
-                PRAGMA foreign_keys = OFF;
+    let migrations = db::migrations::get_migrations();
+    let db_path_clone = db_path.clone();
 
-                -- 新建正确结构的表
-                CREATE TABLE IF NOT EXISTS video_projects_new (
-                    project_uuid TEXT PRIMARY KEY,
-                    project_name TEXT NOT NULL,
-                    project_prompt TEXT,
-                    cover_image_path TEXT,
-                    create_time INTEGER NOT NULL,
-                    update_time INTEGER NOT NULL,
-                    project_status INTEGER NOT NULL DEFAULT 0,
-                    scene_type TEXT DEFAULT 'short_video',
-                    scene_config_id INTEGER,
-                    template_id INTEGER,
-                    project_path TEXT
-                );
-
-                -- 迁移数据
-                INSERT INTO video_projects_new
-                SELECT * FROM video_projects;
-
-                -- 替换旧表
-                DROP TABLE IF EXISTS video_projects;
-                ALTER TABLE video_projects_new RENAME TO video_projects;
-
-                PRAGMA foreign_keys = ON;
-            ",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 8,
-            description: "fix_video_projects_translation_table",
-            sql: "CREATE TABLE IF NOT EXISTS video_projects_new (
-                      project_uuid TEXT PRIMARY KEY,
-                      project_name TEXT NOT NULL,
-                      project_prompt TEXT,
-                      cover_image_path TEXT,
-                      create_time INTEGER NOT NULL,
-                      update_time INTEGER NOT NULL,
-                      project_status INTEGER NOT NULL DEFAULT 0,
-                      scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation')),
-                      scene_config_id INTEGER,
-                      template_id INTEGER,
-                      project_path TEXT
-                  );",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 9,
-            description: "fix_video_projects_translation_copy",
-            sql: "INSERT OR REPLACE INTO video_projects_new (
-                      project_uuid, project_name, project_prompt, cover_image_path, 
-                      create_time, update_time, project_status, scene_type, 
-                      scene_config_id, template_id, project_path
-                  )
-                  SELECT 
-                      project_uuid, project_name, project_prompt, cover_image_path, 
-                      create_time, update_time, project_status, 
-                      CASE 
-                          WHEN scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation') THEN scene_type 
-                          ELSE 'short_video' 
-                      END, 
-                      scene_config_id, template_id, project_path 
-                  FROM video_projects;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 10,
-            description: "fix_video_projects_translation_drop",
-            sql: "DROP TABLE IF EXISTS video_projects;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 11,
-            description: "fix_video_projects_translation_rename",
-            sql: "ALTER TABLE video_projects_new RENAME TO video_projects;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-    version: 12,
-    description: "create video multi translation project related tables (video_translation_projects, video_translation_timeline, video_translation_logs)",
-    sql: r#"
-        -- 主表：视频翻译项目核心表
-        CREATE TABLE IF NOT EXISTS video_translation_projects (
-            id TEXT PRIMARY KEY NOT NULL,
-            project_title TEXT NOT NULL,
-            original_video_path TEXT NOT NULL,
-            file_size_mb REAL NOT NULL DEFAULT 0,
-            process_status TEXT NOT NULL DEFAULT 'Idle', -- Idle / Processing / Done / Failed
-            node_host TEXT NOT NULL DEFAULT '127.0.0.1:8188',
-            face_algorithm TEXT NOT NULL DEFAULT 'LTX-2.3 (Pro)',
-            cover_image_path TEXT, -- FFmpeg生成COVER_xxx.jpg完整路径
-            fallback_svg_cover INTEGER NOT NULL DEFAULT 0, -- 0=真实图片 1=兜底SVG
-
-            -- Tab1 EXTRACT 提取阶段
-            extracted_audio_mp3_path TEXT,
-            audio_separated INTEGER NOT NULL DEFAULT 0, -- 0未分离 1已分离
-            asr_subtitle_json TEXT, -- 原始ASR识别字幕时间轴JSON
-            asr_extracted INTEGER NOT NULL DEFAULT 0,
-
-            -- Tab2 TRANSLATION_TIMELINE 翻译阶段
-            target_lang TEXT NOT NULL DEFAULT 'English',
-            translated_subtitle_json TEXT, -- 翻译后字幕时间轴
-            translation_finished INTEGER NOT NULL DEFAULT 0,
-            tts_audio_generated INTEGER NOT NULL DEFAULT 0,
-
-            -- Tab3 VOICE_ACTING 配音克隆阶段
-            voice_preset TEXT NOT NULL DEFAULT 'Zephyr - 阳光亲切男声',
-            voice_speed REAL NOT NULL DEFAULT 1.0,
-            voice_audio_path TEXT,
-            voice_acting_finished INTEGER NOT NULL DEFAULT 0,
-
-            -- Tab4 LIP_SYNC 口型同步渲染阶段
-            lipsync_video_output_path TEXT,
-            lipsync_render_progress REAL NOT NULL DEFAULT 0.0,
-            lipsync_finished INTEGER NOT NULL DEFAULT 0,
-            final_4k_render_path TEXT,
-
-            batch_task INTEGER NOT NULL DEFAULT 0, -- 是否批量任务
-            saved_flag INTEGER NOT NULL DEFAULT 1,
-            create_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            update_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            deleted INTEGER NOT NULL DEFAULT 0
-        );
-
-        -- 子表：字幕时间轴明细（拆分主表大JSON）
-        CREATE TABLE IF NOT EXISTS video_translation_timeline (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT NOT NULL,
-            source_text TEXT NOT NULL,
-            translated_text TEXT,
-            start_second REAL NOT NULL,
-            end_second REAL NOT NULL,
-            FOREIGN KEY(project_id) REFERENCES video_translation_projects(id) ON DELETE CASCADE
-        );
-
-        -- 子表：FFmpeg/ComfyUI运行日志
-        CREATE TABLE IF NOT EXISTS video_translation_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT NOT NULL,
-            log_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            log_content TEXT NOT NULL,
-            log_level TEXT NOT NULL DEFAULT 'LOG', -- LOG / WARN / ERROR
-            FOREIGN KEY(project_id) REFERENCES video_translation_projects(id) ON DELETE CASCADE
-        );
-
-        -- 触发器：更新项目update_at时间戳
-        CREATE TRIGGER IF NOT EXISTS trigger_update_video_translation_projects
-        AFTER UPDATE ON video_translation_projects
-        FOR EACH ROW
-        BEGIN
-            UPDATE video_translation_projects SET update_at = CURRENT_TIMESTAMP WHERE id = old.id;
-        END;
-
-        -- 索引：加速项目列表查询、批量任务筛选
-        CREATE INDEX idx_video_translation_status ON video_translation_projects(process_status, deleted);
-        CREATE INDEX idx_video_translation_batch ON video_translation_projects(batch_task, deleted);
-        CREATE INDEX idx_timeline_project_id ON video_translation_timeline(project_id);
-        CREATE INDEX idx_logs_project_id ON video_translation_logs(project_id);
-        "#,
-            kind: MigrationKind::Up,
-        }
-    ];
-
-    // ##############################
-    // 修复：插件使用 **同一个数据库路径**
-    // ##############################
-
-    tauri::Builder::default()
+    tauri::Builder::default()  
+        .plugin(tauri_plugin_log::Builder::default().build())        
+        .plugin(tauri_plugin_opener::init())
+        .setup(move |_app| {
+            if let Err(e) = db::migrations::run_database_migrations_backend(&db_path_clone) {
+                log::error!("[Rust Setup] Failed to execute database migrations: {}", e);
+                eprintln!("Failed to execute database migrations: {}", e);
+            }      
+            tauri::async_runtime::spawn(async move {
+                start_video_server().await;
+            });
+            Ok(())
+        })
         .plugin(
             tauri_plugin_log::Builder::new()
                 .target(tauri_plugin_log::Target::new(
@@ -1324,17 +1455,30 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
-        // 关键修复：数据库路径统一
+        .register_asynchronous_uri_scheme_protocol("stream", move |_ctx, request, responder| {
+            match get_stream_response(request) {
+                Ok(http_response) => responder.respond(http_response),
+                Err(e) => {
+                    error!("[Stream Protocol] 致命错误：流处理器崩溃 -> {}", e);
+                    responder.respond(
+                        ResponseBuilder::new()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .header(CONTENT_TYPE, "text/plain")
+                            .body(e.to_string().as_bytes().to_vec())
+                            .unwrap(),
+                    )
+                }
+            }
+        })
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())       
         .plugin(
             tauri_plugin_sql::Builder::new()
                 .add_migrations(&connection_string, migrations)
                 .build(),
-        )
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_opener::init())
+        )      
         .invoke_handler(tauri::generate_handler![
             greet,
             generate_comfy_image_rust,
@@ -1350,6 +1494,7 @@ pub fn run() {
             extract_video_audio,
             run_ffmpeg_cmd,
             get_ollama_version,
+            get_fallback_cover_svg_base64,
             get_comfyui_details
         ])
         .run(tauri::generate_context!())

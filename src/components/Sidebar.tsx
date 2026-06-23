@@ -7,13 +7,12 @@ import {
   GanttChart, 
   Video, 
   Settings,
-  Database,
-  Plus,
+  Database,  
   PanelLeft,
   ChevronRight,
   Languages
 } from 'lucide-react';
-import { cn } from '@/src/lib/utils';
+import { cn } from '../lib/utils';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from '../contexts/LanguageContext';
 

@@ -47,6 +47,8 @@ export interface SubtitleDialogueLine {
   startSec: number;
   endSec: number;
   text: string;
+  videoUrl?: string;
+  audioUrl?: string;
 }
 
 /**

@@ -6,8 +6,6 @@ import {
   Waves, 
   Sparkles, 
   Play, 
-  ChevronRight,
-  Download,
   Trash2,
   RefreshCcw,
   Plus,
@@ -16,8 +14,7 @@ import {
   Search,
   Pause,
   Save,
-  X,
-  VolumeX
+  X
 } from 'lucide-react';
 import { cn, getAssetUrl } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -83,16 +80,16 @@ export function AudioEngine() {
         gender: 'Male', 
         referenceAudio: 'max.mp3',
         voicePrompt: `**Narrator**
-Gender: Male.
-Pitch: Deep, rich, and commanding register.
-Speed: Moderate, steady, and professional pacing.
-Volume: Comfortable, articulate, and self-assured.
-Clarity: Exceptional diction with crisp, precise consonant sounds.
-Fluency: Perfectly smooth, seamless, and authoritative.
-Accent: Standard Neutral English / Chinese.
-Timbre: Resonant, clear, warm, chesty tones.
-Emotion: Trustworthy, professional, neutral, informative.
-Personality: Professional voice-over artist, direct, articulate, elegant.`
+          Gender: Male.
+          Pitch: Deep, rich, and commanding register.
+          Speed: Moderate, steady, and professional pacing.
+          Volume: Comfortable, articulate, and self-assured.
+          Clarity: Exceptional diction with crisp, precise consonant sounds.
+          Fluency: Perfectly smooth, seamless, and authoritative.
+          Accent: Standard Neutral English / Chinese.
+          Timbre: Resonant, clear, warm, chesty tones.
+          Emotion: Trustworthy, professional, neutral, informative.
+          Personality: Professional voice-over artist, direct, articulate, elegant.`
       },
       { 
         id: '2', 
@@ -101,16 +98,16 @@ Personality: Professional voice-over artist, direct, articulate, elegant.`
         gender: 'Female', 
         referenceAudio: 'female.mp3',
         voicePrompt: `**Emily**
-Gender: Female.
-Pitch: High and bright register, energetic.
-Speed: Rhythmic, upbeat, lively pacing.
-Volume: Expressive, clear, and bright.
-Clarity: Sharp and friendly, slightly animated.
-Fluency: Highly dynamic, bubbly, and enthusiastic.
-Accent: Standard youth/animated speaker.
-Timbre: Sweet, light, and airy.
-Emotion: Joyful, eager, enthusiastic, welcoming.
-Personality: Energetic, youthful, friendly, and captivating.`
+          Gender: Female.
+          Pitch: High and bright register, energetic.
+          Speed: Rhythmic, upbeat, lively pacing.
+          Volume: Expressive, clear, and bright.
+          Clarity: Sharp and friendly, slightly animated.
+          Fluency: Highly dynamic, bubbly, and enthusiastic.
+          Accent: Standard youth/animated speaker.
+          Timbre: Sweet, light, and airy.
+          Emotion: Joyful, eager, enthusiastic, welcoming.
+          Personality: Energetic, youthful, friendly, and captivating.`
       },
       { 
         id: '3', 
@@ -119,16 +116,16 @@ Personality: Energetic, youthful, friendly, and captivating.`
         gender: 'Male', 
         referenceAudio: 'story.mp3',
         voicePrompt: `**Old Sage**
-Gender: Male.
-Pitch: Low-register, resonant, and slightly weathered.
-Speed: Slow, reflective, rhythmic with deliberate pauses.
-Volume: Warm, soft, wise.
-Clarity: Textured articulation, sounding mature and narrative.
-Fluency: Steady, narrative, and deeply expressive.
-Accent: Sage/Classic storyteller tone.
-Timbre: Deeply warm, rich with age, magnetic.
-Emotion: Empathetic, contemplative, mysterious, reassuring.
-Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
+          Gender: Male.
+          Pitch: Low-register, resonant, and slightly weathered.
+          Speed: Slow, reflective, rhythmic with deliberate pauses.
+          Volume: Warm, soft, wise.
+          Clarity: Textured articulation, sounding mature and narrative.
+          Fluency: Steady, narrative, and deeply expressive.
+          Accent: Sage/Classic storyteller tone.
+          Timbre: Deeply warm, rich with age, magnetic.
+          Emotion: Empathetic, contemplative, mysterious, reassuring.
+          Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
       },
     ];
   });

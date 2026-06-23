@@ -8,28 +8,38 @@ edition = "2021"
 [lib]
 name = "ai0_video_creator_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = ["config-json5"] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
-tauri-plugin-opener = "2"
+tauri = { version = "2", features = ["protocol-asset", "config-json5", "http-range", "wry"] }
+tauri-plugin-opener = "2.5.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-shell = "2.0.0"
-sysinfo = "0.30"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2.0.0"
 tauri-plugin-http = "2.0.0"
 tauri-plugin-persisted-scope = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-log = "2"
+sysinfo = "0.30"
 
 base64 = "0.21"
-tauri-plugin-log = "2"
 log = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1.0", features = ["time", "macros", "rt-multi-thread", "process"] }
+tokio = { version = "1.0", features = ["time", "fs", "io-util",  "macros", "rt-multi-thread", "process"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
+
+percent-encoding = "2.3.1"
+getrandom = {version = "0.2.12"}
+http-range = "0.1.5"
+http = "1.1"
+axum = "0.7"
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 
 [profile.release]
