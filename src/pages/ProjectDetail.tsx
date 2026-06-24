@@ -24,6 +24,16 @@ export function ProjectDetail() {
   const [isLoading, setIsLoading] = useState(true);
   // Load local cover image with useLocalImageBase64
   const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
+  const [coverImageBase64, setCoverImageBase64] = useState<string>('');
+
+  useEffect(() => {
+    if (localCoverBase64) {
+      setCoverImageBase64(localCoverBase64);
+    } else {
+      setCoverImageBase64('');
+    }
+  }, [localCoverBase64]);
+
   const [synthesizedVideoPath, setSynthesizedVideoPath] = useState<string | null>(null);
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   
@@ -333,9 +343,10 @@ export function ProjectDetail() {
                   </div>
                 ) : (
                   <>
-                    {localCoverBase64 ? (
+                    {project?.coverImagePath ? (
                       <img 
-                        src={localCoverBase64} 
+                        id="project-detail-cover-image"
+                        src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (coverImageBase64 || getAssetUrl(project.coverImagePath))} 
                         alt={project.name} 
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
                       />

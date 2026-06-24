@@ -6,6 +6,8 @@ import {
   Waves, 
   Sparkles, 
   Play, 
+  ChevronRight,
+  Download,
   Trash2,
   RefreshCcw,
   Plus,
@@ -14,7 +16,9 @@ import {
   Search,
   Pause,
   Save,
-  X
+  X,
+  VolumeX,
+  Upload
 } from 'lucide-react';
 import { cn, getAssetUrl } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -39,6 +43,7 @@ interface Role {
   gender: 'Male' | 'Female' | 'Neutral';
   referenceAudio: string;
   voicePrompt: string;
+  mode?: 'clone' | 'design';
 }
 
 export function AudioEngine() {
@@ -80,16 +85,16 @@ export function AudioEngine() {
         gender: 'Male', 
         referenceAudio: 'max.mp3',
         voicePrompt: `**Narrator**
-          Gender: Male.
-          Pitch: Deep, rich, and commanding register.
-          Speed: Moderate, steady, and professional pacing.
-          Volume: Comfortable, articulate, and self-assured.
-          Clarity: Exceptional diction with crisp, precise consonant sounds.
-          Fluency: Perfectly smooth, seamless, and authoritative.
-          Accent: Standard Neutral English / Chinese.
-          Timbre: Resonant, clear, warm, chesty tones.
-          Emotion: Trustworthy, professional, neutral, informative.
-          Personality: Professional voice-over artist, direct, articulate, elegant.`
+Gender: Male.
+Pitch: Deep, rich, and commanding register.
+Speed: Moderate, steady, and professional pacing.
+Volume: Comfortable, articulate, and self-assured.
+Clarity: Exceptional diction with crisp, precise consonant sounds.
+Fluency: Perfectly smooth, seamless, and authoritative.
+Accent: Standard Neutral English / Chinese.
+Timbre: Resonant, clear, warm, chesty tones.
+Emotion: Trustworthy, professional, neutral, informative.
+Personality: Professional voice-over artist, direct, articulate, elegant.`
       },
       { 
         id: '2', 
@@ -98,16 +103,16 @@ export function AudioEngine() {
         gender: 'Female', 
         referenceAudio: 'female.mp3',
         voicePrompt: `**Emily**
-          Gender: Female.
-          Pitch: High and bright register, energetic.
-          Speed: Rhythmic, upbeat, lively pacing.
-          Volume: Expressive, clear, and bright.
-          Clarity: Sharp and friendly, slightly animated.
-          Fluency: Highly dynamic, bubbly, and enthusiastic.
-          Accent: Standard youth/animated speaker.
-          Timbre: Sweet, light, and airy.
-          Emotion: Joyful, eager, enthusiastic, welcoming.
-          Personality: Energetic, youthful, friendly, and captivating.`
+Gender: Female.
+Pitch: High and bright register, energetic.
+Speed: Rhythmic, upbeat, lively pacing.
+Volume: Expressive, clear, and bright.
+Clarity: Sharp and friendly, slightly animated.
+Fluency: Highly dynamic, bubbly, and enthusiastic.
+Accent: Standard youth/animated speaker.
+Timbre: Sweet, light, and airy.
+Emotion: Joyful, eager, enthusiastic, welcoming.
+Personality: Energetic, youthful, friendly, and captivating.`
       },
       { 
         id: '3', 
@@ -116,16 +121,16 @@ export function AudioEngine() {
         gender: 'Male', 
         referenceAudio: 'story.mp3',
         voicePrompt: `**Old Sage**
-          Gender: Male.
-          Pitch: Low-register, resonant, and slightly weathered.
-          Speed: Slow, reflective, rhythmic with deliberate pauses.
-          Volume: Warm, soft, wise.
-          Clarity: Textured articulation, sounding mature and narrative.
-          Fluency: Steady, narrative, and deeply expressive.
-          Accent: Sage/Classic storyteller tone.
-          Timbre: Deeply warm, rich with age, magnetic.
-          Emotion: Empathetic, contemplative, mysterious, reassuring.
-          Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
+Gender: Male.
+Pitch: Low-register, resonant, and slightly weathered.
+Speed: Slow, reflective, rhythmic with deliberate pauses.
+Volume: Warm, soft, wise.
+Clarity: Textured articulation, sounding mature and narrative.
+Fluency: Steady, narrative, and deeply expressive.
+Accent: Sage/Classic storyteller tone.
+Timbre: Deeply warm, rich with age, magnetic.
+Emotion: Empathetic, contemplative, mysterious, reassuring.
+Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
       },
     ];
   });
@@ -140,6 +145,79 @@ export function AudioEngine() {
   const [formGender, setFormGender] = useState<'Male' | 'Female' | 'Neutral'>('Male');
   const [formRefAudio, setFormRefAudio] = useState('');
   const [formVoicePrompt, setFormVoicePrompt] = useState('');
+  const [formMode, setFormMode] = useState<'clone' | 'design'>('clone');
+
+  const handleUploadRefAudio = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    try {
+      const workspacePath = await getSetting('workspace_path');
+      if (!workspacePath) {
+        alert("Workspace path not configured in settings. Please set it in Settings page.");
+        return;
+      }
+      
+      const destDir = await join(workspacePath, id || 'shared', 'audio');
+      if (!(await exists(destDir))) {
+        await mkdir(destDir, { recursive: true });
+      }
+      const destPath = await join(destDir, file.name);
+      const arrayBuffer = await file.arrayBuffer();
+      await writeFile(destPath, new Uint8Array(arrayBuffer));
+      
+      setFormRefAudio(destPath);
+      alert(`Successfully uploaded reference audio: ${file.name}`);
+    } catch (err: any) {
+      console.error("Failed to upload reference audio:", err);
+      alert(`Failed to upload reference audio: ${err.message || err}`);
+    }
+  };
+
+  const handleNativePickRefAudio = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        filters: [{
+          name: 'Audio',
+          extensions: ['mp3', 'wav', 'ogg', 'm4a', 'flac']
+        }],
+        title: '选择参考音频 (Select Reference Audio)'
+      });
+      if (!selected || Array.isArray(selected)) return;
+      
+      const workspacePath = await getSetting('workspace_path');
+      if (!workspacePath) {
+        setFormRefAudio(selected);
+        return;
+      }
+      
+      const destDir = await join(workspacePath, id || 'shared', 'audio');
+      if (!(await exists(destDir))) {
+        await mkdir(destDir, { recursive: true });
+      }
+      
+      const fileName = selected.split(/[/\\]/).pop() || 'ref_audio.mp3';
+      const destPath = await join(destDir, fileName);
+      const bytes = await readFile(selected);
+      await writeFile(destPath, bytes);
+      
+      setFormRefAudio(destPath);
+      alert(`Successfully copied reference audio: ${fileName}`);
+    } catch (err: any) {
+      console.error("Failed to pick native audio:", err);
+    }
+  };
+
+  const handlePickRefAudioClick = async () => {
+    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+    if (isTauri) {
+      await handleNativePickRefAudio();
+    } else {
+      document.getElementById('refAudioUpload')?.click();
+    }
+  };
 
   // Persist roles when they change
   useEffect(() => {
@@ -285,8 +363,10 @@ export function AudioEngine() {
       // Get reference audio from active selected role
       const currentRole = roles.find(r => r.id === activeRoleId) || roles[0];
       const referenceAudio = currentRole ? (currentRole.referenceAudio || 'female.mp3') : 'female.mp3';
+      const roleMode = currentRole?.mode || 'clone';
+      const voicePrompt = currentRole?.voicePrompt || '';
 
-      console.log(`Generating audio for text: "${textToSpeech}" with Reference Audio: "${referenceAudio}"`);
+      console.log(`Generating audio for text: "${textToSpeech}" | Mode: "${roleMode}" | Ref: "${referenceAudio}"`);
 
       // Run VoxCPM2 Voice Clone via ComfyUI (utilising Rust prompt-id polling and native download)
       const savedPath = await comfy.runVoxCPMCloneVoiceRust(
@@ -295,7 +375,9 @@ export function AudioEngine() {
         localAudioPath, 
         (msg) => {
           setProgressMsg(prev => ({ ...prev, [word.id]: msg }));
-        }
+        },
+        roleMode,
+        voicePrompt
       );
 
       if (savedPath) {
@@ -379,7 +461,8 @@ export function AudioEngine() {
         name: formName.trim(),
         gender: formGender,
         referenceAudio: formRefAudio.trim(),
-        voicePrompt: formVoicePrompt.trim()
+        voicePrompt: formVoicePrompt.trim(),
+        mode: formMode
       } : r));
     } else {
       // Create new
@@ -389,7 +472,8 @@ export function AudioEngine() {
         name: formName.trim(),
         gender: formGender,
         referenceAudio: formRefAudio.trim(),
-        voicePrompt: formVoicePrompt.trim()
+        voicePrompt: formVoicePrompt.trim(),
+        mode: formMode
       };
       setRoles(prev => [...prev, newRole]);
       setActiveRoleId(newRole.id);
@@ -403,6 +487,7 @@ export function AudioEngine() {
     setFormGender('Male');
     setFormRefAudio('');
     setFormVoicePrompt('');
+    setFormMode('clone');
   };
 
   const handleEditRoleClick = (role: Role, e: React.MouseEvent) => {
@@ -413,6 +498,7 @@ export function AudioEngine() {
     setFormGender(role.gender);
     setFormRefAudio(role.referenceAudio);
     setFormVoicePrompt(role.voicePrompt || '');
+    setFormMode(role.mode || 'clone');
     setIsFormOpen(true);
   };
 
@@ -438,6 +524,7 @@ export function AudioEngine() {
     setFormGender('Male');
     setFormRefAudio('');
     setFormVoicePrompt('');
+    setFormMode('clone');
     setIsFormOpen(true);
   };
 
@@ -717,9 +804,19 @@ export function AudioEngine() {
                                    <span className="mono-text text-[9px] px-2 py-0.5 bg-white/5 text-white/50 uppercase tracking-widest rounded border border-white/10 font-bold">
                                       {r.role}
                                    </span>
+                                   <span className={cn(
+                                      "mono-text text-[8px] px-1.5 py-0.5 uppercase rounded font-bold font-mono border",
+                                      r.mode === 'design' 
+                                        ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                        : "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                                   )}>
+                                      {r.mode === 'design' ? 'Design' : 'Clone'}
+                                   </span>
                                 </div>
                                 <p className="mono-text text-[10px] opacity-40 mt-1">
-                                   Gender: <span className="text-white/60">{r.gender}</span> · Ref: <span className="text-brand-primary font-bold font-mono">{r.referenceAudio}</span>
+                                   Gender: <span className="text-white/60">{r.gender}</span>{r.mode !== 'design' && (
+                                      <> · Ref: <span className="text-brand-primary font-bold font-mono">{r.referenceAudio.split(/[/\\]/).pop() || 'N/A'}</span></>
+                                   )}
                                 </p>
                              </div>
                           </div>
@@ -810,33 +907,87 @@ export function AudioEngine() {
                             </div>
                          </div>
 
-                         {/* Reference Audio */}
+                         {/* Synthesis Mode Selection (Voice Clone or Voice Design) */}
                          <div className="space-y-1.5">
-                            <label className="mono-text text-[10px] opacity-40 font-bold uppercase tracking-wider">Ref Audio File (comfy input)</label>
-                            <input 
-                               type="text" 
-                               placeholder="e.g. max.mp3, female.mp3, story.mp3"
-                               value={formRefAudio}
-                               onChange={(e) => setFormRefAudio(e.target.value)}
-                               className="w-full bg-black border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary font-mono text-xs focus:ring-1 focus:ring-brand-primary"
-                            />
-                            <p className="text-[10px] opacity-30 leading-snug">
-                               This refers to the speech cloning reference audio file located in your ComfyUI server inputs directory.
-                            </p>
+                            <label className="mono-text text-[10px] opacity-40 font-bold uppercase tracking-wider">Synthesis Method</label>
+                            <div className="grid grid-cols-2 gap-2">
+                               <button
+                                  type="button"
+                                  onClick={() => setFormMode('clone')}
+                                  className={cn(
+                                     "py-2 text-[11px] rounded border text-center transition-all font-medium font-mono",
+                                     formMode === 'clone' 
+                                       ? "bg-brand-primary text-black border-brand-primary" 
+                                       : "bg-black border-white/10 text-white/60 hover:border-white/20"
+                                  )}
+                               >
+                                  Voice Cloning (声音克隆)
+                               </button>
+                               <button
+                                  type="button"
+                                  onClick={() => setFormMode('design')}
+                                  className={cn(
+                                     "py-2 text-[11px] rounded border text-center transition-all font-medium font-mono",
+                                     formMode === 'design' 
+                                       ? "bg-brand-primary text-black border-brand-primary" 
+                                       : "bg-black border-white/10 text-white/60 hover:border-white/20"
+                                  )}
+                               >
+                                  Voice Design (声音设计)
+                               </button>
+                            </div>
                          </div>
 
-                         {/* Voice Design Prompt */}
+                         {formMode === 'clone' && (
+                            <div className="space-y-1.5">
+                               <label className="mono-text text-[10px] opacity-40 font-bold uppercase tracking-wider">Ref Audio Path / URL (声音克隆参考音频)</label>
+                               <div className="flex gap-2">
+                                  <input 
+                                     type="text" 
+                                     placeholder="e.g. female.mp3 or click to upload"
+                                     value={formRefAudio}
+                                     onChange={(e) => setFormRefAudio(e.target.value)}
+                                     className="flex-1 bg-black border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-primary font-mono text-xs focus:ring-1 focus:ring-brand-primary"
+                                  />
+                                  <input 
+                                     type="file" 
+                                     id="refAudioUpload" 
+                                     accept="audio/*" 
+                                     onChange={(e) => handleUploadRefAudio(e.target.files)} 
+                                     className="hidden" 
+                                  />
+                                  <button
+                                     type="button"
+                                     onClick={handlePickRefAudioClick}
+                                     className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-xs flex items-center gap-1.5 transition-colors"
+                                  >
+                                     <Upload className="w-3.5 h-3.5" />
+                                     <span>Upload</span>
+                                  </button>
+                                </div>
+                               <p className="text-[10px] opacity-30 leading-snug">
+                                  Provide a reference speech file. You can upload any local MP3/WAV, which will be automatically imported into your project workspace audio directory.
+                               </p>
+                            </div>
+                         )}
+
                          <div className="space-y-1.5">
-                            <label className="mono-text text-[10px] opacity-40 font-bold uppercase tracking-wider">Voice Design Prompt (Qwen3-TTS cloner config)</label>
+                            <label className="mono-text text-[10px] opacity-40 font-bold uppercase tracking-wider">
+                               {formMode === 'design' ? 'Voice Description (声音设计描述词)' : 'Voice Style Prompt (Qwen3-TTS config)'}
+                            </label>
                             <textarea 
-                               placeholder="Specify descriptors such as Gender, Pitch, Timbre, and Emotion to design the cloned speaker voice."
+                               placeholder={formMode === 'design' 
+                                 ? "e.g. An old man with a gravelly, slow voice" 
+                                 : "Specify descriptors such as Gender, Pitch, Timbre, and Emotion to design the cloned speaker voice."}
                                value={formVoicePrompt}
                                onChange={(e) => setFormVoicePrompt(e.target.value)}
-                               rows={7}
+                               rows={formMode === 'design' ? 4 : 7}
                                className="w-full bg-black border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-primary font-mono leading-relaxed focus:ring-1 focus:ring-brand-primary"
                             />
                             <p className="text-[10px] opacity-30 leading-snug">
-                               This is used for prompt voice design parameters in the Qwen3-TTS model. Specify a complete speech descriptor.
+                               {formMode === 'design' 
+                                 ? "Describe the voice characteristics in natural language (e.g., tone, age, accent, gender) for VoxCPM2 voice design model." 
+                                 : "This is used for prompt voice design parameters in the Qwen3-TTS model. Specify a complete speech descriptor."}
                             </p>
                          </div>
                       </div>

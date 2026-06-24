@@ -416,7 +416,6 @@ export function VideoTranslation() {
 
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
-    console.log(`## activeProjectId: ${activeProjectId}`);
   }, [activeProjectId]);
 
   // Synchronously fetch the active project to avoid stale React closures
@@ -533,7 +532,7 @@ export function VideoTranslation() {
       try {
         const coreProj = await fetchProjectById(projectIdParam);
         if (!coreProj) return;
-        console.log('##coreProj: '+JSON.stringify(coreProj));
+
         let localSrtOriginal = '';
         let localDialogues: SubtitleDialogueLine[] = [];
         let localSrtTranslated = '';
@@ -979,9 +978,9 @@ export function VideoTranslation() {
   const activeProject = projects.find(p => p.id === activeProjectId) || null;
 
   // Resolve raw video paths to secure URLs
-  const resolvedVideoUrl =  useMediaUrl(activeProject?.videoUrl, 'video');
+  const resolvedVideoUrl = useMediaUrl(activeProject?.videoUrl, 'video');
   const resolvedOutputVideoUrl = useMediaUrl(activeProject?.outputVideoUrl, 'video');
-  // console.log(`## resolvedVideoUrl : ${resolvedVideoUrl} ##`);
+
   // Helper to add logs to specific project
   const addLog = (projectId: string, message: string) => {
     const timestamp = new Date().toISOString().substring(11, 19);
@@ -2415,7 +2414,7 @@ ${fastenText}`;
         <div>
           <div className="flex items-center gap-3 text-brand-primary uppercase text-[10px] tracking-[0.2em] font-bold mb-3">
             <Sparkles className="w-4 h-4 text-brand-primary" />
-            <span>AI Translation</span>
+            <span>AI Core Suite</span>
           </div>
           <h2 className="editorial-title text-5xl mb-3">{vt('timelineTitle')}</h2>
           <p className="text-gray-500 font-medium tracking-tight">{vt('timelineDesc')}</p>
@@ -2635,7 +2634,6 @@ ${fastenText}`;
                     
                     {activeProject.videoUrl ? (
                       <div className="aspect-video bg-black rounded-lg border border-white/5 overflow-hidden relative group">
-                        
                         <video 
                           ref={videoPlayerRef}
                           src={resolvedVideoUrl} 
@@ -3143,7 +3141,7 @@ ${fastenText}`;
                       {/* Video Output section */}
                       <div className="space-y-2">
                         <h3 className="font-semibold text-xs text-gray-400 uppercase tracking-wider">{vt('finalResultTitle')}</h3>
-                        <div className="aspect-video bg-black rounded-lg border border-white/10 overflow-hidden relative shadow-2xl">                        
+                        <div className="aspect-video bg-black rounded-lg border border-white/10 overflow-hidden relative shadow-2xl">
                           <video 
                             ref={outputPlayerRef}
                             src={resolvedOutputVideoUrl} 

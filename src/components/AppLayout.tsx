@@ -26,7 +26,7 @@ interface ChatMessage {
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const { language, setLanguage, t } = useTranslation();
+  const { language, selectedLanguage, setLanguage, t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -208,7 +208,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                    className="flex items-center gap-2 px-3.5 py-2 bg-white/5 border border-white/5 hover:border-brand-primary/30 rounded-md transition-all text-sm hover:bg-white/10"
                  >
                     <Globe className="w-4 h-4 text-brand-primary" />
-                    <span className="mono-text tracking-wide whitespace-nowrap text-xs font-semibold">{LANGUAGE_LABELS[language]}</span>
+                    <span className="mono-text tracking-wide whitespace-nowrap text-xs font-semibold">{LANGUAGE_LABELS[selectedLanguage]}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-white/40" />
                  </button>
 
@@ -231,7 +231,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                            style={{ textAlign: language === 'ar' ? 'right' : 'left' }}
                          >
                            <span>{LANGUAGE_LABELS[lang]}</span>
-                           {language === lang && (
+                           {selectedLanguage === lang && (
                              <Check className="w-3.5 h-3.5 shrink-0 ml-2" />
                            )}
                          </button>
@@ -312,10 +312,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 >
                   <span className="flex items-center gap-1.5 font-medium">
                     <Sliders className="w-3.5 h-3.5 text-brand-primary" />
-                    Configure System Prompt
+                    Configure System Prompt (系统提示词行为指令)
                   </span>
                   <span className="text-[10px] bg-white/5 px-2 py-0.5 rounded font-mono">
-                    {showSystemPrompt ? 'Hide' : 'Show'}
+                    {showSystemPrompt ? 'Hide (收起)' : 'Show (展开)'}
                   </span>
                 </button>
                 
@@ -382,7 +382,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                               type="button"
                               onClick={() => copyToClipboard(msg.content, index)}
                               className="absolute right-2.5 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded-md bg-[#0e0e11] hover:bg-white/10 text-gray-400 hover:text-white cursor-pointer"
-                              title="Copy generated result"
+                              title="Copy generated result (拷贝结果)"
                             >
                               {copiedIndex === index ? (
                                 <Check className="w-3.5 h-3.5 text-brand-primary" />
@@ -448,7 +448,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       onClick={() => fetchModelsForChat(ollamaAddr, ollamaPort, selectedModel)}
                       disabled={isFetchingModels}
                       className="text-gray-400 hover:text-white disabled:opacity-50 cursor-pointer"
-                      title="Rescan models"
+                      title="Rescan models (重扫模型列表)"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isFetchingModels ? 'animate-spin' : ''}`} />
                     </button>
@@ -461,7 +461,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   className="flex items-center gap-1.5 text-[10px] uppercase font-mono tracking-widest text-red-400 hover:text-red-300 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Clear Chat
+                  Clear Chat (清空历史)
                 </button>
               </div>
 

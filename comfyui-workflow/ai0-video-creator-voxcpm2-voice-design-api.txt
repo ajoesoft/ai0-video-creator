@@ -1,0 +1,36 @@
+{
+  "1": {
+    "inputs": {
+      "model_name": "VoxCPM2",
+      "lora_name": "None",
+      "voice_description": "An old man with a gravelly, slow voice",
+      "text": "Hello, welcome to VoxCPM2!",
+      "cfg_value": 2,
+      "inference_timesteps": 10,
+      "max_tokens": 1024,
+      "normalize_text": false,
+      "seed": 205,
+      "force_offload": false,
+      "dtype": "auto",
+      "device": "cuda",
+      "torch_compile": false
+    },
+    "class_type": "VoxCPM2_TTS",
+    "_meta": {
+      "title": "VoxCPM TTS"
+    }
+  },
+  "2": {
+    "inputs": {
+      "audioUI": "",
+      "audio": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "PreviewAudio",
+    "_meta": {
+      "title": "Preview Audio"
+    }
+  }
+}

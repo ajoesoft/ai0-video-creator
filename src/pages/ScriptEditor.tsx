@@ -33,7 +33,7 @@ import {
   ArrowDown,
   Image as ImageIcon
 } from 'lucide-react';
-import { cn, getAssetUrl } from '@/src/lib/utils';
+import { cn, getAssetUrl, useLocalImageBase64, useMediaUrl } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   fetchProjectById, 
@@ -77,14 +77,155 @@ interface SegmentCoverProps {
 }
 
 export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: SegmentCoverProps) {
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const imageSrc = useLocalImageBase64(segment.imagePath);
+  const videoSrc = useMediaUrl(segment.videoPath, 'video');
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [promptInput, setPromptInput] = useState('');
   const [selectedModel, setSelectedModel] = useState<'z-image-turbo' | 'qwen-image-2512'>('z-image-turbo');
   const [isHarnessResolving, setIsHarnessResolving] = useState(false);
+
+  // States for fetching previous segment's video last frame
+  const [projectSegments, setProjectSegments] = useState<Vocabulary[]>([]);
+  const [isExtractingLastFrame, setIsExtractingLastFrame] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState('');
+
+  useEffect(() => {
+    async function loadProjectSegments() {
+      if (project) {
+        try {
+          const vocab = await fetchVocabularyByProject(project.id);
+          const sorted = [...vocab].sort((a, b) => a.id - b.id);
+          setProjectSegments(sorted);
+        } catch (e) {
+          console.error("Failed to load project segments in SegmentCover:", e);
+        }
+      }
+    }
+    loadProjectSegments();
+  }, [project, segment.id]);
+
+  const currentIndex = projectSegments.findIndex(s => s.id === segment.id);
+  const previousSegment = currentIndex > 0 ? projectSegments[currentIndex - 1] : null;
+  const hasPreviousVideo = previousSegment && !!previousSegment.videoPath;
+
+  const resolveProjectRoot = async (): Promise<string> => {
+    let projectRoot = project?.projectPath || '';
+    if (projectRoot && (
+      projectRoot.endsWith('.mp4') || 
+      projectRoot.endsWith('.png') || 
+      projectRoot.endsWith('.mp3') || 
+      projectRoot.endsWith('.wav') ||
+      projectRoot.toLowerCase().includes('.mp4') ||
+      projectRoot.toLowerCase().includes('.png') ||
+      projectRoot.toLowerCase().includes('.mp3')
+    )) {
+      const lastSlash = Math.max(projectRoot.lastIndexOf('/'), projectRoot.lastIndexOf('\\'));
+      if (lastSlash !== -1) {
+        projectRoot = projectRoot.substring(0, lastSlash);
+      }
+    }
+    if (!projectRoot && project?.id) {
+      try {
+        const workspacePath = await getSetting("workspace_path") || 'workspace';
+        projectRoot = await join(workspacePath, project.id);
+      } catch (err) {
+        console.error("Failed to resolve workspace path fallback in SegmentCover:", err);
+      }
+    }
+    return projectRoot;
+  };
+
+  const handleExtractLastFrame = async () => {
+    if (!previousSegment || !previousSegment.videoPath) return;
+    if (isExtractingLastFrame) return;
+
+    setIsExtractingLastFrame(true);
+    setExtractionProgress('Extracting...');
+
+    try {
+      let savedPath = '';
+
+      if (isTauri) {
+        const projectRoot = await resolveProjectRoot();
+        if (!projectRoot) throw new Error("Project folder path is missing");
+
+        const imgDir = await join(projectRoot, 'image');
+        if (!(await exists(imgDir))) {
+          await mkdir(imgDir, { recursive: true });
+        }
+
+        const filename = `prev_last_frame_${segment.id}_${Date.now()}.png`;
+        const localImgPath = await join(imgDir, filename);
+
+        const ffmpegPath = await getSetting('ffmpeg_path').catch(() => 'ffmpeg') || 'ffmpeg';
+
+        const videoExists = await exists(previousSegment.videoPath);
+        if (!videoExists) {
+          throw new Error(`Previous video file not found at: ${previousSegment.videoPath}`);
+        }
+
+        await invoke('run_ffmpeg_cmd', {
+          ffmpegPath,
+          args: [
+            '-y',
+            '-sseof', '-0.1',
+            '-i', previousSegment.videoPath,
+            '-vframes', '1',
+            '-update', '1',
+            localImgPath
+          ]
+        });
+
+        savedPath = localImgPath;
+      } else {
+        console.log("Web Simulation Mode: using previous scene imagePath as approximation.");
+        if (previousSegment.imagePath) {
+          savedPath = previousSegment.imagePath;
+        } else {
+          savedPath = 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800';
+        }
+      }
+
+      if (savedPath) {
+        let cData: any = {};
+        try {
+          cData = segment.data ? JSON.parse(segment.data) : {};
+        } catch (e) {}
+
+        const imgs = Array.isArray(cData.images) ? [...cData.images] : [];
+        if (segment.imagePath && !imgs.includes(segment.imagePath)) {
+          imgs.unshift(segment.imagePath);
+        }
+
+        if (!imgs.includes(savedPath)) {
+          imgs.push(savedPath);
+        }
+
+        const updatedData = {
+          ...cData,
+          images: imgs,
+          currentImageIndex: imgs.length - 1
+        };
+
+        await updateVocabulary(segment.id, {
+          imagePath: savedPath,
+          data: JSON.stringify(updatedData)
+        });
+
+        onRefresh();
+        alert('Successfully extracted last frame of previous video! Set as current scene reference image.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Failed to extract previous last frame: ${err?.message || err}`);
+    } finally {
+      setIsExtractingLastFrame(false);
+      setExtractionProgress('');
+    }
+  };
 
   // Extract images array and current index from segment.data
   let customData: any = {};
@@ -99,76 +240,6 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
     imagesList.unshift(segment.imagePath);
   }
   const currentIdx = typeof customData.currentImageIndex === 'number' ? customData.currentImageIndex : 0;
-
-  useEffect(() => {
-    async function resolveVideo() {
-      if (segment.videoPath) {
-        try {
-          if (isTauri) {
-            if (segment.videoPath.startsWith('http') || segment.videoPath.startsWith('data:')) {
-              setVideoSrc(segment.videoPath);
-            } else {
-              const fileExists = await exists(segment.videoPath);
-              if (fileExists) {
-                const base64 = await invoke<string>('load_local_image', { path: segment.videoPath });
-                if (base64 && !base64.startsWith('data:')) {
-                  setVideoSrc(`data:video/mp4;base64,${base64}`);
-                } else {
-                  setVideoSrc(base64);
-                }
-              } else {
-                setVideoSrc(null);
-              }
-            }
-          } else {
-            if (segment.videoPath.startsWith('http') || segment.videoPath.startsWith('data:')) {
-              setVideoSrc(segment.videoPath);
-            } else {
-              // Direct assignment in web mode
-              setVideoSrc(segment.videoPath);
-            }
-          }
-        } catch (e) {
-          console.error('Failed to load segment video base64:', e);
-          setVideoSrc(null);
-        }
-      } else {
-        setVideoSrc(null);
-      }
-    }
-    resolveVideo();
-  }, [segment.videoPath, segment.updatedAt]);
-
-  useEffect(() => {
-    async function resolveImage() {
-      if (segment.imagePath) {
-        try {
-          if (isTauri) {
-            if (segment.imagePath.startsWith('http') || segment.imagePath.startsWith('data:')) {
-              setImageSrc(segment.imagePath);
-            } else {
-              const fileExists = await exists(segment.imagePath);
-              if (fileExists) {
-                const base64 = await invoke<string>('load_local_image', { path: segment.imagePath });
-                setImageSrc(base64);
-              } else {
-                setImageSrc(null);
-              }
-            }
-          } else {
-            // Web fallback: set directly (supports http, base64 data URIs, or relatives)
-            setImageSrc(segment.imagePath);
-          }
-        } catch (e) {
-          console.error('Failed to load segment image base64:', e);
-          setImageSrc(null);
-        }
-      } else {
-        setImageSrc(null);
-      }
-    }
-    resolveImage();
-  }, [segment.imagePath, segment.updatedAt]);
 
   const handleOpenModal = () => {
     setPromptInput(segment.qwenImagePrompt || segment.script || segment.word || "cinematic scene");
@@ -472,6 +543,31 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
                 />
               </div>
 
+              {/* Grab previous last frame button */}
+              {hasPreviousVideo && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">Reference previous frame</label>
+                  <button
+                    type="button"
+                    disabled={isExtractingLastFrame || isGenerating}
+                    onClick={handleExtractLastFrame}
+                    className="w-full py-2.5 px-4 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/25 hover:border-blue-500/40 text-[10px] text-blue-400 font-bold uppercase tracking-wider rounded flex items-center justify-center gap-2 transition-all"
+                  >
+                    {isExtractingLastFrame ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                        <span>{extractionProgress || 'Extracting Last Frame...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileVideo className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
+                        <span>获取上一视频最后一帧 (Use Last Frame of Previous Video)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+
               {/* Generating Loader & Real-time Progress Log */}
               {isGenerating && (
                 <div className="bg-black/30 border border-white/5 p-3 rounded space-y-2">
@@ -523,7 +619,7 @@ export function ScriptEditor() {
   const { id } = useParams<{ id: string }>();
   const [project, setProject] = useState<VideoProject | null>(null);
   const [activeTab, setActiveTab] = useState<'segments' | 'subtitles'>('segments');
-  const [engine, setEngine] = useState<'online' | 'local'>('online');
+  const [engine, setEngine] = useState<'online' | 'local'>('local');
   
   // Script and Segment states
   const [scriptSegments, setScriptSegments] = useState<Vocabulary[]>([]);
@@ -570,6 +666,23 @@ export function ScriptEditor() {
   const [burnProgress, setBurnProgress] = useState(0);
   const [burnStdout, setBurnStdout] = useState<string[]>([]);
   const [burnStdoutIndex, setBurnStdoutIndex] = useState(0);
+
+  // State for scene name edit dialog
+  const [editingSceneSegment, setEditingSceneSegment] = useState<Vocabulary | null>(null);
+  const [newSceneNameInput, setNewSceneNameInput] = useState('');
+
+  const handleOpenSceneNameModal = (segment: Vocabulary) => {
+    setEditingSceneSegment(segment);
+    setNewSceneNameInput(segment.word || '');
+  };
+
+  const handleSaveSceneName = async () => {
+    if (!editingSceneSegment) return;
+    const finalName = newSceneNameInput.trim() || 'Untitled Scene';
+    setScriptSegments(prev => prev.map(s => s.id === editingSceneSegment.id ? { ...s, word: finalName } : s));
+    await updateVocabulary(editingSceneSegment.id, { word: finalName });
+    setEditingSceneSegment(null);
+  };
 
   const hasActiveTask = 
     isBatchGenerating || 
@@ -722,7 +835,7 @@ export function ScriptEditor() {
   const getSubtitledCues = (): SubtitleDialogueLine[] => {
     let currentOffset = 0.5;
     return scriptSegments
-      .filter(seg => (seg.category || 'prose') === 'prose' && (seg.script || seg.word))
+      .filter(seg => ((seg.category || 'prose') === 'prose' || seg.category === 'dialogue') && (seg.script || seg.word))
       .map((seg, idx) => {
         const dur = subtitleDurationOverrides[seg.id] || 4.2;
         const textToUse = seg.chinese || seg.script || seg.word;
@@ -835,7 +948,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         if (!comfyServerOnline) {
           throw new Error("Local ComfyUI is offline. Falling back to Cloud translation.");
         }
-        const targetLangNodeFormat = targetLang === 'en' ? "en | 英语" : "zh | 中文";
+        const targetLangNodeFormat = targetLang.toLowerCase().includes('en') ? "en | 英语" : "zh | 中文";
         translation = await comfy.runTranslationHYMT(textToTranslate, targetLangNodeFormat);
       } else {
         translation = await translateTextGemini(textToTranslate, targetLang);
@@ -874,7 +987,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           if (engine === 'local') {
             const comfyServerOnline = await comfy.checkConnection();
             if (comfyServerOnline) {
-              const targetLangNodeFormat = targetLang === 'en' ? "en | 英语" : "zh | 中文";
+              const targetLangNodeFormat = targetLang.toLowerCase().includes('en') ? "en | 英语" : "zh | 中文";
               translation = await comfy.runTranslationHYMT(txt, targetLangNodeFormat);
             } else {
               translation = await translateTextGemini(txt, targetLang);
@@ -973,10 +1086,51 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    * Generates TTS sound audio.
    * If engine is 'online' or ComfyUI is unavailable, uses Gemini synthesizer 'gemini-3.1-flash-tts-preview' to generate base64 mp3.
    */
-  const handleGenerateSpeechTTS = async (segment: Vocabulary, isTranslated: boolean = false, overrideText?: string) => {
+  const handleGenerateSpeechTTS = async (segment: Vocabulary, isTranslated: boolean = false, overrideText?: string, skipReload: boolean = false) => {
     if (!segment.id) return;
     const txt = overrideText !== undefined ? overrideText : (isTranslated ? (segment.chinese || '') : (segment.script || segment.word || ''));
     if (!txt.trim()) return;
+
+    let speakerPrompt = LILY_VOICE_DESIGN_PROMPT;
+    let textToSpeak = txt;
+    let geminiVoice = isTranslated ? 'Zephyr' : 'Kore';
+
+    if (segment.category === 'dialogue') {
+      const match = txt.match(/^([^：:]+)[：:]\s*(.*)$/s);
+      if (match) {
+        const charName = match[1].trim();
+        textToSpeak = match[2].trim();
+
+        try {
+          const savedRolesStr = localStorage.getItem(`tts_roles_${project?.id || id}`);
+          if (savedRolesStr) {
+            const rolesList = JSON.parse(savedRolesStr);
+            const matchedRole = rolesList.find((r: any) => 
+              r.name.toLowerCase() === charName.toLowerCase() || 
+              r.role.toLowerCase() === charName.toLowerCase()
+            );
+            if (matchedRole) {
+              if (matchedRole.voicePrompt) {
+                speakerPrompt = matchedRole.voicePrompt;
+              }
+              if (matchedRole.gender === 'Female') {
+                geminiVoice = isTranslated ? 'Zephyr' : 'Aoede';
+              } else if (matchedRole.gender === 'Male') {
+                geminiVoice = isTranslated ? 'Puck' : 'Fenrir';
+              } else {
+                geminiVoice = isTranslated ? 'Zephyr' : 'Kore';
+              }
+            } else {
+              speakerPrompt = `**${charName}**\nThis is ${charName}'s voice. Describe character tone as a natural human speaker.`;
+            }
+          }
+        } catch (roleErr) {
+          console.error("Failed to parse local storage roles for dialog script mapping:", roleErr);
+        }
+      }
+    }
+
+    if (!textToSpeak.trim()) return;
 
     const identifier = `${segment.id}_${isTranslated ? 'trans' : 'orig'}`;
     setActiveGenerations(prev => ({ ...prev, [identifier]: true }));
@@ -990,10 +1144,11 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     }
 
     try {
+      let finalPath = '';
+
       if (engine === 'online') {
         // Use high-capacity Gemini cloud synthesizer
-        const voice = isTranslated ? 'Zephyr' : 'Kore';
-        const base64AudioData = await synthesizeSpeechGemini(txt, voice);
+        const base64AudioData = await synthesizeSpeechGemini(textToSpeak, geminiVoice);
         
         // Cache base64 locally in playback state
         setAudioPlaybacks(prev => ({ ...prev, [identifier]: base64AudioData }));
@@ -1024,6 +1179,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             } else {
               await updateVocabulary(segment.id, { audioPath: localAudioPath });
             }
+            finalPath = localAudioPath;
           }
         } else {
           // Web Preview persistent fallback: store standard base64 data URI
@@ -1035,6 +1191,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           } else {
             await updateVocabulary(segment.id, { audioPath: base64Uri });
           }
+          finalPath = base64Uri;
         }
       } else {
         // ComfyUI TTS with Qwen3-TTS Voice Design
@@ -1044,7 +1201,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         }
         
         const voiceLang = isTranslated ? "English" : "中文";
-        const audios = await comfy.runQwenTTSVoiceAllInOne(txt, LILY_VOICE_DESIGN_PROMPT, voiceLang);
+        const audios = await comfy.runQwenTTSVoiceAllInOne(textToSpeak, speakerPrompt, voiceLang);
         if (audios.length > 0) {
           const cloudUrl = audios[0];
           setAudioPlaybacks(prev => ({ ...prev, [identifier]: cloudUrl }));
@@ -1068,6 +1225,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             } else {
               await updateVocabulary(segment.id, { audioPath: localAudioPath });
             }
+            finalPath = localAudioPath;
           } else {
             // Web Preview persistent fallback: store Cloud audio URL directly
             if (isTranslated) {
@@ -1077,12 +1235,29 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             } else {
               await updateVocabulary(segment.id, { audioPath: cloudUrl });
             }
+            finalPath = cloudUrl;
           }
         }
       }
 
-      // Reload dataset to display ready status
-      if (id) {
+      // Sync React state directly to keep UI responsive immediately
+      if (finalPath) {
+        setScriptSegments(prev => prev.map(s => {
+          if (s.id === segment.id) {
+            if (isTranslated) {
+              const currentCustomData = s.data ? JSON.parse(s.data) : {};
+              currentCustomData.translatedAudioPath = finalPath;
+              return { ...s, data: JSON.stringify(currentCustomData) };
+            } else {
+              return { ...s, audioPath: finalPath };
+            }
+          }
+          return s;
+        }));
+      }
+
+      // Reload dataset if not skipping
+      if (id && !skipReload) {
         await loadData(id);
       }
     } catch (e: any) {
@@ -1113,7 +1288,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         if (!segment) continue;
 
         const type = segment.category || 'prose';
-        if (type !== 'prose') continue;
+        if (type !== 'prose' && type !== 'dialogue') continue;
 
         let scriptText = segment.script || segment.word || '';
         let translationText = segment.chinese || '';
@@ -1159,7 +1334,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             if (engine === 'local') {
               const comfyServerOnline = await comfy.checkConnection();
               if (comfyServerOnline) {
-                const targetLangNodeFormat = targetLang === 'en' ? "en | 英语" : "zh | 中文";
+                const targetLangNodeFormat = targetLang.toLowerCase().includes('en') ? "en | 英语" : "zh | 中文";
                 translationText = await comfy.runTranslationHYMT(scriptText, targetLangNodeFormat);
               } else {
                 translationText = await translateTextGemini(scriptText, targetLang);
@@ -1186,25 +1361,21 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         const activeSegment = segmentPostTrans || segmentPostAsr || segment;
 
         // Step 3: Check if TTS synthesizer is needed
-        // Generate original speech if not present
-        if (scriptText && !audioPath) {
+        // Generate original speech if script exists (always regenerate to sync edits)
+        if (scriptText) {
           try {
-            await handleGenerateSpeechTTS(activeSegment, false, scriptText);
+            await handleGenerateSpeechTTS(activeSegment, false, scriptText, true);
           } catch (origTtsErr) {
             console.error("Auto Original Speech Synthesis failed:", origTtsErr);
           }
         }
 
-        // Generate translated speech if translation exists and translatedAudioPath isn't registered
+        // Generate translated speech if translation exists (always regenerate to sync edits)
         if (translationText) {
-          const transIdentifier = `${segment.id}_trans`;
-          const currentCustomData = activeSegment.data ? JSON.parse(activeSegment.data) : {};
-          if (!audioPlaybacks[transIdentifier] && !currentCustomData.translatedAudioPath) {
-            try {
-              await handleGenerateSpeechTTS(activeSegment, true, translationText);
-            } catch (transTtsErr) {
-              console.error("Auto Translated Speech Synthesis failed:", transTtsErr);
-            }
+          try {
+            await handleGenerateSpeechTTS(activeSegment, true, translationText, true);
+          } catch (transTtsErr) {
+            console.error("Auto Translated Speech Synthesis failed:", transTtsErr);
           }
         }
       }
@@ -1576,7 +1747,8 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
                 <AnimatePresence initial={false}>
                   {scriptSegments.map((segment, index) => {
-                    const isDirection = (segment.category || 'prose') === 'direction' || segment.script?.startsWith('[');
+                    const isDialogue = segment.category === 'dialogue';
+                    const isDirection = (segment.category || 'prose') === 'direction' || (!isDialogue && segment.script?.startsWith('['));
                     const origIdentifier = `${segment.id}_orig`;
                     const transIdentifier = `${segment.id}_trans`;
 
@@ -1594,17 +1766,12 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                       <motion.div
                         key={segment.id}
                         layout
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, index)}
-                        onDragOver={(e) => handleDragOver(e, index)}
-                        onDrop={(e) => handleDrop(e, index)}
                         initial={{ opacity: 0, scale: 0.98 }}
                         animate={{ opacity: 1, scale: 1 }}
                         exit={{ opacity: 0, scale: 0.95 }}
                         className={cn(
-                          "p-6 transition-all border border-border-subtle group hover:border-brand-primary/20 cursor-grab active:cursor-grabbing",
-                          isDirection ? "bg-brand-primary/[0.02] border-dashed border-gray-800" : "bg-[#111114]",
-                          draggedIndex === index ? "opacity-30 border-brand-primary" : ""
+                          "p-6 transition-all border border-border-subtle group hover:border-brand-primary/20",
+                          isDirection ? "bg-brand-primary/[0.02] border-dashed border-gray-800" : "bg-[#111114]"
                         )}
                       >
                         {/* Card Upper Header */}
@@ -1614,8 +1781,17 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                               Scene {String(index + 1).padStart(2, '0')}
                             </span>
                             <span className="text-[9px] font-mono uppercase tracking-[0.2em] opacity-40">
-                              {isDirection ? 'CINEMATIC DIRECTION' : 'VOICE OVER SEGMENT'}
+                              {isDialogue ? 'DIALOGUE SCRIPT 对白剧本' : isDirection ? 'CINEMATIC DIRECTION 场景旁白' : 'VOICE OVER SEGMENT 旁白解说'}
                             </span>
+
+                            <button 
+                              onClick={() => handleOpenSceneNameModal(segment)}
+                              className="text-[10px] font-bold text-gray-400 hover:text-brand-primary flex items-center gap-1 cursor-pointer bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded border border-white/5 hover:border-brand-primary/20 transition-all uppercase font-mono tracking-wider"
+                              title="Click to edit scene name 点击修改场景名称"
+                            >
+                              <Edit2 className="w-2.5 h-2.5 text-white/40" />
+                              <span>{segment.word || `Scene ${index + 1}`}</span>
+                            </button>
 
                             {/* Move up / down controls */}
                             <div className="flex items-center gap-1 ml-2 border-l border-white/10 pl-2">
@@ -1712,12 +1888,18 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                 value={segment.script || ''}
                                 onChange={(e) => handleUpdateContent(segment.id, e.target.value)}
                                 rows={Math.max(2, (segment.script || '').split('\n').length)}
-                                placeholder={isDirection ? '[Introduce dramatic orange cinematic visual panning onto neon horizons...]' : 'Type narrative prose here...'}
+                                placeholder={isDialogue ? 'CharacterName: Speak dialogue line here (e.g., Lily: Hello, how are you?)...' : isDirection ? '[Introduce dramatic orange cinematic visual panning onto neon horizons...]' : 'Type narrative prose here...'}
                                 className={cn(
                                   "w-full bg-transparent resize-none outline-none leading-relaxed text-white/90 font-sans tracking-wide",
                                   isDirection ? "text-base italic text-brand-primary/80 font-mono" : "text-xl font-light"
                                 )}
                               />
+
+                              {isDialogue && (
+                                <p className="text-[10px] text-brand-primary/70 font-mono">
+                                  格式 (Format): <strong className="text-white">CharacterName: Dialogue line text</strong> 自动映射对应角色声音。
+                                </p>
+                              )}
 
                               {/* original audio audio synthesis action */}
                               {!isDirection && (
@@ -1815,16 +1997,36 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
                         {/* Drag options / Bottom metadata toggle */}
                         <div className="mt-5 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={async () => {
-                              const newType = (segment.category || 'prose') === 'prose' ? 'direction' : 'prose';
-                              await updateVocabulary(segment.id, { category: newType });
-                              loadData(id!);
-                            }}
-                            className="text-[9px] font-bold font-mono text-gray-500 hover:text-brand-primary uppercase tracking-widest transition-colors"
-                          >
-                            CHANGE SCENE FORMAT TO {isDirection ? 'PROSE SPEECH/NARRATIVE' : 'CINEMATIC DIRECTIONS'}
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">Scene Format:</span>
+                            <div className="flex gap-1.5 bg-black/40 p-0.5 rounded border border-white/5">
+                              {[
+                                { val: 'prose', label: 'Speech 旁白' },
+                                { val: 'dialogue', label: 'Dialogue 对白' },
+                                { val: 'direction', label: 'Direction 画面' }
+                              ].map(item => {
+                                const active = (segment.category || 'prose') === item.val;
+                                return (
+                                  <button
+                                    key={item.val}
+                                    type="button"
+                                    onClick={async () => {
+                                      await updateVocabulary(segment.id, { category: item.val });
+                                      loadData(id!);
+                                    }}
+                                    className={cn(
+                                      "px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider transition-all rounded-sm font-bold",
+                                      active 
+                                        ? "bg-brand-primary/10 text-brand-primary" 
+                                        : "text-white/40 hover:text-white hover:bg-white/5"
+                                    )}
+                                  >
+                                    {item.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                           <div className="font-mono text-[9px] text-gray-600 uppercase tracking-widest font-black">
                             {(segment.script || '').length} CHARS
                           </div>
@@ -1852,17 +2054,18 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                       <select 
                         value={targetLang}
                         onChange={(e) => setTargetLang(e.target.value)}
-                        className="desktop-input w-full font-sans text-xs bg-black text-white py-2 px-3 border border-white/10"
+                        className="desktop-input w-full font-sans text-xs bg-[#1a1a1e] text-white py-2 px-3 border border-white/10 rounded cursor-pointer focus:outline-none focus:border-brand-primary"
                       >
-                        <option>Chinese (Simplified)</option>
-                        <option>Chinese (Traditional)</option>
-                        <option>Spanish (Latin American)</option>
-                        <option>Spanish (Castilian)</option>
-                        <option>Japanese</option>
-                        <option>French</option>
-                        <option>German</option>
-                        <option>Italian</option>
-                        <option>Korean</option>
+                        <option value="English" className="bg-[#111114] text-white">English</option>
+                        <option value="Chinese (Simplified)" className="bg-[#111114] text-white">Chinese (Simplified)</option>
+                        <option value="Chinese (Traditional)" className="bg-[#111114] text-white">Chinese (Traditional)</option>
+                        <option value="Spanish (Latin American)" className="bg-[#111114] text-white">Spanish (Latin American)</option>
+                        <option value="Spanish (Castilian)" className="bg-[#111114] text-white">Spanish (Castilian)</option>
+                        <option value="Japanese" className="bg-[#111114] text-white">Japanese</option>
+                        <option value="French" className="bg-[#111114] text-white">French</option>
+                        <option value="German" className="bg-[#111114] text-white">German</option>
+                        <option value="Italian" className="bg-[#111114] text-white">Italian</option>
+                        <option value="Korean" className="bg-[#111114] text-white">Korean</option>
                       </select>
                     </div>
 
@@ -1934,13 +2137,13 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                       <select 
                         value={subtitleStyle.fontName}
                         onChange={(e) => setSubtitleStyle(prev => ({ ...prev, fontName: e.target.value }))}
-                        className="desktop-input w-full uppercase tracking-widest text-[10px] py-1.5 border-t-0 border-x-0 rounded-none border-b-2"
+                        className="desktop-input w-full uppercase tracking-widest text-[10px] py-1.5 border-t-0 border-x-0 rounded-none border-b-2 bg-[#1a1a1e] text-white cursor-pointer"
                       >
-                        <option>Space Grotesk</option>
-                        <option>Inter</option>
-                        <option>JetBrains Mono</option>
-                        <option>Playfair Display</option>
-                        <option>Arial</option>
+                        <option value="Space Grotesk" className="bg-[#111114] text-white">Space Grotesk</option>
+                        <option value="Inter" className="bg-[#111114] text-white">Inter</option>
+                        <option value="JetBrains Mono" className="bg-[#111114] text-white">JetBrains Mono</option>
+                        <option value="Playfair Display" className="bg-[#111114] text-white">Playfair Display</option>
+                        <option value="Arial" className="bg-[#111114] text-white">Arial</option>
                       </select>
                     </div>
 
@@ -2057,7 +2260,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
                 <div className="space-y-4">
                   {scriptSegments
-                    .filter(seg => (seg.category || 'prose') === 'prose' && (seg.script || seg.word))
+                    .filter(seg => ((seg.category || 'prose') === 'prose' || seg.category === 'dialogue') && (seg.script || seg.word))
                     .map((segment, cueIndex) => {
                       const computedDialogueList = getSubtitledCues();
                       const generatedCueMapping = computedDialogueList.find(c => c.index === cueIndex + 1);
@@ -2275,9 +2478,81 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         />
       )}
 
+      {/* Scene Name Edit Modal Dialogue */}
+      <AnimatePresence>
+        {editingSceneSegment && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl"
+            >
+              <div className="p-6 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Edit2 className="w-4 h-4 text-[#FF5D22]" />
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">修改场景名称 Edit Scene Name</h3>
+                </div>
+                <button 
+                  onClick={() => setEditingSceneSegment(null)}
+                  className="text-gray-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="text-gray-400 text-xs block mb-2 font-mono uppercase tracking-wider">场景名称 Scene Title</label>
+                  <input 
+                    type="text"
+                    value={newSceneNameInput}
+                    onChange={(e) => setNewSceneNameInput(e.target.value)}
+                    placeholder="例如: 主角登场, 远景拉伸..."
+                    className="w-full bg-black border border-white/10 focus:border-[#FF5D22] rounded-xl px-4 py-3 text-sm text-white outline-none transition-all"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveSceneName();
+                    }}
+                    autoFocus
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400/60 leading-relaxed italic">
+                  场景名称用于区分故事板中的不同镜头，修改后会立即同步至项目数据库。
+                </p>
+              </div>
+              <div className="p-4 bg-black/40 border-t border-white/5 flex justify-end gap-3">
+                <button 
+                  onClick={() => setEditingSceneSegment(null)}
+                  className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all"
+                >
+                  取消 Cancel
+                </button>
+                <button 
+                  onClick={handleSaveSceneName}
+                  className="px-5 py-2 bg-[#FF5D22] hover:bg-[#FF5D22]/90 text-black text-xs font-black uppercase tracking-wider rounded-lg shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
+                >
+                  保存修改 Save
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
+
+const ThumbnailImage = ({ path, className }: { path: string; className?: string }) => {
+  const src = useLocalImageBase64(path);
+  if (!src) {
+    return (
+      <div className="w-full h-full bg-zinc-900 animate-pulse flex items-center justify-center">
+        <Loader2 className="w-4 h-4 animate-spin text-zinc-600/50" />
+      </div>
+    );
+  }
+  return <img src={src} alt="" className={cn("w-full h-full object-cover", className)} referrerPolicy="no-referrer" />;
+};
 
 export function VideoGenModal({ 
   segment, 
@@ -2294,6 +2569,7 @@ export function VideoGenModal({
   const [videoProgress, setVideoProgress] = useState('');
   const [ltxPrompt, setLtxPrompt] = useState(segment.ltx23Prompt || segment.script || segment.word || '');
   const [generationMethod, setGenerationMethod] = useState<'text' | 'start_end' | 'image_audio' | 'image_only'>('image_only');
+  const [videoDuration, setVideoDuration] = useState<number>(4.0);
   
   // Model select for reference images
   const [imageModel, setImageModel] = useState<'z-image-turbo' | 'qwen-image-2512'>('z-image-turbo');
@@ -2386,36 +2662,7 @@ export function VideoGenModal({
     }
   }, [segment.data, imagesList]);
 
-  // Resolve base64 src/paths for images in reference grid
-  const [resolvedThumbnails, setResolvedThumbnails] = useState<Record<string, string>>({});
-  useEffect(() => {
-    async function loadThumbs() {
-      const thumbs: Record<string, string> = {};
-      for (const p of imagesList) {
-        if (!p) continue;
-        try {
-          if (isTauri) {
-            if (p.startsWith('http') || p.startsWith('data:')) {
-              thumbs[p] = p;
-            } else {
-              const existsFile = await exists(p);
-              if (existsFile) {
-                const b64 = await invoke<string>('load_local_image', { path: p });
-                thumbs[p] = b64;
-              }
-            }
-          } else {
-            // Web mode loads images directly
-            thumbs[p] = p;
-          }
-        } catch (err) {
-          console.error("thumb load fail:", err);
-        }
-      }
-      setResolvedThumbnails(thumbs);
-    }
-    loadThumbs();
-  }, [segment.data, imagesList.length]);
+  // Resolve base64 src/paths for images in reference grid is handled dynamically by ThumbnailImage component
 
   const handleResolveHarness = async () => {
     if (isHarnessResolving) return;
@@ -2636,7 +2883,7 @@ export function VideoGenModal({
         image1: (generationMethod !== 'text') ? startFramePath : undefined,
         image2: (generationMethod === 'start_end') ? endFramePath : undefined,
         audio: audioPathToSend,
-        duration: 4.0,
+        duration: videoDuration,
         fps: 24,
         width: project?.width,
         height: project?.height,
@@ -2863,13 +3110,32 @@ export function VideoGenModal({
                 <select
                   value={generationMethod}
                   onChange={(e) => setGenerationMethod(e.target.value as any)}
-                  className="w-full bg-black border border-white/5 rounded p-2.5 text-xs text-white/80 focus:border-blue-500 outline-none"
+                  className="w-full bg-[#1a1a1e] border border-white/5 rounded p-2.5 text-xs text-white focus:border-blue-500 outline-none cursor-pointer"
                 >
-                  <option value="text">文生视频 (Text-to-Video)</option>
-                  <option value="image_only">图生视频 (Image-to-Video)</option>
-                  <option value="image_audio">图和音频生成视频 (Image + Audio)</option>
-                  <option value="start_end">首尾帧生图 / 生成视频 (Start & End Frames)</option>
+                  <option value="text" className="bg-[#111114] text-white">文生视频 (Text-to-Video)</option>
+                  <option value="image_only" className="bg-[#111114] text-white">图生视频 (Image-to-Video)</option>
+                  <option value="image_audio" className="bg-[#111114] text-white">图和音频生成视频 (Image + Audio)</option>
+                  <option value="start_end" className="bg-[#111114] text-white">首尾帧生图 / 生成视频 (Start & End Frames)</option>
                 </select>
+              </div>
+
+              {/* Video Duration */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
+                    Video Duration (视频时长: 秒)
+                  </label>
+                  <span className="text-xs font-mono font-bold text-blue-400">{videoDuration}s</span>
+                </div>
+                <input 
+                  type="range"
+                  min="1"
+                  max="30"
+                  step="0.5"
+                  className="w-full accent-blue-500 bg-white/10 rounded-lg appearance-none cursor-pointer h-1.5"
+                  value={videoDuration}
+                  onChange={(e) => setVideoDuration(parseFloat(e.target.value))}
+                />
               </div>
 
             </div>
@@ -2910,7 +3176,6 @@ export function VideoGenModal({
               ) : (
                 <div className="grid grid-cols-4 gap-2.5 max-h-48 overflow-y-auto custom-scrollbar p-1">
                   {imagesList.map((path, idx) => {
-                    const resolved = resolvedThumbnails[path] || '';
                     const isStart = startFramePath === path;
                     const isEnd = endFramePath === path;
 
@@ -2934,13 +3199,7 @@ export function VideoGenModal({
                           }
                         }}
                       >
-                        {resolved ? (
-                          <img src={resolved} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full bg-zinc-900 animate-pulse flex items-center justify-center">
-                            <Loader2 className="w-4 h-4 animate-spin text-zinc-600" />
-                          </div>
-                        )}
+                        <ThumbnailImage path={path} />
 
                         {/* Badges */}
                         {isStart && (

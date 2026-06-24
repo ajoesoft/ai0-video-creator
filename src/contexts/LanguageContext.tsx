@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-export type LanguageCode = 'en' | 'zh' | 'ar' | 'no' | 'fr' | 'es' | 'nl';
+export type ActualLanguageCode = 'en' | 'zh' | 'ar' | 'no' | 'fr' | 'es' | 'nl';
+export type LanguageCode = ActualLanguageCode | 'auto';
 
 export interface TranslationKeys {
   appName: string;
@@ -58,9 +59,9 @@ export interface TranslationKeys {
   videoTranslation: string;
 }
 
-const translations: Record<LanguageCode, TranslationKeys> = {
+const translations: Record<ActualLanguageCode, TranslationKeys> = {
   en: {
-    appName: "AI0 Video Creator",
+    appName: "Ai0 Video Creator",
     system: "System",
     localNode: "Local Node",
     masterNodeLink: "Master Node Link",
@@ -106,7 +107,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Video Translation"
   },
   zh: {
-    appName: "Tauri 视频工作站",
+    appName: "AI0 视频工作站",
     system: "系统",
     localNode: "本地节点",
     masterNodeLink: "主节点连接",
@@ -244,7 +245,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Videooversettelse"
   },
   fr: {
-    appName: "Tauri Studio Vidéo",
+    appName: "AI0 Vidéo Creator",
     system: "Système",
     localNode: "Nœud Local",
     masterNodeLink: "Lien Nœud Maître",
@@ -290,7 +291,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Traduction Vidéo"
   },
   es: {
-    appName: "Tauri Studio de Video",
+    appName: "AI0 Studio de Video",
     system: "Sistema",
     localNode: "Nodo Local",
     masterNodeLink: "Enlace Nodo Maestro",
@@ -336,7 +337,7 @@ const translations: Record<LanguageCode, TranslationKeys> = {
     videoTranslation: "Traducción de Video"
   },
   nl: {
-    appName: "AI0 Video Creator",
+    appName: "AI0 Video Studio",
     system: "Systeem",
     localNode: "Lokale Node",
     masterNodeLink: "Hoofdnodekoppeling",
@@ -384,7 +385,8 @@ const translations: Record<LanguageCode, TranslationKeys> = {
 };
 
 interface LanguageContextType {
-  language: LanguageCode;
+  language: 'en' | 'zh' | 'ar' | 'no' | 'fr' | 'es' | 'nl';
+  selectedLanguage: LanguageCode;
   translations: TranslationKeys;
   setLanguage: (lang: LanguageCode) => void;
   t: (key: keyof TranslationKeys) => string;
@@ -393,6 +395,7 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
+  auto: "跟随系统 (Auto)",
   en: "English",
   zh: "中文",
   ar: "العربية",
@@ -403,36 +406,53 @@ export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
 };
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [language, setLanguageState] = useState<LanguageCode>(() => {
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>(() => {
     const saved = localStorage.getItem('app_language');
-    if (saved && (saved === 'en' || saved === 'zh' || saved === 'ar' || saved === 'no' || saved === 'fr' || saved === 'es' || saved === 'nl')) {
+    if (saved && (saved === 'en' || saved === 'zh' || saved === 'ar' || saved === 'no' || saved === 'fr' || saved === 'es' || saved === 'nl' || saved === 'auto')) {
       return saved as LanguageCode;
     }
-    return 'en'; // Default to English
+    return 'auto'; // Default to auto
   });
 
+  const getSystemLanguage = (): 'en' | 'zh' | 'ar' | 'no' | 'fr' | 'es' | 'nl' => {
+    const sysLang = (navigator.language || '').toLowerCase();
+    const code = sysLang.split('-')[0];
+    if (['en', 'zh', 'ar', 'no', 'fr', 'es', 'nl'].includes(code)) {
+      return code as any;
+    }
+    return 'en'; // Default fallback
+  };
+
+  const resolvedLanguage = selectedLanguage === 'auto' ? getSystemLanguage() : selectedLanguage;
+
   const setLanguage = (lang: LanguageCode) => {
-    setLanguageState(lang);
+    setSelectedLanguage(lang);
     localStorage.setItem('app_language', lang);
   };
 
   useEffect(() => {
     // Handle RTL document alignment for Arabic
-    if (language === 'ar') {
+    if (resolvedLanguage === 'ar') {
       document.documentElement.dir = 'rtl';
       document.documentElement.lang = 'ar';
     } else {
       document.documentElement.dir = 'ltr';
-      document.documentElement.lang = language;
+      document.documentElement.lang = resolvedLanguage;
     }
-  }, [language]);
+  }, [resolvedLanguage]);
 
   const t = (key: keyof TranslationKeys) => {
-    return translations[language][key] || translations['en'][key];
+    return translations[resolvedLanguage][key] || translations['en'][key];
   };
 
   return (
-    <LanguageContext.Provider value={{ language, translations: translations[language], setLanguage, t }}>
+    <LanguageContext.Provider value={{ 
+      language: resolvedLanguage, 
+      selectedLanguage, 
+      translations: translations[resolvedLanguage], 
+      setLanguage, 
+      t 
+    }}>
       {children}
     </LanguageContext.Provider>
   );

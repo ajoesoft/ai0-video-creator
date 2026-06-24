@@ -565,7 +565,19 @@ export class ComfyService {
     return audios;
   }
 
-  async runVideoGeneration(imagePath: string, audioPath: string, prompt: string, onProgress?: (msg: string) => void, width?: number, height?: number): Promise<string[]> {
+  async runVideoGeneration(imagePath: string, audioPath: string, prompt: string, onProgress?: (msg: string) => void, width?: number, height?: number, duration?: number): Promise<string[]> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_video_generation");
+      if (mode === "cloud") {
+        onProgress?.("Routing video generation to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        return await unifiedAI.generateVideo(prompt, imagePath, audioPath, duration);
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud Video Gen Routing failed, falling back to local:", e);
+    }
+
     onProgress?.("Uploading assets to ComfyUI...");
     let uploadedImage = imagePath;
     let uploadedAudio = audioPath;
@@ -579,7 +591,7 @@ export class ComfyService {
     }
 
     onProgress?.("Configuring video generation workflow...");
-    const defaultWorkflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt, width, height);
+    const defaultWorkflow = this.getVideoWorkflow(uploadedImage, uploadedAudio, prompt, width, height, duration);
     let workflow = await resolveWorkflow('video_generation', { prompt, image: uploadedImage, audio: uploadedAudio }, defaultWorkflow);
     if (width && height) {
       workflow = this.applyDimensionsToWorkflow(workflow, width, height);
@@ -1616,6 +1628,49 @@ export class ComfyService {
     return workflow;
   }
 
+  private getVoxCPMVoiceDesignWorkflow(text: string, voiceDescription: string, seed?: number) {
+    const finalSeed = seed !== undefined ? seed : Math.floor(Math.random() * 9000000) + 1000000;
+    const workflow = {
+      "1": {
+        "inputs": {
+          "model_name": "VoxCPM2",
+          "lora_name": "None",
+          "voice_description": voiceDescription || "An old man with a gravelly, slow voice",
+          "text": text,
+          "cfg_value": 2,
+          "inference_timesteps": 10,
+          "max_tokens": 1024,
+          "normalize_text": false,
+          "seed": finalSeed,
+          "force_offload": false,
+          "dtype": "auto",
+          "device": "cuda",
+          "torch_compile": false
+        },
+        "class_type": "VoxCPM2_TTS",
+        "_meta": {
+          "title": "VoxCPM TTS"
+        }
+      },
+      "2": {
+        "inputs": {
+          "filename_prefix": "voxcpm_design",
+          "quality": "V0",
+          "audioUI": "",
+          "audio": [
+            "1",
+            0
+          ]
+        },
+        "class_type": "SaveAudioMP3",
+        "_meta": {
+          "title": "Save Audio (MP3)"
+        }
+      }
+    };
+    return workflow;
+  }
+
   private getVoxCPMWorkflow(text: string, referenceAudio: string) {
     const workflow = {
       "17": {
@@ -1904,15 +1959,48 @@ export class ComfyService {
     text: string, 
     referenceAudio: string, 
     localPath: string, 
-    onProgress?: (msg: string) => void
+    onProgress?: (msg: string) => void,
+    mode?: 'clone' | 'design',
+    voicePrompt?: string
   ): Promise<string> {
-    onProgress?.("Building VoxCPM2 Voice Clone Workflow...");
-    let uploadedRefAudio = referenceAudio;
-    if (referenceAudio) {
-      uploadedRefAudio = await this.ensureUploaded(referenceAudio, `ref_audio_${Date.now()}.mp3`, onProgress);
+    try {
+      const { getSetting } = await import("./db");
+      const modeSetting = await getSetting("model_mode_tts");
+      if (modeSetting === "cloud") {
+        onProgress?.("Routing VoxCPM voice synthesis to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        const base64Audio = await unifiedAI.synthesizeSpeech(text, mode === 'design' ? voicePrompt : undefined);
+        
+        // Convert base64 to Uint8Array
+        const binaryString = atob(base64Audio);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const { writeFile } = await import("@tauri-apps/plugin-fs");
+        await writeFile(localPath, bytes);
+        onProgress?.(`Saved cloud audio to ${localPath}`);
+        return localPath;
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud VoxCPM Routing failed, falling back to local:", e);
     }
-    const defaultWorkflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
-    const workflow = await resolveWorkflow('tts', { prompt: text, audio: uploadedRefAudio }, defaultWorkflow);
+
+    let workflow: any;
+    if (mode === 'design') {
+      onProgress?.("Building VoxCPM2 Voice Design Workflow...");
+      const defaultWorkflow = this.getVoxCPMVoiceDesignWorkflow(text, voicePrompt || "");
+      workflow = await resolveWorkflow('tts', { prompt: text }, defaultWorkflow);
+    } else {
+      onProgress?.("Building VoxCPM2 Voice Clone Workflow...");
+      let uploadedRefAudio = referenceAudio;
+      if (referenceAudio) {
+        uploadedRefAudio = await this.ensureUploaded(referenceAudio, `ref_audio_${Date.now()}.mp3`, onProgress);
+      }
+      const defaultWorkflow = this.getVoxCPMWorkflow(text, uploadedRefAudio);
+      workflow = await resolveWorkflow('tts', { prompt: text, audio: uploadedRefAudio }, defaultWorkflow);
+    }
     
     onProgress?.("Submitting VoxCPM2 job (Dispatched)...");
     const promptId = await invoke<string>("submit_comfy_image_rust", {
@@ -1936,7 +2024,7 @@ export class ComfyService {
     return savedPath;
   }
 
-  private getVideoWorkflow(imagePath: string, audioPath: string, prompt: string, width?: number, height?: number) {
+  private getVideoWorkflow(imagePath: string, audioPath: string, prompt: string, width?: number, height?: number, duration?: number) {
     // Note: The original workflow 101 uses VHS_LoadImagePath and VHS_LoadAudio which might need local absolute paths if ComfyUI is configured to allow them.
     // Or we might need to upload them first.
     const workflow: any = {
@@ -1945,7 +2033,7 @@ export class ComfyService {
         "174": { "inputs": { "vae_name": "LTX23_video_vae_bf16.safetensors", "device": "main_device", "weight_dtype": "bf16" }, "class_type": "VAELoaderKJ" },
         "175": { "inputs": { "vae_name": "LTX23_audio_vae_bf16.safetensors", "device": "main_device", "weight_dtype": "bf16" }, "class_type": "VAELoaderKJ" },
         "188": { "inputs": { "frame_rate": ["5446", 0], "loop_count": 0, "filename_prefix": "LTX2.3/Video", "format": "video/h264-mp4", "pix_fmt": "yuv420p", "crf": 8, "save_metadata": false, "trim_to_audio": false, "pingpong": false, "save_output": true, "images": ["217", 0], "audio": ["218", 0] }, "class_type": "VHS_VideoCombine" },
-        "196": { "inputs": { "Xi": 6, "Xf": 6, "isfloatX": 0 }, "class_type": "mxSlider" },
+        "196": { "inputs": { "Xi": duration || 6, "Xf": duration || 6, "isfloatX": 0 }, "class_type": "mxSlider" },
         "211": { "inputs": { "lora_1": { "on": true, "lora": "ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors", "strength": 0.6 }, "model": ["366", 0], "clip": ["146", 0] }, "class_type": "Power Lora Loader (rgthree)" },
         "217": { "inputs": { "any_04": ["521:522", 0] }, "class_type": "Any Switch (rgthree)" },
         "218": { "inputs": { "any_04": (audioPath && audioPath.trim() !== "" && !isComfyInputDirectory(audioPath)) ? ["5566", 0] : null }, "class_type": "Any Switch (rgthree)" },
@@ -2246,6 +2334,18 @@ export class ComfyService {
     fps?: number;
     seed?: number;
   }, onProgress?: (msg: string) => void): Promise<string[]> {
+    try {
+      const { getSetting } = await import("./db");
+      const mode = await getSetting("model_mode_video_generation");
+      if (mode === "cloud") {
+        onProgress?.("Routing video generation to cloud API...");
+        const { unifiedAI } = await import("./unifiedAI");
+        return await unifiedAI.generateVideo(params.prompt, params.image1, params.audio, params.duration);
+      }
+    } catch (e: any) {
+      console.warn("Unified Cloud Video Gen Routing failed, falling back to local:", e);
+    }
+
     onProgress?.("Uploading assets to ComfyUI...");
     
     let uploadedImage1 = params.image1;

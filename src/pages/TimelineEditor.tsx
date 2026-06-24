@@ -91,6 +91,59 @@ export function TimelineEditor() {
   const [audioBitrate, setAudioBitrate] = useState<'128k' | '192k' | '256k'>('192k');
   const [subtitleStyle, setSubtitleStyle] = useState<'burnt' | 'soft'>('burnt');
 
+  // Custom subtitle style states
+  const [subtitlePositionType, setSubtitlePositionType] = useState<'bottom' | 'top' | 'middle' | 'custom'>(() => {
+    return (localStorage.getItem(`subtitle_pos_type_${projectId}`) as any) || 'bottom';
+  });
+  const [subtitleCustomY, setSubtitleCustomY] = useState<string>(() => {
+    return localStorage.getItem(`subtitle_custom_y_${projectId}`) || '85%';
+  });
+  const [subtitleCustomWidth, setSubtitleCustomWidth] = useState<string>(() => {
+    return localStorage.getItem(`subtitle_custom_width_${projectId}`) || 'auto';
+  });
+  const [subtitleBgType, setSubtitleBgType] = useState<'default' | 'none' | 'custom-png'>(() => {
+    return (localStorage.getItem(`subtitle_bg_type_${projectId}`) as any) || 'default';
+  });
+  const [subtitleCustomBgPng, setSubtitleCustomBgPng] = useState<string>(() => {
+    return localStorage.getItem(`subtitle_custom_bg_png_${projectId}`) || '';
+  });
+  const [subtitleTextColor, setSubtitleTextColor] = useState<string>(() => {
+    return localStorage.getItem(`subtitle_text_color_${projectId}`) || '#fbbf24';
+  });
+  const [subtitleFontSize, setSubtitleFontSize] = useState<number>(() => {
+    const val = localStorage.getItem(`subtitle_font_size_${projectId}`);
+    return val ? parseInt(val, 10) : 14;
+  });
+
+  // Persist custom subtitle states
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_pos_type_${projectId}`, subtitlePositionType);
+  }, [subtitlePositionType, projectId]);
+
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_custom_y_${projectId}`, subtitleCustomY);
+  }, [subtitleCustomY, projectId]);
+
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_custom_width_${projectId}`, subtitleCustomWidth);
+  }, [subtitleCustomWidth, projectId]);
+
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_bg_type_${projectId}`, subtitleBgType);
+  }, [subtitleBgType, projectId]);
+
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_custom_bg_png_${projectId}`, subtitleCustomBgPng);
+  }, [subtitleCustomBgPng, projectId]);
+
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_text_color_${projectId}`, subtitleTextColor);
+  }, [subtitleTextColor, projectId]);
+
+  useEffect(() => {
+    if (projectId) localStorage.setItem(`subtitle_font_size_${projectId}`, subtitleFontSize.toString());
+  }, [subtitleFontSize, projectId]);
+
   const timelineRef = useRef<HTMLDivElement>(null);
   const videoPlayerRef = useRef<HTMLVideoElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -755,6 +808,20 @@ export function TimelineEditor() {
 
       const basePromptText = segment.example || segment.word || "Cinematic video pan-scene rotation";
       const promptText = await applyPromptHarnessRules(basePromptText, projectId);
+
+      let clipDuration = 4.5;
+      const associatedClip = clips.find(c => c.vocabId === segment.id && c.trackType === 'visual');
+      if (associatedClip) {
+        clipDuration = associatedClip.duration;
+      } else if (segment.data) {
+        try {
+          const parsed = JSON.parse(segment.data);
+          if (typeof parsed.duration === 'number') {
+            clipDuration = parsed.duration;
+          }
+        } catch (e) {}
+      }
+
       const videos = await comfy.runVideoGeneration(
         segment.imagePath || "",
         segment.audioPath || "",
@@ -763,7 +830,8 @@ export function TimelineEditor() {
           setGenerationMsg(`ComfyUI: ${msg}`);
         },
         project?.width,
-        project?.height
+        project?.height,
+        clipDuration
       );
 
       if (videos.length > 0) {
@@ -947,7 +1015,7 @@ export function TimelineEditor() {
       "  configuration: --enable-gpl --enable-version3 --enable-static --enable-libass --enable-libmp3lame --enable-libx264 --enable-libx265",
       "----------------------------------------------------------------",
       `[CMD] Executing ffmpeg compilation pipeline (Web Simulation Mode):`,
-      `ffmpeg -f concat -safe 0 -i concat_file_list.txt ${audioStreams} -filter_complex "[0:v]subtitles=burned_subtitles.ass:force_style='FontName=Space Grotesk,FontSize=24,PrimaryColour=&HFF5D22&,Outline=2'[outv]" -map "[outv]" -c:v libx264 -preset ${preset} -crf 20 -c:a aac -b:a ${audioBitrate} -y ${finalVideoOutputName}`,
+      `ffmpeg -f concat -safe 0 -i concat_file_list.txt ${audioStreams} -filter_complex "[0:v]subtitles=burned_subtitles.ass:force_style='FontName=Space Grotesk,FontSize=${subtitleFontSize},PrimaryColour=${subtitleTextColor.replace('#', '&H')}&,Alignment=${subtitlePositionType === 'top' ? '6' : subtitlePositionType === 'middle' ? '5' : '2'},MarginV=${subtitlePositionType === 'custom' ? (parseInt(subtitleCustomY) || 30) : '30'}'[outv]" -map "[outv]" -c:v libx264 -preset ${preset} -crf 20 -c:a aac -b:a ${audioBitrate} -y ${finalVideoOutputName}`,
       "----------------------------------------------",
       "== STAGE 1: Demuxing raw digital scene containers ==",
       "Opening input files... Success.",
@@ -960,6 +1028,8 @@ export function TimelineEditor() {
       "",
       "== STAGE 2: Transcoding & Burning Subtitles (libass filter) ==",
       `Applying CSS subtitle style matrices... [PresetStyle: ${subtitleStyle === 'burnt' ? 'Burned-In Video Render' : 'Soft-mux Sub-container'}]`,
+      `[Subtitle Position]: ${subtitlePositionType.toUpperCase()} (Custom Y: ${subtitleCustomY}, Custom Width: ${subtitleCustomWidth})`,
+      `[Subtitle Styling]: Font Size: ${subtitleFontSize}px, Text Color: ${subtitleTextColor}, Background Style: ${subtitleBgType} ${subtitleBgType === 'custom-png' ? `(Custom PNG Background Loaded: ${subtitleCustomBgPng ? 'Yes' : 'No'})` : ''}`
     ]);
 
     let progress = 0;
@@ -1468,10 +1538,10 @@ export function TimelineEditor() {
                         onChange={e => setPreset(e.target.value as any)}
                         className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 focus:outline-none focus:border-[#FF5D22]"
                       >
-                        <option value="ultrafast">ultrafast (快速、体积大)</option>
-                        <option value="fast">fast (标准、高适配)</option>
-                        <option value="medium">medium (高级压缩、良耗时)</option>
-                        <option value="slow">slow (最高压缩比，极慢)</option>
+                        <option value="ultrafast" className="text-black bg-white">ultrafast (快速、体积大)</option>
+                        <option value="fast" className="text-black bg-white">fast (标准、高适配)</option>
+                        <option value="medium" className="text-black bg-white">medium (高级压缩、良耗时)</option>
+                        <option value="slow" className="text-black bg-white">slow (最高压缩比，极慢)</option>
                       </select>
                     </div>
 
@@ -1482,9 +1552,9 @@ export function TimelineEditor() {
                         onChange={e => setAudioBitrate(e.target.value as any)}
                         className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 focus:outline-none focus:border-[#FF5D22]"
                       >
-                        <option value="128k">128 kbps (标准)</option>
-                        <option value="192k">192 kbps (优质)</option>
-                        <option value="256k">256 kbps (超清无损)</option>
+                        <option value="128k" className="text-black bg-white">128 kbps (标准)</option>
+                        <option value="192k" className="text-black bg-white">192 kbps (优质)</option>
+                        <option value="256k" className="text-black bg-white">256 kbps (超清无损)</option>
                       </select>
                     </div>
 
@@ -1495,9 +1565,163 @@ export function TimelineEditor() {
                         onChange={e => setSubtitleStyle(e.target.value as any)}
                         className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 focus:outline-none focus:border-[#FF5D22]"
                       >
-                        <option value="burnt">内嵌硬字幕 (Burned-in via libass, 推荐)</option>
-                        <option value="soft">内封装软字幕 (Soft container, 播放器自配)</option>
+                        <option value="burnt" className="text-black bg-white">内嵌硬字幕 (Burned-in via libass, 推荐)</option>
+                        <option value="soft" className="text-black bg-white">内封装软字幕 (Soft container, 播放器自配)</option>
                       </select>
+                    </div>
+
+                    {/* Position and Style Config */}
+                    <div className="border-t border-white/5 pt-3 mt-3 space-y-2.5">
+                      <h6 className="text-[10px] uppercase font-mono font-bold text-[#FF5D22]">字幕样式与位置定制 Subtitle Styling</h6>
+                      
+                      {/* Subtitle Font Size and Color */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-gray-400 block mb-1 text-[10px]">字体大小 Font Size (px)</label>
+                          <input 
+                            type="number"
+                            value={subtitleFontSize}
+                            onChange={e => setSubtitleFontSize(Math.max(8, parseInt(e.target.value, 10) || 14))}
+                            className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 focus:outline-none focus:border-[#FF5D22]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-gray-400 block mb-1 text-[10px]">文字颜色 Text Color</label>
+                          <div className="flex gap-1.5 items-center">
+                            <input 
+                              type="color"
+                              value={subtitleTextColor}
+                              onChange={e => setSubtitleTextColor(e.target.value)}
+                              className="w-8 h-7 bg-transparent border-0 cursor-pointer"
+                            />
+                            <input 
+                              type="text"
+                              value={subtitleTextColor}
+                              onChange={e => setSubtitleTextColor(e.target.value)}
+                              className="w-full bg-black border border-white/10 p-1 rounded text-gray-200 text-[10px] focus:outline-none focus:border-[#FF5D22] font-mono"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Subtitle Position Type Selector */}
+                      <div>
+                        <label className="text-gray-400 block mb-1 text-[10px]">屏幕位置 Position</label>
+                        <select 
+                          value={subtitlePositionType} 
+                          onChange={e => setSubtitlePositionType(e.target.value as any)}
+                          className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 focus:outline-none focus:border-[#FF5D22]"
+                        >
+                          <option value="bottom" className="text-black bg-white">底部 Bottom (10% Margin)</option>
+                          <option value="top" className="text-black bg-white">顶部 Top (10% Margin)</option>
+                          <option value="middle" className="text-black bg-white">居中 Middle (Center-aligned)</option>
+                          <option value="custom" className="text-black bg-white">自定义坐标 Custom Coordinate</option>
+                        </select>
+                      </div>
+
+                      {/* Custom Coordinate and Custom Width fields */}
+                      {subtitlePositionType === 'custom' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-gray-400 block mb-1 text-[10px]">自定义 Y 轴高度 (top: px 或 %)</label>
+                            <input 
+                              type="text"
+                              value={subtitleCustomY}
+                              onChange={e => setSubtitleCustomY(e.target.value)}
+                              placeholder="例如: 85% 或 420px"
+                              className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 text-[11px] focus:outline-none focus:border-[#FF5D22]"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-gray-400 block mb-1 text-[10px]">自定义宽度 Width</label>
+                            <input 
+                              type="text"
+                              value={subtitleCustomWidth}
+                              onChange={e => setSubtitleCustomWidth(e.target.value)}
+                              placeholder="例如: 80% 或 auto (自适应)"
+                              className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 text-[11px] focus:outline-none focus:border-[#FF5D22]"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {subtitlePositionType !== 'custom' && (
+                        <div>
+                          <label className="text-gray-400 block mb-1 text-[10px]">自定义宽度 Width (自适应留空/输入 auto)</label>
+                          <input 
+                            type="text"
+                            value={subtitleCustomWidth}
+                            onChange={e => setSubtitleCustomWidth(e.target.value)}
+                            placeholder="例如: 80%, 450px 或 auto (自适应)"
+                            className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 text-[11px] focus:outline-none focus:border-[#FF5D22]"
+                          />
+                        </div>
+                      )}
+
+                      {/* Background Style Selector */}
+                      <div>
+                        <label className="text-gray-400 block mb-1 text-[10px]">字幕背景 Style Background</label>
+                        <select 
+                          value={subtitleBgType} 
+                          onChange={e => setSubtitleBgType(e.target.value as any)}
+                          className="w-full bg-black border border-white/10 p-1.5 rounded text-gray-200 focus:outline-none focus:border-[#FF5D22]"
+                        >
+                          <option value="default" className="text-black bg-white">默认半透明磨砂 Default Translucent Panel</option>
+                          <option value="none" className="text-black bg-white">无背景 (仅文字外边框) No Background</option>
+                          <option value="custom-png" className="text-black bg-white">上传自定义 PNG 背景 Image (PNG)</option>
+                        </select>
+                      </div>
+
+                      {/* PNG File Upload field */}
+                      {subtitleBgType === 'custom-png' && (
+                        <div className="space-y-1.5">
+                          <label className="text-gray-400 block text-[10px]">上传 PNG 贴图 (宽高会自适应字幕)</label>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="file"
+                              accept="image/png"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onload = () => {
+                                    setSubtitleCustomBgPng(reader.result as string);
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                              className="hidden"
+                              id="subtitle-bg-upload"
+                            />
+                            <label 
+                              htmlFor="subtitle-bg-upload"
+                              className="px-3 py-1.5 bg-[#FF5D22]/10 border border-[#FF5D22]/20 hover:bg-[#FF5D22]/20 text-[#FF5D22] text-[10px] rounded cursor-pointer font-bold transition-all flex items-center gap-1 animate-pulse"
+                            >
+                              选择 PNG 图片 Select PNG
+                            </label>
+                            {subtitleCustomBgPng && (
+                              <button 
+                                onClick={() => setSubtitleCustomBgPng('')}
+                                className="text-red-400 text-[10px] hover:underline"
+                              >
+                                清除 Clear
+                              </button>
+                            )}
+                          </div>
+                          {subtitleCustomBgPng ? (
+                            <div className="mt-2 p-1 border border-white/10 rounded bg-black/40 flex items-center justify-center relative">
+                              <img 
+                                src={subtitleCustomBgPng} 
+                                alt="Custom subtitle background" 
+                                className="max-h-12 object-contain"
+                              />
+                              <span className="absolute bottom-1 right-1 text-[8px] font-mono text-emerald-400 bg-black/80 px-1 rounded animate-fade-in">PNG Loaded</span>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-gray-500 italic">请上传无底透明 PNG，我们将作为动态字幕容器拉伸适配文字大小。</p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1622,13 +1846,13 @@ export function TimelineEditor() {
                             }}
                             className="w-full bg-black border border-white/10 px-2 py-1.5 rounded text-white text-[11px] mt-1 outline-none focus:border-purple-500"
                           >
-                            <option value="none">无效果 (None)</option>
-                            <option value="fade">淡入淡出 (Fade In)</option>
-                            <option value="dip_black">闪黑 (Dip to Black)</option>
-                            <option value="dip_white">闪白 (Dip to White)</option>
-                            <option value="wipe_left">向左擦除 (Wipe Left)</option>
-                            <option value="wipe_right">向右擦除 (Wipe Right)</option>
-                            <option value="zoom_in">缩放过渡 (Zoom In)</option>
+                            <option value="none" className="text-black bg-white">无效果 (None)</option>
+                            <option value="fade" className="text-black bg-white">淡入淡出 (Fade In)</option>
+                            <option value="dip_black" className="text-black bg-white">闪黑 (Dip to Black)</option>
+                            <option value="dip_white" className="text-black bg-white">闪白 (Dip to White)</option>
+                            <option value="wipe_left" className="text-black bg-white">向左擦除 (Wipe Left)</option>
+                            <option value="wipe_right" className="text-black bg-white">向右擦除 (Wipe Right)</option>
+                            <option value="zoom_in" className="text-black bg-white">缩放过渡 (Zoom In)</option>
                           </select>
                         </div>
                         
@@ -1701,13 +1925,78 @@ export function TimelineEditor() {
                 {transitionOverlay}
 
                 {/* Subtitle float Overlay */}
-                {activeSubtitleClip && !previewVideoUrl && !isPlaySynthesizedMode && (
-                  <div className="absolute bottom-[10%] left-1/2 -translate-x-1/2 bg-black/85 backdrop-blur-md px-6 py-2.5 rounded border border-white/10 max-w-[85%] text-center z-20 shadow-[0_4px_30px_rgba(0,0,0,0.85)] animate-fade-in">
-                    <p className="text-sm tracking-wide font-black leading-snug font-sans text-amber-400">
-                      {activeSubtitleClip.title}
-                    </p>
-                  </div>
-                )}
+                {activeSubtitleClip && !previewVideoUrl && !isPlaySynthesizedMode && (() => {
+                  // Determine width style
+                  const widthStyle: React.CSSProperties = {};
+                  if (subtitleCustomWidth && subtitleCustomWidth !== 'auto') {
+                    widthStyle.width = subtitleCustomWidth;
+                  } else {
+                    widthStyle.width = 'auto';
+                    widthStyle.maxWidth = '85%';
+                  }
+
+                  // Determine position style
+                  const posStyle: React.CSSProperties = {};
+                  let positionClasses = "left-1/2 -translate-x-1/2";
+                  if (subtitlePositionType === 'bottom') {
+                    posStyle.bottom = '10%';
+                    posStyle.top = 'auto';
+                  } else if (subtitlePositionType === 'top') {
+                    posStyle.top = '10%';
+                    posStyle.bottom = 'auto';
+                  } else if (subtitlePositionType === 'middle') {
+                    posStyle.top = '50%';
+                    posStyle.bottom = 'auto';
+                    positionClasses = "left-1/2 -translate-x-1/2 -translate-y-1/2";
+                  } else if (subtitlePositionType === 'custom') {
+                    posStyle.top = subtitleCustomY || '85%';
+                    posStyle.bottom = 'auto';
+                  }
+
+                  // Background styles
+                  const bgStyle: React.CSSProperties = {};
+                  let bgClasses = "";
+                  if (subtitleBgType === 'default') {
+                    bgClasses = "bg-black/85 backdrop-blur-md border border-white/10 rounded px-6 py-2.5 shadow-[0_4px_30px_rgba(0,0,0,0.85)]";
+                  } else if (subtitleBgType === 'none') {
+                    bgClasses = "bg-transparent";
+                  } else if (subtitleBgType === 'custom-png') {
+                    if (subtitleCustomBgPng) {
+                      bgStyle.backgroundImage = `url(${subtitleCustomBgPng})`;
+                      bgStyle.backgroundSize = '100% 100%';
+                      bgStyle.backgroundRepeat = 'no-repeat';
+                      bgStyle.backgroundPosition = 'center';
+                      bgClasses = "px-8 py-3.5"; // padded for the custom background container
+                    } else {
+                      // fallback to default with a border warning
+                      bgClasses = "bg-black/60 border border-dashed border-gray-500 rounded px-6 py-2.5";
+                    }
+                  }
+
+                  // Text style (Color and Font Size)
+                  const textStyle: React.CSSProperties = {
+                    color: subtitleTextColor || '#fbbf24',
+                    fontSize: `${subtitleFontSize || 14}px`
+                  };
+                  // If background is none or transparent, add a strong text outline shadow for perfect legibility
+                  if (subtitleBgType === 'none' || (subtitleBgType === 'custom-png' && !subtitleCustomBgPng)) {
+                    textStyle.textShadow = '0px 0px 4px rgba(0,0,0,1), 1px 1px 2px rgba(0,0,0,1), -1px -1px 2px rgba(0,0,0,1)';
+                  }
+
+                  return (
+                    <div 
+                      className={`absolute z-20 text-center animate-fade-in ${positionClasses} ${bgClasses}`}
+                      style={{ ...posStyle, ...widthStyle, ...bgStyle }}
+                    >
+                      <p 
+                        className="tracking-wide font-black leading-snug font-sans"
+                        style={textStyle}
+                      >
+                        {activeSubtitleClip.title}
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 {/* Preview Banner Overlay */}
                 {previewVideoUrl && (

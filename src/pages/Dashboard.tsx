@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, MoreVertical, Clock, CheckCircle2, AlertCircle, Video, Smartphone, BookOpen, Users, Type, Edit, Trash2, Languages } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Search, Filter, MoreVertical, Clock, Video, Smartphone, BookOpen, Users, Type, Edit, Trash2, Languages } from 'lucide-react';
 import { cn, useLocalImageBase64 } from '@/src/lib/utils';
 import { ProjectStatus, VideoProject, SceneType } from '@/src/types';
 import { format } from 'date-fns';
@@ -13,7 +13,6 @@ import {
   updateProject as dbUpdateProject,
   getSetting
 } from '@/src/lib/db';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists, mkdir } from '@tauri-apps/plugin-fs';
 
@@ -33,8 +32,6 @@ export function Dashboard() {
   const [editingProject, setEditingProject] = useState<VideoProject | null>(null);
   const [editName, setEditName] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
-
-  // Project dimensions, aspect ratio & style
   const [aspectRatio, setAspectRatio] = useState<string>('16:9');
   const [selectedStyle, setSelectedStyle] = useState<string>('Cinematic');
   const [width, setWidth] = useState<number>(1920);

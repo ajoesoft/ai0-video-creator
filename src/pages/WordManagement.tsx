@@ -474,11 +474,13 @@ export function WordManagement() {
     if (word) {
       let customCharactor = '';
       let customIntroduction = '';
+      let customDuration = 5.0;
       if (word.data) {
         try {
           const parsed = JSON.parse(word.data);
           customCharactor = parsed.charactor || '';
           customIntroduction = parsed.introduction || '';
+          customDuration = typeof parsed.duration === 'number' ? parsed.duration : 5.0;
         } catch (e) {}
       }
 
@@ -486,7 +488,8 @@ export function WordManagement() {
       setFormData({
         ...word,
         charactor: customCharactor,
-        introduction: customIntroduction
+        introduction: customIntroduction,
+        duration: customDuration
       } as any);
     } else {
       setEditingWord(null);
@@ -502,7 +505,8 @@ export function WordManagement() {
         ltx23Prompt: '',
         status: 1,
         charactor: '',
-        introduction: ''
+        introduction: '',
+        duration: 5.0
       } as any);
     }
     setIsModalOpen(true);
@@ -535,7 +539,8 @@ export function WordManagement() {
         charactor: (formData as any).charactor || '',
         introduction: (formData as any).introduction || '',
         script_translation: formData.chinese || '',
-        referencedHarnesses: referencedHarnesses
+        referencedHarnesses: referencedHarnesses,
+        duration: (formData as any).duration || 5.0
       });
 
       const payload = {
@@ -546,6 +551,7 @@ export function WordManagement() {
       // Remove client-only properties
       delete (payload as any).charactor;
       delete (payload as any).introduction;
+      delete (payload as any).duration;
 
       if (editingWord) {
         await updateVocabulary(editingWord.id, payload);
@@ -733,9 +739,19 @@ export function WordManagement() {
       // Apply Prompt Consistency Harness Rules
       const prompt = await applyPromptHarnessRules(baseVideoPrompt, id!);
       
+      let duration = 5.0;
+      if (word.data) {
+        try {
+          const parsed = JSON.parse(word.data);
+          if (typeof parsed.duration === 'number') {
+            duration = parsed.duration;
+          }
+        } catch (e) {}
+      }
+
       const videos = await comfy.runVideoGeneration(word.imagePath, word.audioPath, prompt, (msg) => {
         setGenerationProgress(prev => ({ ...prev, [word.id]: msg }));
-      }, project?.width, project?.height);
+      }, project?.width, project?.height, duration);
       if (videos.length > 0) {
         setGenerationProgress(prev => ({ ...prev, [word.id]: 'Downloading...' }));
         const videoUrl = videos[0];
@@ -935,7 +951,7 @@ export function WordManagement() {
         {/* Word Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <AnimatePresence>
-            {filteredWords.map((word) => (
+            {filteredWords.map((word, idx) => (
               <VocabularyCard
                 key={word.id}
                 word={word}
@@ -1128,6 +1144,25 @@ export function WordManagement() {
                       onChange={(e) => setFormData({...formData, ltx23Prompt: e.target.value})}
                       placeholder="Detailed video motion prompt..."
                     />
+
+                    <div className="pt-2">
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Video Duration (视频时长: 秒)</label>
+                        <span className="text-xs font-mono font-bold text-brand-primary">{(formData as any).duration || 5.0}s</span>
+                      </div>
+                      <input 
+                        type="range"
+                        min="1"
+                        max="30"
+                        step="0.5"
+                        className="w-full accent-brand-primary bg-white/10 rounded-lg appearance-none cursor-pointer h-1.5"
+                        value={(formData as any).duration || 5.0}
+                        onChange={(e) => setFormData({...formData, duration: parseFloat(e.target.value)} as any)}
+                      />
+                      <p className="text-[9px] text-gray-500 mt-1">
+                        控制生成的视频时长（秒）。时长过长会相应增加生成等待时间。
+                      </p>
+                    </div>
 
                     {activeHarnesses.length > 0 && (
                       <div className="space-y-1.5 pt-1">

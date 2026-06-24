@@ -1431,9 +1431,9 @@ export function ModelManagement() {
                     onChange={(e) => setDefaultCloudApi(e.target.value)}
                     className="bg-black/60 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-brand-primary min-w-[200px]"
                   >
-                    <option value="gemini">Google Gemini API (默认)</option>
-                    <option value="ali">阿里云通义千问 (DashScope)</option>
-                    <option value="volc">火山引擎 (ByteDance Volcengine)</option>
+                    <option value="gemini" className="text-black bg-white">Google Gemini API (默认)</option>
+                    <option value="ali" className="text-black bg-white">阿里云通义千问 (DashScope)</option>
+                    <option value="volc" className="text-black bg-white">火山引擎 (ByteDance Volcengine)</option>
                   </select>
                   <button
                     onClick={() => handleSaveConfig('cloud_global')}
@@ -1494,11 +1494,11 @@ export function ModelManagement() {
                         onChange={(e) => setGeminiActiveModel(e.target.value)}
                         className="desktop-input w-full text-xs font-mono cursor-pointer bg-white/5 text-gray-300"
                       >
-                        <option value="gemini-2.1-flash">gemini-2.1-flash (Default Ultra Fast)</option>
-                        <option value="gemini-2.5-flash">gemini-2.5-flash (Balanced Production)</option>
-                        <option value="gemini-2.5-pro">gemini-2.5-pro (Elite Multilingual Analysis)</option>
-                        <option value="imagen-3.0-generate-002">Imagen 3.0 (Text-to-Image API)</option>
-                        <option value="veo-2.0-generate-001">Veo 2.0 (Generative Video)</option>
+                        <option value="gemini-2.1-flash" className="text-black bg-white">gemini-2.1-flash (Default Ultra Fast)</option>
+                        <option value="gemini-2.5-flash" className="text-black bg-white">gemini-2.5-flash (Balanced Production)</option>
+                        <option value="gemini-2.5-pro" className="text-black bg-white">gemini-2.5-pro (Elite Multilingual Analysis)</option>
+                        <option value="imagen-3.0-generate-002" className="text-black bg-white">Imagen 3.0 (Text-to-Image API)</option>
+                        <option value="veo-2.0-generate-001" className="text-black bg-white">Veo 2.0 (Generative Video)</option>
                       </select>
                     </div>
                   </div>
@@ -1576,10 +1576,10 @@ export function ModelManagement() {
                         onChange={(e) => setAliActiveModel(e.target.value)}
                         className="desktop-input w-full text-xs font-mono cursor-pointer bg-white/5 text-gray-300"
                       >
-                        <option value="qwen-plus">qwen-plus (Recommended Balance)</option>
-                        <option value="qwen-max">qwen-max (Highest Accuracy / Deep Localize)</option>
-                        <option value="qwen-turbo">qwen-turbo (Ultra Fast Scripting)</option>
-                        <option value="qwen2.5-72b-instruct">qwen2.5-72b-instruct (Native Expert)</option>
+                        <option value="qwen-plus" className="text-black bg-white">qwen-plus (Recommended Balance)</option>
+                        <option value="qwen-max" className="text-black bg-white">qwen-max (Highest Accuracy / Deep Localize)</option>
+                        <option value="qwen-turbo" className="text-black bg-white">qwen-turbo (Ultra Fast Scripting)</option>
+                        <option value="qwen2.5-72b-instruct" className="text-black bg-white">qwen2.5-72b-instruct (Native Expert)</option>
                       </select>
                     </div>
                   </div>

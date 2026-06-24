@@ -49,7 +49,17 @@ import { join } from '@tauri-apps/api/path';
 import { useTranslation } from '../contexts/LanguageContext';
 
 function VisualAssetItemImage({ path, title, className = "w-full h-full object-cover" }: { path: string | undefined | null, title?: string, className?: string }) {
-  const src = useLocalImageBase64(path);
+  const base64Src = useLocalImageBase64(path);
+  const src = path?.startsWith('http') ? path : base64Src;
+  
+  if (!src) {
+    return (
+      <div className={cn("bg-neutral-900 border border-white/5 flex items-center justify-center text-gray-500", className)}>
+        <span className="text-[10px] uppercase font-mono tracking-widest text-white/30">Loading...</span>
+      </div>
+    );
+  }
+  
   return (
     <img 
       src={src} 
