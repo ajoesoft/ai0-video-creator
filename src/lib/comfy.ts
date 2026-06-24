@@ -65,15 +65,17 @@ export function autoConfigureWorkflow(
     if (!node) continue;
     
     const title = node._meta?.title || nodeId;
+    const classType = node.class_type || "";
     if (typeof title !== "string") continue;
 
-    // Matches e.g. INPUT(TEXT) or INPUT(Audio文件)
+    if (!node.inputs) {
+      node.inputs = {};
+    }
+
+    // 1. Explicit matches INPUT(...) (legacy/template support)
     const inputMatch = title.match(/INPUT\s*\(([^)]+)\)/i);
     if (inputMatch) {
       const typeStr = inputMatch[1].trim().toLowerCase();
-      if (!node.inputs) {
-        node.inputs = {};
-      }
 
       if (typeStr.includes('text') || typeStr.includes('prompt') || typeStr.includes('文本') || typeStr.includes('文字')) {
         if (inputs.prompt !== undefined) {
@@ -106,6 +108,58 @@ export function autoConfigureWorkflow(
           console.log(`[comfy.ts] Auto-mapped INPUT(SRT) on node ${nodeId} using prop '${targetKey}'`);
         }
       }
+      continue;
+    }
+
+    // 2. Universal Adapter Matching (based on COMFYUI_UNIVERSAL_ADAPTER.md)
+    
+    // A. Prompt Text Node
+    if (inputs.prompt !== undefined && (/Prompt|CLIP|Positive|Text/i.test(title) || classType === 'CLIPTextEncode')) {
+      const keys = Object.keys(node.inputs);
+      const targetKey = keys.find(k => /text|string|value|prompt/i.test(k)) || 'text';
+      node.inputs[targetKey] = inputs.prompt;
+      console.log(`[comfy.ts] Universal Adapter: Mapped PROMPT on node ${nodeId} (${title}) using prop '${targetKey}'`);
+    }
+
+    // B. Input Image Node
+    if (inputs.image !== undefined && (/Load\s*Image|Input\s*Image/i.test(title) || classType === 'LoadImage')) {
+      const keys = Object.keys(node.inputs);
+      const targetKey = keys.find(k => /image|filename|upload/i.test(k)) || 'image';
+      const cleanedVal = extractComfyFilename(inputs.image) || inputs.image;
+      node.inputs[targetKey] = cleanedVal;
+      console.log(`[comfy.ts] Universal Adapter: Mapped IMAGE on node ${nodeId} (${title}) using prop '${targetKey}' = ${cleanedVal}`);
+    }
+
+    // C. Input Video Node
+    if (inputs.image !== undefined && (/Load\s*Video|Input\s*Video/i.test(title) || classType === 'VHS_LoadVideo' || classType === 'LoadVideo')) {
+      const keys = Object.keys(node.inputs);
+      const targetKey = keys.find(k => /video|filename|images/i.test(k)) || 'video';
+      const cleanedVal = extractComfyFilename(inputs.image) || inputs.image;
+      node.inputs[targetKey] = cleanedVal;
+      console.log(`[comfy.ts] Universal Adapter: Mapped VIDEO on node ${nodeId} (${title}) using prop '${targetKey}' = ${cleanedVal}`);
+    }
+
+    // D. Input Audio Node
+    if (inputs.audio !== undefined && (/Load\s*Audio|Input\s*Audio/i.test(title) || classType === 'LoadAudio' || classType === 'VHS_LoadAudio' || classType === 'VHS_LoadAudioUpload')) {
+      const keys = Object.keys(node.inputs);
+      const targetKey = keys.find(k => /audio|filename|voice/i.test(k)) || 'audio';
+      const cleanedVal = extractComfyFilename(inputs.audio) || inputs.audio;
+      node.inputs[targetKey] = cleanedVal;
+      console.log(`[comfy.ts] Universal Adapter: Mapped AUDIO on node ${nodeId} (${title}) using prop '${targetKey}' = ${cleanedVal}`);
+    }
+
+    // E. Width & Height
+    if (inputs.width !== undefined && (/width|resolution|dimension/i.test(title) || classType === 'EmptyLatentImage')) {
+      if ('width' in node.inputs) {
+        node.inputs.width = inputs.width;
+        console.log(`[comfy.ts] Universal Adapter: Mapped WIDTH on node ${nodeId} (${title}) = ${inputs.width}`);
+      }
+    }
+    if (inputs.height !== undefined && (/height|resolution|dimension/i.test(title) || classType === 'EmptyLatentImage')) {
+      if ('height' in node.inputs) {
+        node.inputs.height = inputs.height;
+        console.log(`[comfy.ts] Universal Adapter: Mapped HEIGHT on node ${nodeId} (${title}) = ${inputs.height}`);
+      }
     }
   }
 }
@@ -127,8 +181,10 @@ export function findOutputNodes(workflow: any): OutputNodesMapping {
     if (!node) continue;
 
     const title = node._meta?.title || nodeId;
+    const classType = node.class_type || "";
     if (typeof title !== "string") continue;
 
+    // 1. Explicit matches (legacy support)
     const outputMatch = title.match(/OUTPUT\s*\(([^)]+)\)/i);
     if (outputMatch) {
       const typeStr = outputMatch[1].trim().toLowerCase();
@@ -143,6 +199,22 @@ export function findOutputNodes(workflow: any): OutputNodesMapping {
       } else if (typeStr.includes('image') || typeStr.includes('图片')) {
         result.imageNodeId = nodeId;
       }
+      continue;
+    }
+
+    // 2. Universal Adapter Output Matching (based on COMFYUI_UNIVERSAL_ADAPTER.md)
+    
+    // A. Image Output Node
+    if (classType === 'SaveImage' || /Save\s*Image|Output\s*Image|PreviewImage|Preview\s*Image/i.test(title)) {
+      if (!result.imageNodeId) result.imageNodeId = nodeId;
+    }
+    // B. Video Output Node
+    if (classType === 'VHS_VideoCombine' || /Save\s*Video|Video\s*Combine|VHS_VideoCombine/i.test(title)) {
+      if (!result.videoNodeId) result.videoNodeId = nodeId;
+    }
+    // C. Audio Output Node
+    if (classType === 'SaveAudio' || /Save\s*Audio|Output\s*Audio/i.test(title)) {
+      if (!result.audioNodeId) result.audioNodeId = nodeId;
     }
   }
   return result;

@@ -12,18 +12,6 @@
 
 Whether you are crafting short vertical reels, horizontal narrative stories, multi-actor conversations, vocabulary educational cards, or running frame-accurate lip-sync video translations, `ai0-video-creator` handles the orchestration via native APIs, Ollama, and customizable ComfyUI backends.
 
-
-[![Project](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/output/project.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/project.jpg)
-
-
-[![Script](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/output/script.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/script.jpg)
-
-
-[![Vocabulary](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/output/vocabulary.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/vocabulary.jpg)
-
-
-[![Harness](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/output/harness.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/output/harness.jpg)
-
 ---
 
 ## 🚀 Key Scenes & Modes
@@ -76,6 +64,39 @@ The workbench features **five custom creation modes** (Scene Types) to suit diff
 * **Workspace Synchronization**: Configurable save directories mapped directly onto the native OS filesystem via `tauri-plugin-fs`.
 * **Path Selector Dialogue**: Elegant directory-dialog query controls (utilizing `tauri-plugin-dialog`) to select python executables dynamically.
 * **System Hardening**: Set customizable CUDA core devices (e.g., `cuda:0`) and thread bounds manually to maximize hardware potential during local ComfyUI rendering cycles.
+
+---
+
+## 🔌 ComfyUI Integration Guide
+
+This application features a **Universal ComfyUI Workflow Adapter** that binds fields in your projects (such as script sentences, audio references, and images) directly to any third-party ComfyUI API-format workflow.
+
+### 1. How to Export API-Format Workflow from ComfyUI
+To import a workflow into the application, you must export it in the **API/Developer JSON format**:
+1. Open your ComfyUI in the browser.
+2. Click the **Gear (Settings)** icon in the upper right menu panel.
+3. Check the checkbox for **"Enable Dev mode"** (启用开发者模式). Close settings.
+4. On the main menu panel, you will now see a new button: **"Save (API Format)"** (保存为API格式).
+5. Click **"Save (API Format)"** to export your workflow as a raw pipeline `.json` file. (Do *not* use the regular "Save" button, as it includes client layout data that the backend cannot execute directly).
+
+### 2. How to Import the Workflow into the App
+1. Navigate to the sidebar or corresponding configuration page (e.g. **ComfyUI / LTX-2.3**).
+2. Click the **"Import Workflow"** or **"Upload JSON"** button next to your target task model (e.g. Image Turbo, LTX Video, Qwen3-TTS).
+3. Select your exported `.json` or `.txt` workflow file. The system will automatically parse and cache it securely.
+
+### 3. Node Naming Conventions (Title Mapping Protocol)
+To allow the workstation to dynamically inject project fields, you should rename specific nodes in ComfyUI by right-clicking them and selecting **"Title"**:
+* **Inputs**:
+  * **Text / Prompts**: Rename target CLIP Text Encode nodes to include `Prompt` (e.g., `CLIP Text (Prompt)`).
+  * **Images**: Rename LoadImage nodes to include `Load Image` or `Input Image`.
+  * **Videos**: Rename LoadVideo/VHS nodes to include `Load Video` or `Input Video`.
+  * **Audios**: Rename LoadAudio/VHS nodes to include `Load Audio` or `Input Audio`.
+* **Outputs**:
+  * **Images**: Ensure output nodes are named `Save Image` or contain `Output Image` / `PreviewImage`.
+  * **Videos**: Ensure the video compiler node is named `Video Combine` or `Save Video`.
+  * **Audios**: Ensure the audio compiler node is named `Save Audio` or `Output Audio`.
+
+For detailed specifications, see [COMFYUI_UNIVERSAL_ADAPTER.md](./COMFYUI_UNIVERSAL_ADAPTER.md).
 
 ---
 
@@ -176,6 +197,39 @@ npm install
 
 ---
 
+## 🔌 ComfyUI 工作流集成指南
+
+本工作站内置全新的 **ComfyUI 通用工作流适配器**。您可以轻松地将任何第三方 ComfyUI 导出的工作流接入系统，并将工作区的剧本、声音、画面与工作流进行动态绑定。
+
+### 1. 如何从 ComfyUI 导出 API 格式工作流文件
+为了让本系统能正确执行您的 ComfyUI 工作流，必须导出为 **API 开发者格式 JSON**：
+1. 打开您的 ComfyUI 浏览器编辑器。
+2. 点击右侧菜单栏中的 **“齿轮 (Settings/设置)”** 图标。
+3. 在设置窗口中，勾选 **“Enable Dev mode”** (启用开发者模式)，随后关闭设置窗口。
+4. 此时，ComfyUI 主控制面板上会新增一个 **“Save (API Format)”** (保存为API格式) 的按钮。
+5. 点击 **“Save (API Format)”**，将当前工作流保存为 `.json` 文件。(请勿直接使用常规的 "Save" 按钮，因为普通格式包含大量前端 UI 排版数据，API 服务无法直接解析执行)。
+
+### 2. 如何将工作流导入至本 APP 中
+1. 进入侧边栏或相应的模型设置面板 (例如 **ComfyUI / LTX-2.3**)。
+2. 在目标任务（如：闪电画稿、LTX 视频、TTS 配音等）旁点击 **“导入工作流”** 或 **“上传 JSON”** 按钮。
+3. 选择您刚才导出的 `.json` 或包含该 JSON 的 `.txt` 文件，系统将立即解析、自动匹配并安全缓存。
+
+### 3. 节点重命名命名规范 (标题匹配协议)
+为了能让工作站自动识别并把当前项目的文字、图片等动态注入到您的 ComfyUI 工作流中，请在 ComfyUI 画布上右键修改对应节点的 **Title (标题)**：
+* **输入节点命名规范**：
+  * **文本/提示词输入**：将对应的 CLIP Text Encode 节点改名，使其包含 `Prompt` (如：`CLIP Text (Prompt)`)。
+  * **图片输入**：将 LoadImage 节点改名，使其包含 `Load Image` 或 `Input Image`。
+  * **视频输入**：将 LoadVideo 节点改名，使其包含 `Load Video` 或 `Input Video`。
+  * **音频输入**：将 LoadAudio 节点改名，使其包含 `Load Audio` 或 `Input Audio`。
+* **输出节点命名规范**：
+  * **图片输出**：确保输出的 SaveImage 节点名称为 `Save Image` 或包含 `Output Image`/`PreviewImage`。
+  * **视频输出**：确保视频生成节点名称为 `Video Combine` 或 `Save Video`。
+  * **音频输出**：确保音频输出节点名称为 `Save Audio` 或 `Output Audio`。
+
+详细的适配细节与底层的 Fallback 逻辑，请参阅 [COMFYUI_UNIVERSAL_ADAPTER.md](./COMFYUI_UNIVERSAL_ADAPTER.md)。
+
+---
+
 ## 🏗️ 快速开始
 
 ### 准备环境
@@ -205,9 +259,5 @@ npm install
 
 ---
 
-[![Joe 微信二维码](https://raw.githubusercontent.com/ajoesoft/ai0-video-creator/main/Joe-wechat.jpg)](https://github.com/ajoesoft/ai0-video-creator/blob/main/Joe-wechat.jpg)
-
 ## 📄 License
 Under [MIT License](./LICENSE). Custom integrations might specify separate terms.
-
-
