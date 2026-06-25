@@ -1170,7 +1170,6 @@ async fn serve_workspace_file(req: axum::http::Request<axum::body::Body>) -> imp
             .unwrap(),
     }
 }
-
 async fn start_video_server() {
     use std::net::SocketAddr;
     use tower_http::cors::{Any, CorsLayer};
@@ -1199,11 +1198,23 @@ async fn start_video_server() {
         }
     }
 
+    let mut host_addr_str = "127.0.0.1".to_string();
+    if let Ok(Some(saved_host)) = read_setting_from_db(&db_path, "video_server_address") {
+        let trimmed = saved_host.trim();
+        if !trimmed.is_empty() {
+            host_addr_str = trimmed.to_string();
+        }
+    }
+
+    let ip_addr: std::net::IpAddr = host_addr_str.parse().unwrap_or_else(|_| {
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+    });
+
     let mut listener = None;
     let mut bound_port = port;
 
     for p in port..(port + 100) {
-        let addr = SocketAddr::from(([0, 0, 0, 0], p));
+        let addr = SocketAddr::from((ip_addr, p));
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(l) => {
                 listener = Some(l);
@@ -1219,7 +1230,7 @@ async fn start_video_server() {
     let listener = match listener {
         Some(l) => l,
         None => {
-            let addr = SocketAddr::from(([0, 0, 0, 0], 0));
+            let addr = SocketAddr::from((ip_addr, 0));
             match tokio::net::TcpListener::bind(&addr).await {
                 Ok(l) => {
                     let local_addr = l.local_addr().unwrap();
@@ -1234,17 +1245,20 @@ async fn start_video_server() {
         }
     };
 
-    info!("## [Video Server] 视频服务器流通道正在监听: http://0.0.0.0:{}", bound_port);
+    let actual_host = listener.local_addr().unwrap().ip().to_string();
+    log::info!("[Axum Server] 视频服务器流通道正在监听: http://{}:{}", actual_host, bound_port);
 
     if let Err(e) = write_setting_to_db(&db_path, "video_server_port", &bound_port.to_string()) {
         log::error!("[Axum Server] Failed to save video_server_port to DB: {}", e);
+    }
+    if let Err(e) = write_setting_to_db(&db_path, "video_server_address", &actual_host) {
+        log::error!("[Axum Server] Failed to save video_server_address to DB: {}", e);
     }
 
     if let Err(e) = axum::serve(listener, app.into_make_service()).await {
         log::error!("[Axum Server] Video server crashed: {}", e);
     }
 }
-
 fn get_stream_response(
     request: http::Request<Vec<u8>>,
 ) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error>> {

@@ -467,7 +467,7 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
   const [coverImageBase64, setCoverImageBase64] = useState<string>('');
 
   const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
-
+  console.log(`## localCoverBase64: ${localCoverBase64}`);
   useEffect(() => {
     if (localCoverBase64) {
       setCoverImageBase64(localCoverBase64);

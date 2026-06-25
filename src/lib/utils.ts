@@ -8,6 +8,34 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+let cachedWorkspacePath = '';
+let cachedVideoPort = '4000';
+let cachedVideoAddress = '127.0.0.1';
+
+// Pre-fetch workspace path and video server settings asynchronously on load if in browser
+if (typeof window !== 'undefined') {
+  getSetting('workspace_path').then(val => {
+    if (val) {
+      cachedWorkspacePath = val.replace(/\\/g, '/');
+      localStorage.setItem('workspace_path', val);
+    }
+  }).catch(() => {});
+
+  getSetting('video_server_port').then(val => {
+    if (val) {
+      cachedVideoPort = val;
+      localStorage.setItem('video_server_port', val);
+    }
+  }).catch(() => {});
+
+  getSetting('video_server_address').then(val => {
+    if (val) {
+      cachedVideoAddress = val;
+      localStorage.setItem('video_server_address', val);
+    }
+  }).catch(() => {});
+}
+
 export function encodeUrlPath(url: string): string {
   if (!url) return '';
   if (url.startsWith('data:') || url.startsWith('blob:')) return url;
@@ -94,6 +122,32 @@ export function encodeUrlPath(url: string): string {
   }
 }
 
+export function cleanTauriAssetUrl(url: string): string {
+  if (!url) return url;
+  
+  // Identify the protocol and host part (e.g., "asset://localhost" or "https://asset.localhost")
+  const match = url.match(/^([a-zA-Z0-9]+:\/\/[^\/]+)(.*)$/);
+  if (!match) return url;
+  
+  const protocolAndHost = match[1]; // e.g., "asset://localhost"
+  let pathPart = match[2];           // e.g., "/%2Fdata%2Fworkflow..."
+  
+  // Decode %2F to / and %3A to :
+  pathPart = pathPart.replace(/%2F/gi, '/').replace(/%3A/gi, ':');
+  
+  // Collapse any duplicate slashes in the path
+  pathPart = pathPart.replace(/\/+/g, '/');
+  
+  // Ensure it starts with exactly one slash
+  if (!pathPart.startsWith('/')) {
+    pathPart = '/' + pathPart;
+  }
+  
+  const result = protocolAndHost + pathPart;
+  console.log(`[cleanTauriAssetUrl] Original: "${url}" -> Cleaned: "${result}"`);
+  return result;
+}
+
 export function safeConvertFileSrc(filePath: string): string {
   if (!filePath) return '';
 
@@ -133,24 +187,29 @@ export function safeConvertFileSrc(filePath: string): string {
     subpath = subpath.slice(1);
   }
 
-  if (isTauri) {
-    // If we are in Tauri and running in DEV mode (origin is localhost:3000 / 127.0.0.1:3000),
-    // we should stream video.src / audio.src directly from our Vite dev server using HTTP!
-    const isDev = typeof window !== 'undefined' && 
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-
-    if (isDev) {
-      const origin = window.location.origin;
-      return encodeUrlPath(`${origin}/workspace/${subpath}`);
+  const wsPath = cachedWorkspacePath || (typeof window !== 'undefined' ? (localStorage.getItem('workspace_path') || '') : '');
+  if (wsPath) {
+    const wsPathNoTrailing = wsPath.endsWith('/') ? wsPath.slice(0, -1) : wsPath;
+    if (subpath.toLowerCase().startsWith(wsPathNoTrailing.toLowerCase())) {
+      subpath = subpath.slice(wsPathNoTrailing.length);
     }
+    const wsFolder = wsPath.split('/').filter(Boolean).pop();
+    if (wsFolder && subpath.toLowerCase().startsWith(`${wsFolder.toLowerCase()}/`)) {
+      subpath = subpath.slice(wsFolder.length + 1);
+    }
+  }
+  if (subpath.startsWith('/')) {
+    subpath = subpath.slice(1);
+  }
 
+  if (isTauri) {
     try {
-      const nativeSrc = convertFileSrc(absolutePath);
-      if (nativeSrc) {
-        return nativeSrc; // nativeSrc is already fully encoded & optimized by Tauri Core
-      }
+      const port = cachedVideoPort || (typeof window !== 'undefined' ? (localStorage.getItem('video_server_port') || '4000') : '4000');
+      const address = cachedVideoAddress || (typeof window !== 'undefined' ? (localStorage.getItem('video_server_address') || '127.0.0.1') : '127.0.0.1');
+      const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+      return `http://${address}:${port}/${encodedSubpath}`;
     } catch (e) {
-      console.warn('[safeConvertFileSrc] Native convertFileSrc failed, falling back to manual parsing:', e);
+      console.warn('[safeConvertFileSrc] Failed to construct Axum HTTP url:', e);
     }
 
     // Fallback manual parser for native Tauri app in production (asset://localhost/...)
@@ -174,7 +233,7 @@ export function safeConvertFileSrc(filePath: string): string {
     const leading = hasLeadingSlash ? '/' : '';
     const drive = driveLetter ? `${driveLetter}` : '';
     
-    return `asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/');
+    return cleanTauriAssetUrl(`asset://localhost/${drive}${leading}${encodedPath}`.replace(/\/+/g, '/').replace('asset:/localhost/', 'asset://localhost/'));
   }
 
   // Non-Tauri (Web Browser / AI Studio Workspace):
@@ -226,12 +285,7 @@ export function getAssetUrl(path: string | undefined | null): string {
 
   return safeConvertFileSrc(rawPath);
 }
-function stripWorkspacePrefix(fullPath, workspace) {
-  // 转义路径中的 / ，拼接开头匹配正则
-  const escaped = workspace.replace(/\//g, '\\/');
-  const reg = new RegExp(`^${escaped}`);
-  return fullPath.replace(reg, "");
-}
+
 export function useMediaUrl(path: string | undefined | null, mediaType: 'video' | 'audio' | 'image' = 'video') {
   const [url, setUrl] = useState<string>('');
 
@@ -240,7 +294,7 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       setUrl('');
       return;
     }
-    console.log(`## path: ${path}`);
+
     const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 
     // Clean up path similarly to getAssetUrl
@@ -250,8 +304,7 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
     // Strip http(s)://localhost:XXXX/ or http(s)://127.0.0.1:XXXX/ if present
     const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
     cleanPath = cleanPath.replace(localhostRegex, '');
-    console.log(`## cleanPath ${cleanPath} ##`);
-   
+
     const tauriPrefixes = [
       'assets://localhost/',
       'asset://localhost/',
@@ -281,7 +334,6 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
     }
 
     let active = true;
-    let blobUrl = '';
 
     const resolveUrl = async () => {
       // 1. Get raw subpath by stripping virtual workspace prefixes and the absolute workspace_path if present on disk
@@ -291,6 +343,10 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       const wsPathRaw = await getSetting('workspace_path') || '';
       const wsPath = wsPathRaw.replace(/\\/g, '/');
       if (wsPath) {
+        cachedWorkspacePath = wsPath;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('workspace_path', wsPathRaw);
+        }
         const wsPathNoTrailing = wsPath.endsWith('/') ? wsPath.slice(0, -1) : wsPath;
         if (subpath.startsWith(wsPathNoTrailing)) {
           subpath = subpath.slice(wsPathNoTrailing.length);
@@ -313,87 +369,41 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
         subpath = subpath.slice(1);
       }
 
+      // Strip workspace folder name to prevent duplicated segment (e.g. "veraai/veraai/...")
+      if (wsPath) {
+        const wsFolder = wsPath.split('/').filter(Boolean).pop();
+        if (wsFolder && subpath.toLowerCase().startsWith(`${wsFolder.toLowerCase()}/`)) {
+          subpath = subpath.slice(wsFolder.length + 1);
+        }
+      }
+      if (subpath.startsWith('/')) {
+        subpath = subpath.slice(1);
+      }
+
       // Now subpath is pure relative, e.g. "10fb29a8-9eb9-4281-a777-3cc6b6aed7a2/video/s11.mp4"
 
       if (isTauri) {
-        if (mediaType === 'video' || mediaType === 'audio') {
-          try {
-            // Determine if the subpath is absolute already (starts with '/' or drive letter like 'C:')
-            const isAbsolute = subpath.startsWith('/') || /^[a-zA-Z]:\//.test(subpath);
-            let absolutePath = '';
-            
-            if (isAbsolute) {
-              absolutePath = subpath;
-            } else {
-              const workspacePath = await getSetting('workspace_path') || '';
-              console.log(`## workspacePath ${workspacePath} ##`);
-              const normalizedWorkspace = workspacePath.replace(/\\/g, '/');
-              console.log(`## normalizedWorkspace ${normalizedWorkspace} ##`);
-              if (normalizedWorkspace) {
-                absolutePath = `${normalizedWorkspace}/${subpath}`.replace(/\/+/g, '/');
-              } else {
-                absolutePath = subpath;
-              }
-            }
-
-            // Encode each path segment while preserving drive letter colons if present
-            const uriPath = absolutePath.split('/').map(seg => {
-              if (seg.endsWith(':') && seg.length === 2) {
-                return seg;
-              }
-              return encodeURIComponent(decodeURIComponent(seg));
-            }).join('/');
-
-            const cleanUriPath = uriPath.startsWith('/') ? uriPath : `/${uriPath}`;
-            // const streamUrl = `stream://localhost${cleanUriPath}`;
-            const streamUrl = convertFileSrc(cleanUriPath);
-            console.log(`[useMediaUrl] Streaming via custom stream protocol:`, streamUrl);
-            const projectFilePath =  stripWorkspacePrefix(path,workspace_path);
-            console.log(`## projectFilePath: ${projectFilePath}`);
-            const port=4002;
-            const mediaServerAddress=`http://127.0.0.1:${port}`;
-            const projectFileUrl = mediaServerAddress+projectFilePath;
-            console.log(`## projectFilePath: ${projectFilePath}`);
-            if (active) {
-              setUrl(projectFileUrl);
-            }
-            return;
-          } catch (streamErr) {
-            console.warn('[useMediaUrl] Failed to load custom stream protocol, falling back:', streamErr);
-          }
-        }
-
-        // Static files (images, etc) in Tauri
         try {
-          const workspacePath = await getSetting('workspace_path') || '';
-           console.log(`== workspacePath ${workspacePath} ##`);
-          const absolutePath = workspacePath ? `${workspacePath}/${subpath}`.replace(/\\/g, '/') : subpath;
-          console.log(`== absolutePath ${absolutePath} ##`);
-          const { readFile } = await import('@tauri-apps/plugin-fs');
-          const fileData = await readFile(absolutePath);
-          blobUrl = URL.createObjectURL(new Blob([fileData], { type: 'image/png' }));
+          const videoPort = await getSetting('video_server_port') || '4000';
+          const videoAddress = await getSetting('video_server_address') || '127.0.0.1';
+          const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+          const httpVideoUrl = `http://${videoAddress}:${videoPort}/${encodedSubpath}`;
+          console.log(`[useMediaUrl] Resolved ${mediaType} via Axum HTTP server:`, httpVideoUrl);
           if (active) {
-            setUrl(blobUrl);
-            console.log(`[useMediaUrl] Resolved image file as secure blob URL:`, blobUrl);
+            setUrl(httpVideoUrl);
           }
           return;
         } catch (err) {
-          console.warn(`[useMediaUrl] Direct handle failed, falling back to convertFileSrc:`, err);
-          // Let tauri's convertFileSrc compile
-          const workspacePath = await getSetting('workspace_path') || '';
-          const absolutePath = workspacePath ? `${workspacePath}/${subpath}`.replace(/\\/g, '/') : subpath;
-          if (active) {
-            setUrl(safeConvertFileSrc(absolutePath));
-          }
+          console.warn(`[useMediaUrl] Axum video server URL resolution failed:`, err);
         }
-      } else {
-        // Non-Tauri (Web Mode)
-        const origin = window.location.origin;
-        const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
-        const webUrl = `${origin}/workspace/${encodedSubpath}`;
-        if (active) {
-          setUrl(webUrl);
-        }
+      }
+
+      // Non-Tauri or Fallback (Web Mode)
+      const origin = window.location.origin;
+      const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+      const webUrl = `${origin}/workspace/${encodedSubpath}`;
+      if (active) {
+        setUrl(webUrl);
       }
     };
 
@@ -401,9 +411,6 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
 
     return () => {
       active = false;
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-      }
     };
   }, [path, mediaType]);
 
@@ -419,13 +426,14 @@ export function useLocalImageBase64(path: string | undefined | null): string {
       return;
     }
 
-    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
-
     // Decode and normalize
     let cleanPath = decodeURIComponent(path);
     cleanPath = cleanPath.replace(/\\/g, '/');
 
-    // Remove any protocol prefixes from being treated as local storage file paths
+    // Strip http(s)://localhost:XXXX/ or http(s)://127.0.0.1:XXXX/ if present
+    const localhostRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i;
+    cleanPath = cleanPath.replace(localhostRegex, '');
+
     const tauriPrefixes = [
       'assets://localhost/',
       'asset://localhost/',
@@ -447,7 +455,6 @@ export function useLocalImageBase64(path: string | undefined | null): string {
       }
     }
 
-    // Remote detection
     const isRemote = cleanPath.startsWith('http://') || cleanPath.startsWith('https://') || cleanPath.startsWith('data:') || cleanPath.startsWith('blob:');
     if (isRemote) {
       setSrc(cleanPath);
@@ -456,58 +463,82 @@ export function useLocalImageBase64(path: string | undefined | null): string {
 
     let active = true;
 
-    const resolveBase64 = async () => {
-      if (isTauri) {
-        try {
-          // Normalize and resolve absolute path in Tauri
-          let absolutePath = cleanPath;
-          const isAbsolute = absolutePath.startsWith('/') || /^[a-zA-Z]:\//.test(absolutePath);
-          if (!isAbsolute) {
-            const workspacePath = await getSetting('workspace_path') || '';
-            const normalizedWorkspace = workspacePath.replace(/\\/g, '/');
-            if (normalizedWorkspace) {
-              absolutePath = `${normalizedWorkspace}/${absolutePath}`.replace(/\/+/g, '/');
-            }
-          }
+    async function resolveCoverUrl() {
+      try {
+        let subpath = cleanPath;
 
-          const { exists } = await import('@tauri-apps/plugin-fs');
-          const fileExists = await exists(absolutePath);
-          if (fileExists) {
-            const { invoke } = await import('@tauri-apps/api/core');
-            let base64 = await invoke<string>('load_local_image', { path: absolutePath });
-            if (active) {
-              if (base64 && !base64.startsWith('data:')) {
-                const extension = absolutePath.split('.').pop()?.toLowerCase() || 'png';
-                let mimeType = 'image/png';
-                if (extension === 'jpg' || extension === 'jpeg') {
-                  mimeType = 'image/jpeg';
-                } else if (extension === 'gif') {
-                  mimeType = 'image/gif';
-                } else if (extension === 'svg') {
-                  mimeType = 'image/svg+xml';
-                } else if (extension === 'webp') {
-                  mimeType = 'image/webp';
-                } else if (extension === 'ico') {
-                  mimeType = 'image/x-icon';
-                }
-                base64 = `data:${mimeType};base64,${base64}`;
-              }
-              setSrc(base64);
-              return;
-            }
+        // Get workspace path and strip it
+        const wsPathRaw = await getSetting('workspace_path') || '';
+        const wsPath = wsPathRaw.replace(/\\/g, '/');
+        if (wsPath) {
+          cachedWorkspacePath = wsPath;
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('workspace_path', wsPathRaw);
           }
-        } catch (err) {
-          console.warn('[useLocalImageBase64] Failed to load local base64:', err);
+          const wsPathNoTrailing = wsPath.endsWith('/') ? wsPath.slice(0, -1) : wsPath;
+          if (subpath.startsWith(wsPathNoTrailing)) {
+            subpath = subpath.slice(wsPathNoTrailing.length);
+          }
+        }
+
+        const prefixesToStrip = [
+          '/data/workflow/workspace/',
+          'data/workflow/workspace/',
+          '/workspace/',
+          'workspace/'
+        ];
+        for (const prefix of prefixesToStrip) {
+          if (subpath.startsWith(prefix)) {
+            subpath = subpath.slice(prefix.length);
+            break;
+          }
+        }
+        if (subpath.startsWith('/')) {
+          subpath = subpath.slice(1);
+        }
+
+        // Strip workspace folder name to prevent duplicated segment (e.g. "veraai/veraai/...")
+        if (wsPath) {
+          const wsFolder = wsPath.split('/').filter(Boolean).pop();
+          if (wsFolder && subpath.toLowerCase().startsWith(`${wsFolder.toLowerCase()}/`)) {
+            subpath = subpath.slice(wsFolder.length + 1);
+          }
+        }
+        if (subpath.startsWith('/')) {
+          subpath = subpath.slice(1);
+        }
+
+        const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+        if (isTauri) {
+          try {
+            const videoPort = await getSetting('video_server_port') || '4000';
+            const videoAddress = await getSetting('video_server_address') || '127.0.0.1';
+            const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+            const httpImageUrl = `http://${videoAddress}:${videoPort}/${encodedSubpath}`;
+            if (active) {
+              setSrc(httpImageUrl);
+            }
+          } catch (e) {
+            console.warn('[useLocalImageBase64] Failed to resolve local image via Axum:', e);
+          }
+        } else {
+          // Web mode: resolve via origin workspace endpoint
+          const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+          const origin = window.location.origin;
+          const videoServerUrl = `${origin}/workspace/${encodedSubpath}`;
+          if (active) {
+            setSrc(videoServerUrl);
+          }
+        }
+      } catch (err) {
+        console.warn('[useLocalImageBase64] Failed to resolve local image:', err);
+        if (active) {
+          setSrc(getAssetUrl(cleanPath));
         }
       }
+    }
 
-      // Fallback if not in Tauri or file doesn't exist yet
-      if (active) {
-        setSrc(getAssetUrl(cleanPath));
-      }
-    };
-
-    resolveBase64();
+    resolveCoverUrl();
 
     return () => {
       active = false;

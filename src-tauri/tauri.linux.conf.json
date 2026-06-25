@@ -4,11 +4,11 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "**/*",
-          "**/.local/share/**/*",
-          "**/.cache/**/*",
-          "$CACHE/**",
-          "$CONFIG/**"
+          "**/*.png",
+          "**/*.jpg",
+          "**/*.mp4",
+          "**/*.mp3",
+          "**/*.wav"
         ]
       }
     }
