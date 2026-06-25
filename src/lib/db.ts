@@ -2,6 +2,7 @@ import Database from "@tauri-apps/plugin-sql";
 import { remove, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType } from "../types";
 import { invoke } from "@tauri-apps/api/core";
+import { PromptHarnessEngine } from "./harness/engine";
 
 let db: Database | null = null;
 let dbError: string | null = null;
@@ -116,9 +117,19 @@ export async function runDatabaseMigrations(database: Database): Promise<void> {
         visual_asset_id INTEGER,
         active INTEGER DEFAULT 1,
         created_at INTEGER,
-        updated_at INTEGER
+        updated_at INTEGER,
+        type TEXT,
+        template TEXT,
+        parameters TEXT,
+        target_model TEXT
       );
     `);
+    
+    // Add columns dynamically for existing databases
+    try { await database.execute("ALTER TABLE prompt_harness ADD COLUMN type TEXT;"); } catch (_) {}
+    try { await database.execute("ALTER TABLE prompt_harness ADD COLUMN template TEXT;"); } catch (_) {}
+    try { await database.execute("ALTER TABLE prompt_harness ADD COLUMN parameters TEXT;"); } catch (_) {}
+    try { await database.execute("ALTER TABLE prompt_harness ADD COLUMN target_model TEXT;"); } catch (_) {}
   } catch (errHarnessTable) {
     console.error("Failed to create prompt_harness table:", errHarnessTable);
   }
@@ -237,11 +248,39 @@ export async function runDatabaseMigrations(database: Database): Promise<void> {
   // Self-migration: Merge all unique translation projects inside video_translation_projects table into unified video_projects table
   try {
     console.log("[Migration] Merging video_translation_projects rows into video_projects...");
+    
+    // Find all sub-project IDs to avoid migrating them as top-level projects
+    const subProjectIds = new Set<string>();
+    try {
+      const settings = await database.select<any[]>(
+        "SELECT key, value FROM app_settings WHERE key LIKE 'video_translation_data_%'"
+      );
+      for (const s of settings) {
+        try {
+          const val = JSON.parse(s.value);
+          if (val && Array.isArray(val.queue)) {
+            const parentId = s.key.substring('video_translation_data_'.length);
+            for (const sub of val.queue) {
+              if (sub && sub.id && sub.id !== parentId) {
+                subProjectIds.add(sub.id);
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn("Failed to gather subProjectIds during migration:", e);
+    }
+
     const transProjects = await database.select<any[]>("SELECT * FROM video_translation_projects");
     if (transProjects && transProjects.length > 0) {
       console.log(`[Migration] Found ${transProjects.length} candidate translation projects to migrate.`);
       for (const tp of transProjects) {
         const uuid = tp.project_id;
+        if (subProjectIds.has(uuid)) {
+          console.log(`[Migration] Skipping sub-project translation migration for queue item: [${tp.name}] (UUID: ${uuid})`);
+          continue;
+        }
         const existing = await database.select<any[]>("SELECT project_uuid FROM video_projects WHERE project_uuid = ? LIMIT 1", [uuid]);
         if (!existing || existing.length === 0) {
           console.log(`[Migration] Migrating Translation Project: [${tp.name}] (UUID: ${uuid}) into video_projects.`);
@@ -444,7 +483,58 @@ export async function getDb() {
 // Browser fallback storage
 const LOCAL_STORAGE_KEY = 'ai_video_projects_fallback';
 
+// Gather all sub-project IDs in Tauri or Browser environment to filter them out of top-level lists
+export async function getSubProjectIds(): Promise<Set<string>> {
+  const subProjectIds = new Set<string>();
+  if (isTauri) {
+    try {
+      const database = await getDb();
+      if (database) {
+        const settings = await database.select<any[]>(
+          "SELECT key, value FROM app_settings WHERE key LIKE 'video_translation_data_%'"
+        );
+        for (const s of settings) {
+          try {
+            const val = JSON.parse(s.value);
+            if (val && Array.isArray(val.queue)) {
+              const parentId = s.key.substring('video_translation_data_'.length);
+              for (const sub of val.queue) {
+                if (sub && sub.id && sub.id !== parentId) {
+                  subProjectIds.add(sub.id);
+                }
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to query sub-projects from app_settings:", err);
+    }
+  } else {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('video_translation_data_')) {
+          try {
+            const val = JSON.parse(localStorage.getItem(key) || '{}');
+            if (val && Array.isArray(val.queue)) {
+              const parentId = key.substring('video_translation_data_'.length);
+              for (const sub of val.queue) {
+                if (sub && sub.id && sub.id !== parentId) {
+                  subProjectIds.add(sub.id);
+                }
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
+  return subProjectIds;
+}
+
 async function getLocalStorageProjects(): Promise<VideoProject[]> {
+  const subProjectIds = await getSubProjectIds();
   if (isTauri) {
     const database = await getDb();
     if (database) {
@@ -460,27 +550,29 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
           ORDER BY p.update_time DESC`
         );
         if (result.length > 0) {
-          return result.map(p => ({
-            id: p.project_uuid,
-            name: p.project_name,
-            prompt: p.project_prompt,
-            coverImagePath: p.random_cover || p.cover_image_path,
-            projectPath: p.project_path,
-            status: p.project_status,
-            sceneType: p.scene_type || 'short_video',
-            createdAt: p.create_time,
-            updatedAt: p.update_time,
-            width: p.width || 1920,
-            height: p.height || 1080,
-            aspectRatio: p.aspect_ratio || '16:9',
-            visualStyle: p.visual_style || 'Cinematic',
-            videoUrl: p.video_url || null,
-            audioUrl: p.audio_url || null,
-            audioDuration: p.audio_duration || 0,
-            srtOriginal: p.srt_original || null,
-            textOriginal: p.text_original || null,
-            detectedLanguage: p.detected_language || null,
-          }));
+          return result
+            .filter(p => !subProjectIds.has(p.project_uuid))
+            .map(p => ({
+              id: p.project_uuid,
+              name: p.project_name,
+              prompt: p.project_prompt,
+              coverImagePath: p.random_cover || p.cover_image_path,
+              projectPath: p.project_path,
+              status: p.project_status,
+              sceneType: p.scene_type || 'short_video',
+              createdAt: p.create_time,
+              updatedAt: p.update_time,
+              width: p.width || 1920,
+              height: p.height || 1080,
+              aspectRatio: p.aspect_ratio || '16:9',
+              visualStyle: p.visual_style || 'Cinematic',
+              videoUrl: p.video_url || null,
+              audioUrl: p.audio_url || null,
+              audioDuration: p.audio_duration || 0,
+              srtOriginal: p.srt_original || null,
+              textOriginal: p.text_original || null,
+              detectedLanguage: p.detected_language || null,
+            }));
         }
 
         // Try reading backup from app_settings
@@ -489,7 +581,8 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
           [LOCAL_STORAGE_KEY]
         );
         if (backupRaw.length > 0 && backupRaw[0].value) {
-          return JSON.parse(backupRaw[0].value);
+          const parsedBackup: VideoProject[] = JSON.parse(backupRaw[0].value);
+          return parsedBackup.filter(p => !subProjectIds.has(p.id));
         }
       } catch (err) {
         console.error("Failed to fetch projects from database in fallback getter:", err);
@@ -498,6 +591,9 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
   }
   const data = localStorage.getItem(LOCAL_STORAGE_KEY);
   const standardProjects: VideoProject[] = data ? JSON.parse(data) : [];
+
+  // Filter local storage projects
+  const filteredProjects = standardProjects.filter(p => !subProjectIds.has(p.id));
 
   // Browser local storage self-migration check
   try {
@@ -509,6 +605,9 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
         let modified = false;
         for (const tp of transProjects) {
           const uuid = tp.project_id;
+          if (subProjectIds.has(uuid)) {
+            continue; // Skip migrating sub-projects
+          }
           const exist = standardProjects.find(sp => sp.id === uuid);
           if (!exist) {
             console.log(`[Migration] Migrating local storage translation project: ${tp.name} (${uuid})`);
@@ -594,7 +693,7 @@ async function getLocalStorageProjects(): Promise<VideoProject[]> {
     console.error("Local Web fallback self-migration error:", err);
   }
 
-  return standardProjects;
+  return standardProjects.filter(p => !subProjectIds.has(p.id));
 }
 
 async function saveLocalStorageProjects(projects: VideoProject[]): Promise<void> {
@@ -618,6 +717,7 @@ async function saveLocalStorageProjects(projects: VideoProject[]): Promise<void>
 }
 
 export async function fetchProjects(): Promise<VideoProject[]> {
+  const subProjectIds = await getSubProjectIds();
   if (isTauri) {
     const database = await getDb();
     if (database) {
@@ -631,28 +731,30 @@ export async function fetchProjects(): Promise<VideoProject[]> {
         FROM video_projects p 
         ORDER BY p.update_time DESC`
       );
-      // Map database fields to frontend types
-      return result.map(p => ({
-        id: p.project_uuid,
-        name: p.project_name,
-        prompt: p.project_prompt,
-        coverImagePath: p.random_cover || p.cover_image_path,
-        projectPath: p.project_path,
-        status: p.project_status,
-        sceneType: p.scene_type || 'short_video',
-        createdAt: p.create_time,
-        updatedAt: p.update_time,
-        width: p.width || 1920,
-        height: p.height || 1080,
-        aspectRatio: p.aspect_ratio || '16:9',
-        visualStyle: p.visual_style || 'Cinematic',
-        videoUrl: p.video_url || null,
-        audioUrl: p.audio_url || null,
-        audioDuration: p.audio_duration || 0,
-        srtOriginal: p.srt_original || null,
-        textOriginal: p.text_original || null,
-        detectedLanguage: p.detected_language || null,
-      }));
+      // Map database fields to frontend types, filtering out sub-projects
+      return result
+        .filter(p => !subProjectIds.has(p.project_uuid))
+        .map(p => ({
+          id: p.project_uuid,
+          name: p.project_name,
+          prompt: p.project_prompt,
+          coverImagePath: p.random_cover || p.cover_image_path,
+          projectPath: p.project_path,
+          status: p.project_status,
+          sceneType: p.scene_type || 'short_video',
+          createdAt: p.create_time,
+          updatedAt: p.update_time,
+          width: p.width || 1920,
+          height: p.height || 1080,
+          aspectRatio: p.aspect_ratio || '16:9',
+          visualStyle: p.visual_style || 'Cinematic',
+          videoUrl: p.video_url || null,
+          audioUrl: p.audio_url || null,
+          audioDuration: p.audio_duration || 0,
+          srtOriginal: p.srt_original || null,
+          textOriginal: p.text_original || null,
+          detectedLanguage: p.detected_language || null,
+        }));
     }
   }
 
@@ -1589,6 +1691,10 @@ export async function fetchPromptHarnessByProject(projectId: string): Promise<Pr
           active: h.active === undefined ? 1 : h.active,
           createdAt: typeof h.created_at === 'string' ? new Date(h.created_at).getTime() : (h.created_at || Date.now()),
           updatedAt: typeof h.updated_at === 'string' ? new Date(h.updated_at).getTime() : (h.updated_at || Date.now()),
+          type: h.type || 'static',
+          template: h.template || '',
+          parameters: h.parameters || '',
+          targetModel: h.target_model || '',
         }));
       } catch (err) {
         console.error("Error fetching prompt harnesses from DB:", err);
@@ -1607,6 +1713,10 @@ export async function createPromptHarness(harness: Partial<PromptHarness>): Prom
   const visualAssetId = harness.visualAssetId || 0;
   const active = harness.active !== undefined ? harness.active : 1;
   const projectId = harness.projectId || "";
+  const type = harness.type || "static";
+  const template = harness.template || "";
+  const parameters = harness.parameters || "";
+  const targetModel = harness.targetModel || "";
 
   if (isTauri) {
     const database = await getDb();
@@ -1614,9 +1724,9 @@ export async function createPromptHarness(harness: Partial<PromptHarness>): Prom
       try {
         await database.execute(
           `INSERT INTO prompt_harness (
-            project_id, trigger_keyword, visual_asset_id, active, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?)`,
-          [projectId, triggerKeyword, visualAssetId, active, now, now]
+            project_id, trigger_keyword, visual_asset_id, active, type, template, parameters, target_model, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [projectId, triggerKeyword, visualAssetId, active, type, template, parameters, targetModel, now, now]
         );
         
         const idResult = await database.select<any[]>("SELECT last_insert_rowid() as id");
@@ -1628,6 +1738,10 @@ export async function createPromptHarness(harness: Partial<PromptHarness>): Prom
           triggerKeyword,
           visualAssetId,
           active,
+          type,
+          template,
+          parameters,
+          targetModel,
           createdAt: now,
           updatedAt: now
         };
@@ -1646,6 +1760,10 @@ export async function createPromptHarness(harness: Partial<PromptHarness>): Prom
     triggerKeyword,
     visualAssetId,
     active,
+    type,
+    template,
+    parameters,
+    targetModel,
     createdAt: now,
     updatedAt: now
   };
@@ -1720,82 +1838,49 @@ export async function deletePromptHarness(id: number): Promise<boolean> {
  * Harness Engine - Core Prompt expander
  * Finds Trigger Keywords matched in the original raw draft prompt,
  * and appends/replaces them with the detailed visual prompts of synced library assets.
+ * Now optimized using a design-pattern based Strategy & Registry Engine.
  */
-export async function applyPromptHarnessRules(promptText: string, projectId: string): Promise<string> {
+export async function applyPromptHarnessRules(promptText: string, projectId: string, targetModel?: string): Promise<string> {
   if (!promptText || !promptText.trim()) return promptText;
 
   try {
-    // 1. Fetch active harness rules
     const harnesses = await fetchPromptHarnessByProject(projectId);
     const activeHarnesses = harnesses.filter(h => h.active === 1);
-    if (activeHarnesses.length === 0) return promptText;
 
-    // 2. Fetch project visual library assets
-    const visualAssets = await fetchVisualLibraryByProject(projectId);
-    if (visualAssets.length === 0) return promptText;
-
-    let modifiedPrompt = promptText;
-
-    // Parse all @ tags in the prompt
-    // This matches @ followed by any sequence of word-characters, non-spaces, and non-common-punctuation
-    const tagRegex = /@([^\s,.:;!?"'()（）[\]{}<>；：，。！？"“‘]+)/g;
-    const matches = Array.from(modifiedPrompt.matchAll(tagRegex));
-    const processedTags = new Set<string>();
-
-    for (const match of matches) {
-      const fullMatch = match[0]; // e.g. "@Character1"
-      const tagName = match[1];   // e.g. "Character1"
-      
-      if (processedTags.has(fullMatch)) continue;
-      processedTags.add(fullMatch);
-
-      // Find an active harness that matches this tag name case-insensitively
-      const matchingRule = activeHarnesses.find(h => {
-        const trigger = h.triggerKeyword || "";
-        const cleanTrigger = trigger.startsWith('@') ? trigger.slice(1) : trigger;
-        return cleanTrigger.toLowerCase() === tagName.toLowerCase();
-      });
-
-      if (!matchingRule) continue;
-
-      const parentAsset = visualAssets.find(v => v.id === matchingRule.visualAssetId);
-      if (!parentAsset) continue;
-
-      const designDetails = [
-        parentAsset.imagePrompt,
-        parentAsset.videoPrompt
-      ].filter(Boolean).join(", ");
-
-      if (designDetails.trim()) {
-        const replacement = `${tagName} (${designDetails})`;
-        const escapedFullMatch = fullMatch.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const replaceRegex = new RegExp(escapedFullMatch, 'g');
-        modifiedPrompt = modifiedPrompt.replace(replaceRegex, replacement);
+    // Dynamically retrieve character definitions from WordManagement (Vocabulary database)
+    const virtualHarnesses: any[] = [];
+    try {
+      const vocabularies = await fetchVocabularyByProject(projectId);
+      for (const vocab of vocabularies) {
+        if (vocab.data && vocab.word) {
+          try {
+            const parsed = JSON.parse(vocab.data);
+            const charactorConstraint = parsed.charactor || '';
+            if (charactorConstraint && charactorConstraint.trim()) {
+              // Create a virtual persona speech harness rule for this character
+              const trigger = vocab.word.startsWith('@') ? vocab.word : `@${vocab.word}`;
+              virtualHarnesses.push({
+                id: -vocab.id, // negative number to avoid id clashes
+                projectId: projectId,
+                triggerKeyword: trigger,
+                type: 'persona',
+                template: charactorConstraint,
+                active: 1,
+                visualAssetId: 0
+              });
+            }
+          } catch (e) {}
+        }
       }
+    } catch (e) {
+      console.warn("Failed to dynamically fetch vocabulary characters for speech constraints:", e);
     }
 
-    // Fallback for non-@ triggers (exact word matches) that aren't already part of a resolved parentheses block
-    for (const rule of activeHarnesses) {
-      const trigger = rule.triggerKeyword || "";
-      if (!trigger) continue;
-      const cleanTrigger = trigger.startsWith('@') ? trigger.slice(1) : trigger;
-      const parentAsset = visualAssets.find(v => v.id === rule.visualAssetId);
-      if (!parentAsset) continue;
+    const mergedHarnesses = [...activeHarnesses, ...virtualHarnesses];
+    if (mergedHarnesses.length === 0) return promptText;
 
-      const designDetails = [
-        parentAsset.imagePrompt,
-        parentAsset.videoPrompt
-      ].filter(Boolean).join(", ");
-
-      if (designDetails.trim()) {
-        // Look for the exact trigger name, ensuring it is not already followed by details in parentheses
-        const escapedTrigger = cleanTrigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const checkRegex = new RegExp(`(?<!@)(${escapedTrigger})(?!\\s*\\()`, 'gi');
-        modifiedPrompt = modifiedPrompt.replace(checkRegex, `$1 (${designDetails})`);
-      }
-    }
-
-    return modifiedPrompt;
+    const engine = PromptHarnessEngine.getInstance();
+    return await engine.process(promptText, mergedHarnesses, { projectId, targetModel });
   } catch (err) {
     console.warn("Harness engine substitution warning:", err);
     return promptText;

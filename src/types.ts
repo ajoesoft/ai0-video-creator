@@ -124,6 +124,10 @@ export interface PromptHarness {
   active: number;          // 1 = Active, 0 = Inactive
   createdAt: number;
   updatedAt: number;
+  type?: 'static' | 'dynamic' | 'style' | 'adapter' | 'audio';
+  template?: string;       // E.g., dynamic template or model adapter instructions
+  parameters?: string;     // JSON formatted variables
+  targetModel?: string;    // Target generation engine filter, e.g. "ltx-video"
 }
 
 export interface ScriptContent {
@@ -168,8 +172,6 @@ export interface AppConfig {
   exportPath?: string;
   theme?: 'light' | 'dark' | 'system';
 }
-
-
 
 export enum TaskStatus {
   PENDING = 'pending',

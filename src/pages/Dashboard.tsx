@@ -467,7 +467,7 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
   const [coverImageBase64, setCoverImageBase64] = useState<string>('');
 
   const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
-  console.log(`## localCoverBase64: ${localCoverBase64}`);
+
   useEffect(() => {
     if (localCoverBase64) {
       setCoverImageBase64(localCoverBase64);
@@ -508,16 +508,29 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
           {project?.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64) ? (
             <>
               {/* Cinematic Blurred Background */}
-              <div 
-                className="absolute inset-0 bg-cover bg-center blur-md opacity-30 select-none scale-110 pointer-events-none transition-all duration-700 group-hover:opacity-40" 
-                style={{ backgroundImage: `url(${project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64})` }}
-              />
-              {/* Uncropped True Aspect Ratio Image */}
-              <img 
-                src={project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64} 
-                alt={project.name} 
-                className="relative max-w-full max-h-full object-contain z-10 shadow-xl group-hover:scale-[1.03] transition-transform duration-700" 
-              />
+              {!(project.coverImagePath.endsWith('.mp4') || project.coverImagePath.endsWith('.webm')) && (
+                <div 
+                  className="absolute inset-0 bg-cover bg-center blur-md opacity-30 select-none scale-110 pointer-events-none transition-all duration-700 group-hover:opacity-40" 
+                  style={{ backgroundImage: `url(${project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64})` }}
+                />
+              )}
+              {/* Uncropped True Aspect Ratio Image or Video */}
+              {project.coverImagePath.endsWith('.mp4') || project.coverImagePath.endsWith('.webm') ? (
+                <video 
+                  src={project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64} 
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                  className="relative max-w-full max-h-full object-contain z-10 shadow-xl group-hover:scale-[1.03] transition-transform duration-700" 
+                />
+              ) : (
+                <img 
+                  src={project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64} 
+                  alt={project.name} 
+                  className="relative max-w-full max-h-full object-contain z-10 shadow-xl group-hover:scale-[1.03] transition-transform duration-700" 
+                />
+              )}
             </>
           ) : (
             <div className="w-full h-full flex items-center justify-center opacity-10 bg-gradient-to-br from-brand-primary/20 to-transparent">

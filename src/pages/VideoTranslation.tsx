@@ -1072,6 +1072,14 @@ export function VideoTranslation() {
               lipsyncModel
             };
             await setSetting(`video_translation_data_${routeProjectId}`, JSON.stringify(parentState));
+
+            // Sync parent project cover image with the active project's cover
+            const activeProj = projectsRef.current.find(p => p.id === (activeProjectIdRef.current || activeProjectId));
+            if (activeProj && activeProj.coverUrl) {
+              await updateCoreProject(routeProjectId, {
+                coverImagePath: activeProj.coverUrl
+              });
+            }
           }
 
           // Ensure files exist on disk if in Tauri environment (autosave)
@@ -1312,33 +1320,57 @@ export function VideoTranslation() {
       }
     }
 
-    const nextProjectsList = [...projectsRef.current];
+    let nextProjectsList = [...projectsRef.current];
     if (initialProj) {
       nextProjectsList.push(initialProj);
     }
 
-    // Register subsequent paths as distinct projects in the queue list
-    const startIndex = initialProj ? 1 : 0;
-    const additionalProjects: TranslationProject[] = [];
+    // Check if there is an unuploaded placeholder project in the list
+    const placeholderIdx = nextProjectsList.findIndex(p => !p.videoUrl || p.videoUrl === "" || p.videoName.includes("未上传") || p.videoName.includes("No Video Uploaded"));
 
-    for (let i = startIndex; i < paths.length; i++) {
-      const filePath = paths[i];
-      const videoName = filePath.split(/[/\\]/).pop() || 'video.mp4';
-      const newProjId = crypto.randomUUID();
-      // Import the file into the active master project's container folder: activeId/video/
-      const finalVideoUrl = await importVideoToWorkspaceTemp(activeId, filePath, videoName);
+    let workingPaths = [...paths];
+    if (placeholderIdx !== -1 && workingPaths.length > 0) {
+      const firstPath = workingPaths[0];
+      const videoName = firstPath.split(/[/\\]/).pop() || 'video.mp4';
+      const placeholderId = nextProjectsList[placeholderIdx].id;
+      const finalVideoUrl = await importVideoToWorkspaceTemp(placeholderId, firstPath, videoName);
+
+      nextProjectsList[placeholderIdx] = {
+        ...nextProjectsList[placeholderIdx],
+        videoName,
+        videoSize: "Local Disk",
+        videoUrl: finalVideoUrl,
+        status: 'idle',
+        logs: [`[${timestamp}] Registered uploaded video to replace placeholder: ${finalVideoUrl}`]
+      };
 
       try {
         await saveVideoTranslationProjectRecord(
-          newProjId,
+          placeholderId,
           videoName,
           finalVideoUrl,
           null,
           'idle'
         );
       } catch (dbErr) {
-        console.error("Failed to register subsequent project in SQLite video_translation_projects:", dbErr);
+        console.error("Failed to save updated placeholder:", dbErr);
       }
+
+      performCoverFrameExtractionOnLoad(placeholderId, finalVideoUrl);
+      workingPaths = workingPaths.slice(1);
+    }
+
+    // Register subsequent paths as distinct projects in the queue list
+    const additionalProjects: TranslationProject[] = [];
+
+    for (let i = 0; i < workingPaths.length; i++) {
+      const filePath = workingPaths[i];
+      const videoName = filePath.split(/[/\\]/).pop() || 'video.mp4';
+      const newProjId = crypto.randomUUID();
+      // Import the file into the active master project's container folder: activeId/video/
+      const finalVideoUrl = await importVideoToWorkspaceTemp(activeId, filePath, videoName);
+
+      // Note: We DO NOT call saveVideoTranslationProjectRecord for sub-projects to avoid them being treated as top-level projects in the DB
 
       const queueProj: TranslationProject = {
         id: newProjId,
@@ -1394,6 +1426,8 @@ export function VideoTranslation() {
       setActiveProjectId(initialProjId);
     } else if (!activeId && finalProjectsList.length > 0) {
       setActiveProjectId(finalProjectsList[0].id);
+    } else if (placeholderIdx !== -1 && finalProjectsList.length > 0) {
+      setActiveProjectId(finalProjectsList[placeholderIdx].id);
     }
 
     // Save main parent detail queue
@@ -1481,18 +1515,40 @@ export function VideoTranslation() {
 
     try {
       const video = document.createElement('video');
+      video.crossOrigin = "anonymous";
       video.src = getAssetUrl(videoUrl);
       video.muted = true;
       video.playsInline = true;
 
       await new Promise<void>((resolve, reject) => {
-        video.onloadeddata = () => resolve();
-        video.onerror = () => reject(new Error("Failed to load video file"));
+        const timer = setTimeout(() => {
+          video.onloadeddata = null;
+          video.onerror = null;
+          reject(new Error("Timeout loading video"));
+        }, 5000);
+        video.onloadeddata = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        video.onerror = () => {
+          clearTimeout(timer);
+          reject(new Error("Failed to load video file"));
+        };
+        video.load();
       });
 
-      video.currentTime = 0.5;
+      const seekTime = video.duration && video.duration > 0 ? Math.min(0.2, video.duration / 2) : 0.1;
+      video.currentTime = seekTime;
+
       await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve();
+        const timer = setTimeout(() => {
+          video.onseeked = null;
+          resolve();
+        }, 3000);
+        video.onseeked = () => {
+          clearTimeout(timer);
+          resolve();
+        };
       });
 
       const canvas = document.createElement('canvas');
@@ -1579,19 +1635,40 @@ export function VideoTranslation() {
 
   const performCoverExtraction = async (videoUrl: string): Promise<string> => {
     const video = document.createElement('video');
+    video.crossOrigin = "anonymous";
     video.src = getAssetUrl(videoUrl);
     video.muted = true;
     video.playsInline = true;
 
     await new Promise<void>((resolve, reject) => {
-      video.onloadeddata = () => resolve();
-      video.onerror = () => reject(new Error("Failed to load video file into extractor buffer"));
+      const timer = setTimeout(() => {
+        video.onloadeddata = null;
+        video.onerror = null;
+        reject(new Error("Timeout loading video into extractor"));
+      }, 5000);
+      video.onloadeddata = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      video.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("Failed to load video file into extractor buffer"));
+      };
+      video.load();
     });
 
-    video.currentTime = 0.5;
+    const seekTime = video.duration && video.duration > 0 ? Math.min(0.2, video.duration / 2) : 0.1;
+    video.currentTime = seekTime;
 
     await new Promise<void>((resolve) => {
-      video.onseeked = () => resolve();
+      const timer = setTimeout(() => {
+        video.onseeked = null;
+        resolve();
+      }, 3000);
+      video.onseeked = () => {
+        clearTimeout(timer);
+        resolve();
+      };
     });
 
     const canvas = document.createElement('canvas');
@@ -2748,10 +2825,10 @@ ${fastenText}`;
                         onChange={(e) => setTargetLang(e.target.value)}
                         className="bg-black border border-white/15 px-3 py-1.5 rounded text-xs text-gray-300 outline-none focus:border-brand-primary"
                       >
-                        <option value="English">{vt('langEnglish')}</option>
-                        <option value="Spanish">{vt('langSpanish')}</option>
-                        <option value="French">{vt('langFrench')}</option>
-                        <option value="German">{vt('langGerman')}</option>
+                        <option value="English" className="text-black bg-white">{vt('langEnglish')}</option>
+                        <option value="Spanish" className="text-black bg-white">{vt('langSpanish')}</option>
+                        <option value="French" className="text-black bg-white">{vt('langFrench')}</option>
+                        <option value="German" className="text-black bg-white">{vt('langGerman')}</option>
                       </select>
                       <button
                         onClick={translateSubtitles}
@@ -2935,15 +3012,15 @@ ${fastenText}`;
                         onChange={(e) => setSelectedVoice(e.target.value)}
                         className="w-full bg-black border border-white/10 rounded px-3 py-2 text-xs outline-none text-white focus:border-brand-primary/50"
                       >
-                        <option value="Kore">{vt('presetKore')}</option>
-                        <option value="Zephyr">{vt('presetZephyr')}</option>
-                        <option value="Puck">{vt('presetPuck')}</option>
-                        <option value="Charon">{vt('presetCharon')}</option>
-                        <option value="Fenrir">{vt('presetFenrir')}</option>
+                        <option value="Kore" className="text-black bg-white">{vt('presetKore')}</option>
+                        <option value="Zephyr" className="text-black bg-white">{vt('presetZephyr')}</option>
+                        <option value="Puck" className="text-black bg-white">{vt('presetPuck')}</option>
+                        <option value="Charon" className="text-black bg-white">{vt('presetCharon')}</option>
+                        <option value="Fenrir" className="text-black bg-white">{vt('presetFenrir')}</option>
                         {volcVoiceId ? (
-                          <option value="Volcengine-Clone">{vt('volcengineCustom').replace('{id}', volcVoiceId || '')}</option>
+                          <option value="Volcengine-Clone" className="text-black bg-white">{vt('volcengineCustom').replace('{id}', volcVoiceId || '')}</option>
                         ) : (
-                          <option value="Volcengine-Clone-Disabled" disabled>
+                          <option value="Volcengine-Clone-Disabled" disabled className="text-gray-400 bg-white">
                             {vt('volcengineSetupQuick')}
                           </option>
                         )}

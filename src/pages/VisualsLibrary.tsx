@@ -24,6 +24,8 @@ import {
   Edit,
   Save,
   Music,
+  BookOpen,
+  User,
   Check
 } from 'lucide-react';
 import { cn, useMediaUrl, useLocalImageBase64 } from '@/src/lib/utils';
@@ -85,6 +87,10 @@ export function VisualsLibrary() {
   const [promptHarnesses, setPromptHarnesses] = useState<PromptHarness[]>([]);
   const [newHarnessTrigger, setNewHarnessTrigger] = useState('');
   const [newHarnessAssetId, setNewHarnessAssetId] = useState<number>(0);
+  const [newHarnessType, setNewHarnessType] = useState<'static' | 'dynamic' | 'style' | 'adapter' | 'audio' | 'genre' | 'persona'>('static');
+  const [newHarnessTemplate, setNewHarnessTemplate] = useState('');
+  const [newHarnessParameters, setNewHarnessParameters] = useState('');
+  const [newHarnessTargetModel, setNewHarnessTargetModel] = useState('');
   const [isSavingHarness, setIsSavingHarness] = useState(false);
   const [testPlaygroundInput, setTestPlaygroundInput] = useState('在废墟边缘，@主角 紧握着拳头。突然，空中出现了 @盔甲_IP，它们开始加速拼接。');
   const [testPlaygroundOutput, setTestPlaygroundOutput] = useState('');
@@ -181,8 +187,8 @@ export function VisualsLibrary() {
       alert("Trigger Keyword cannot be empty! (触发关键词不能为空)");
       return;
     }
-    if (!newHarnessAssetId) {
-      alert("Please select a target Visual Asset to reference! (请选择一个目标视觉资产)");
+    if (newHarnessType === 'static' && !newHarnessAssetId) {
+      alert("Please select a target Visual Asset to reference for Static mappings! (请选择一个目标视觉资产)");
       return;
     }
     
@@ -198,11 +204,19 @@ export function VisualsLibrary() {
       await createPromptHarness({
         projectId: id || '',
         triggerKeyword: newHarnessTrigger.trim(),
-        visualAssetId: newHarnessAssetId,
+        visualAssetId: newHarnessAssetId || 0,
+        type: newHarnessType,
+        template: newHarnessTemplate,
+        parameters: newHarnessParameters,
+        targetModel: newHarnessTargetModel,
         active: 1
       });
       // Reset input form
       setNewHarnessTrigger('');
+      setNewHarnessTemplate('');
+      setNewHarnessParameters('');
+      setNewHarnessTargetModel('');
+      setNewHarnessType('static');
       await loadHarnessData(id || '');
     } catch (err) {
       console.error("Error creating prompt harness:", err);
@@ -1240,51 +1254,142 @@ export function VisualsLibrary() {
                     <span>Register Mapping</span>
                   </h3>
 
-                  {visualItems.length === 0 ? (
+                  {visualItems.length === 0 && newHarnessType === 'static' ? (
                     <div className="py-8 text-center space-y-2">
-                      <p className="text-xs text-white/40">Visual library database is empty. Please register assets first!</p>
-                      <button 
-                        onClick={() => setWorkspaceTab('visual_db')}
-                        className="px-3 py-1 bg-white/10 hover:bg-white/20 text-[10px] font-mono rounded"
-                      >
-                        Go to Visual DB
-                      </button>
+                      <p className="text-xs text-white/40">Visual library database is empty. Register assets in Visual DB first, or switch to Genre/Persona harness types!</p>
+                      <div className="flex gap-2 justify-center">
+                        <button 
+                          onClick={() => setWorkspaceTab('visual_db')}
+                          className="px-3 py-1 bg-white/10 hover:bg-white/20 text-[10px] font-mono rounded"
+                        >
+                          Go to Visual DB
+                        </button>
+                        <button 
+                          onClick={() => setNewHarnessType('genre')}
+                          className="px-3 py-1 bg-brand-primary/20 hover:bg-brand-primary/30 text-brand-primary text-[10px] font-mono rounded"
+                        >
+                          Use Genre Harness
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
                       {/* Form trigger word inputs */}
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
-                          1. Script Trigger Token *
+                          1. Script Trigger Token / Keyword *
                         </label>
                         <input
                           type="text"
                           value={newHarnessTrigger}
                           onChange={(e) => setNewHarnessTrigger(e.target.value)}
-                          placeholder="e.g. @Hero or @MainCharacter"
+                          placeholder="e.g. @Hero, @genre-cyberpunk, @Sherlock"
                           className="w-full bg-black border border-white/10 text-xs text-white placeholder-white/20 rounded px-3 py-2 focus:outline-none focus:border-brand-primary font-mono"
                         />
-                        <span className="text-[9px] text-white/30 block leading-tight">When storyboard scripts or main prompt contain this token, details of the mapped asset will automatically be injected.</span>
+                        <span className="text-[9px] text-white/30 block leading-tight">
+                          Trigger keyword in script. E.g. @Sherlock for dialogue, @genre-cyberpunk for style, or @Hero for character visual details.
+                        </span>
                       </div>
 
-                      {/* Associated asset select selector */}
+                      {/* Harness Type selection */}
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
-                          2. Map Target Visual Asset *
+                          2. Harness Style & Type Suit / 鞍具文学套件
                         </label>
                         <select
-                          value={newHarnessAssetId}
-                          onChange={(e) => setNewHarnessAssetId(Number(e.target.value))}
-                          className="w-full bg-black border border-white/10 text-xs text-white rounded px-3 py-2.5 focus:outline-none focus:border-brand-primary font-mono"
+                          value={newHarnessType}
+                          onChange={(e) => setNewHarnessType(e.target.value as any)}
+                          className="w-full bg-black border border-white/10 text-xs text-white rounded px-3 py-2.5 focus:outline-none focus:border-brand-primary font-mono animate-pulse-once"
                         >
-                          <option value="0" disabled>-- Choose visual library source --</option>
-                          {visualItems.map(item => (
-                            <option key={item.id} value={item.id}>
-                              {item.title} ({item.type || 'IP'}) #{item.id}
-                            </option>
-                          ))}
+                          <option value="static">Static (IP Visual Reference Substitution)</option>
+                          <option value="genre">Genre Harness (文学与叙事风格套件)</option>
+                          <option value="persona">Persona Speech Harness (角色口吻对白套件)</option>
+                          <option value="style">Style (General Cinematic Style Preset)</option>
+                          <option value="adapter">Model Adapter (Engine Specific Tuning)</option>
+                          <option value="dynamic">Dynamic Parameter substitution</option>
+                          <option value="audio">Audio/Ambient Sound Effect Template</option>
                         </select>
                       </div>
+
+                      {/* Associated asset select selector (For static, or optionally for others) */}
+                      {newHarnessType === 'static' && (
+                        <div className="space-y-1.5 animate-fadeIn">
+                          <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
+                            3. Map Target Visual Asset *
+                          </label>
+                          <select
+                            value={newHarnessAssetId}
+                            onChange={(e) => setNewHarnessAssetId(Number(e.target.value))}
+                            className="w-full bg-black border border-white/10 text-xs text-white rounded px-3 py-2.5 focus:outline-none focus:border-brand-primary font-mono"
+                          >
+                            <option value="0" disabled>-- Choose visual library source --</option>
+                            {visualItems.map(item => (
+                              <option key={item.id} value={item.id}>
+                                {item.title} ({item.type || 'IP'}) #{item.id}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Template/Instructions Textarea */}
+                      {newHarnessType !== 'static' && (
+                        <div className="space-y-1.5 animate-fadeIn">
+                          <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold text-brand-primary">
+                            3. Guidelines / Style Preset / Persona Instructions *
+                          </label>
+                          <textarea
+                            value={newHarnessTemplate}
+                            onChange={(e) => setNewHarnessTemplate(e.target.value)}
+                            rows={3}
+                            placeholder={
+                              newHarnessType === 'genre'
+                                ? "Describe the genre style, e.g.: Cyberpunk Neon Noir with constant rain, retro-futurism, glowing implants, dark shadows"
+                                : newHarnessType === 'persona'
+                                ? "Describe character's speaking mannerisms, e.g.: Speaks like Sherlock Holmes - elegant, verbose, deductive, arrogant, highly formal."
+                                : "Enter template words, instructions, or presets..."
+                            }
+                            className="w-full bg-black border border-white/10 text-xs text-white placeholder-white/20 rounded px-3 py-2 focus:outline-none focus:border-brand-primary font-mono"
+                          />
+                          <span className="text-[9px] text-white/30 block leading-tight">
+                            {newHarnessType === 'genre' 
+                              ? "Gemini will automatically doctor your storyboard prompts/descriptions to fit this literary style!"
+                              : newHarnessType === 'persona'
+                              ? "Gemini will automatically rewrite character dialogues matching this trigger keyword to fit their voice tone!"
+                              : "The prompt engine uses this template to enrich generated outputs."}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Target Model optional Filter */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
+                          4. Target Model Filter (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={newHarnessTargetModel}
+                          onChange={(e) => setNewHarnessTargetModel(e.target.value)}
+                          placeholder="e.g. ltx-video or qwen-image-2512"
+                          className="w-full bg-black border border-white/10 text-xs text-white placeholder-white/20 rounded px-3 py-2 focus:outline-none focus:border-brand-primary font-mono"
+                        />
+                      </div>
+
+                      {/* Parameters optional input */}
+                      {newHarnessType === 'dynamic' && (
+                        <div className="space-y-1.5 animate-fadeIn">
+                          <label className="text-[10px] font-mono text-white/50 uppercase tracking-widest block font-semibold">
+                            5. Parameters (JSON block)
+                          </label>
+                          <input
+                            type="text"
+                            value={newHarnessParameters}
+                            onChange={(e) => setNewHarnessParameters(e.target.value)}
+                            placeholder='e.g. {"actor": "young detective"}'
+                            className="w-full bg-black border border-white/10 text-xs text-white placeholder-white/20 rounded px-3 py-2 focus:outline-none focus:border-brand-primary font-mono"
+                          />
+                        </div>
+                      )}
 
                       {/* Add rule submit btn */}
                       <button
@@ -1344,54 +1449,76 @@ export function VisualsLibrary() {
                       <p className="text-xs font-mono">No rules registered. Enter keywords above and map to target assets to activate character prompt binding.</p>
                     </div>
                   ) : (
-                    <div className="space-y-3 max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
+                     <div className="space-y-3 max-h-[360px] overflow-y-auto custom-scrollbar pr-1">
                       {promptHarnesses.map((rule) => {
                         const targetAsset = visualItems.find(v => v.id === rule.visualAssetId);
+                        const isStatic = (rule.type || 'static') === 'static';
                         return (
                           <div
                             key={rule.id}
                             className={cn(
-                              "p-3.5 border rounded flex items-center justify-between transition-all duration-200",
+                              "p-3.5 border rounded flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-200",
                               rule.active === 1 
                                 ? "bg-white/[0.02] border-white/10 hover:border-white/20" 
                                 : "bg-black/40 border-white/5 opacity-45"
                             )}
                           >
-                            <div className="flex items-center gap-3.5">
-                              {/* Left Thumbnail reference */}
-                              <div className="w-10 h-10 bg-black border border-white/10 rounded overflow-hidden flex-shrink-0 relative">
-                                {targetAsset?.imagePath ? (
+                            <div className="flex items-start gap-3.5">
+                              {/* Left Icon/Thumbnail reference based on Type */}
+                              <div className="w-10 h-10 bg-black border border-white/10 rounded overflow-hidden flex-shrink-0 relative flex items-center justify-center">
+                                {isStatic && targetAsset?.imagePath ? (
                                   <VisualAssetItemImage 
                                     path={targetAsset.imagePath} 
                                     title={targetAsset.title} 
                                     className="w-full h-full object-cover" 
                                   />
                                 ) : (
-                                  <div className="w-full h-full flex items-center justify-center text-white/20">
-                                    <ImageIcon className="w-4 h-4" />
+                                  <div className="w-full h-full flex items-center justify-center text-brand-primary">
+                                    {rule.type === 'genre' && <BookOpen className="w-5 h-5 text-purple-400" />}
+                                    {rule.type === 'persona' && <User className="w-5 h-5 text-orange-400 animate-pulse" />}
+                                    {rule.type === 'audio' && <Music className="w-5 h-5 text-cyan-400" />}
+                                    {rule.type === 'style' && <Sparkles className="w-5 h-5 text-yellow-400" />}
+                                    {(!rule.type || rule.type === 'static' || rule.type === 'dynamic' || rule.type === 'adapter') && <Sparkles className="w-5 h-5 text-brand-primary" />}
                                   </div>
                                 )}
                               </div>
-
+ 
                               {/* Rule info */}
-                              <div className="space-y-1 font-mono">
-                                <div className="flex items-center gap-2">
+                              <div className="space-y-1 font-mono text-left">
+                                <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="px-2 py-0.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-bold rounded">
                                     {rule.triggerKeyword}
                                   </span>
                                   <span className="text-white/40 text-xs">→</span>
                                   <span className="text-white text-xs font-semibold">
-                                    {targetAsset?.title || `Missing Asset #${rule.visualAssetId}`}
+                                    {isStatic ? (targetAsset?.title || `Asset #${rule.visualAssetId}`) : `${rule.type?.toUpperCase()} SUITE`}
+                                  </span>
+                                  <span className={cn(
+                                    "px-1.5 py-0.2 text-[8px] font-mono rounded-full border uppercase tracking-wider font-extrabold",
+                                    rule.type === 'genre' ? "bg-purple-500/10 text-purple-400 border-purple-500/20" :
+                                    rule.type === 'persona' ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
+                                    rule.type === 'audio' ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/20" :
+                                    "bg-white/5 text-white/40 border-white/10"
+                                  )}>
+                                    {rule.type || 'static'}
                                   </span>
                                 </div>
-                                <p className="text-[9px] text-white/30 block truncate max-w-[320px]" title={targetAsset?.imagePrompt}>
-                                  Details: {targetAsset?.imagePrompt || '(No image prompt defined)'}
-                                </p>
+                                {rule.template && (
+                                  <div className="bg-black/60 p-2 rounded border border-white/5 text-[9px] text-white/70 max-w-[400px] whitespace-pre-wrap mt-1">
+                                    <span className="text-white/40 uppercase font-black text-[7px] block tracking-widest mb-0.5">Instructions:</span>
+                                    {rule.template}
+                                  </div>
+                                )}
+                                {isStatic && (
+                                  <p className="text-[9px] text-white/30 block truncate max-w-[320px]" title={targetAsset?.imagePrompt}>
+                                    Details: {targetAsset?.imagePrompt || '(No image prompt defined)'}
+                                  </p>
+                                )}
                               </div>
                             </div>
-
+ 
                             {/* Options Action Toggle / Delete column */}
-                            <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
                               {/* Toggle active state */}
                               <button
                                 onClick={() => handleToggleHarnessActive(rule.id, rule.active)}
@@ -1404,7 +1531,7 @@ export function VisualsLibrary() {
                               >
                                 {rule.active === 1 ? 'ACTIVE' : 'MUTED'}
                               </button>
-
+ 
                               {/* Delete Rule */}
                               <button
                                 onClick={() => handleDeleteHarness(rule.id)}

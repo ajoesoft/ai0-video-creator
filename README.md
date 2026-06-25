@@ -260,4 +260,4 @@ npm install
 ---
 
 ## 📄 License
-Under [MIT License](./LICENSE). Custom integrations might specify separate terms.
+Under the Business Source License 1.1. Commercial usage requires a separate commercial license from the author; custom integrations may specify additional separate terms.

@@ -42,10 +42,11 @@ import {
   updateVocabulary, 
   deleteVocabulary,
   applyPromptHarnessRules,
+  fetchPromptHarnessByProject,
   getSetting
 } from '../lib/db';
 import { comfy } from '../lib/comfy';
-import { VideoProject, Vocabulary } from '../types';
+import { VideoProject, Vocabulary, PromptHarness } from '../types';
 import { join } from '@tauri-apps/api/path';
 import { exists, writeFile, mkdir } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
@@ -58,6 +59,7 @@ import {
   transcribeAudioGemini, 
   synthesizeSpeechGemini 
 } from '../lib/gemini';
+import { applyAudioHarness } from '../lib/harness/audioHarness';
 import { 
   DEFAULT_SUBTITLE_STYLE, 
   compileDialogueToASS, 
@@ -646,6 +648,9 @@ export function ScriptEditor() {
   const [targetLang, setTargetLang] = useState('Chinese (Simplified)');
   const [isTranslatingAll, setIsTranslatingAll] = useState(false);
   const [translatingIds, setTranslatingIds] = useState<Record<number, boolean>>({});
+  const [doctoringIds, setDoctoringIds] = useState<Record<number, boolean>>({});
+  const [promptHarnesses, setPromptHarnesses] = useState<PromptHarness[]>([]);
+  const [isApplyingGenre, setIsApplyingGenre] = useState(false);
 
   // Audio Recognition (ASR) States
   const [isASRLoading, setIsASRLoading] = useState<Record<number, boolean>>({});
@@ -726,6 +731,13 @@ export function ScriptEditor() {
       const vocab = await fetchVocabularyByProject(projectId);
       const sorted = [...vocab].sort((a, b) => a.id - b.id);
       setScriptSegments(sorted);
+
+      try {
+        const harnesses = await fetchPromptHarnessByProject(projectId);
+        setPromptHarnesses(harnesses || []);
+      } catch (err) {
+        console.error("Failed to load prompt harnesses inside ScriptEditor:", err);
+      }
 
       // Pre-populate simulated subtitle base values
       const initialDurations: Record<number, number> = {};
@@ -975,6 +987,86 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
   };
 
   /**
+   * Doctors a dialogue segment using the Persona Speech and Genre Harness system
+   */
+  const handleDoctorDialogue = async (segment: Vocabulary) => {
+    if (!segment.id) return;
+    const textToDoctor = segment.script || '';
+    if (!textToDoctor || textToDoctor.trim() === '') {
+      alert("Dialogue content is empty! (对白内容不能为空)");
+      return;
+    }
+
+    // Check dialogue format
+    const charMatch = textToDoctor.match(/^([^:]+):/);
+    if (!charMatch) {
+      alert("Dialogue must start with 'CharacterName:' format to trigger Persona alignment. (对白需以 '角色名:' 格式开始，例如 'Lily: Hello')");
+      return;
+    }
+
+    const characterName = charMatch[1].trim();
+
+    setDoctoringIds(prev => ({ ...prev, [segment.id]: true }));
+    try {
+      const doctored = await applyPromptHarnessRules(textToDoctor, project?.id || '');
+      if (doctored && doctored.trim() !== textToDoctor.trim()) {
+        await updateVocabulary(segment.id, { script: doctored });
+        setScriptSegments(prev => prev.map(s => 
+          s.id === segment.id ? { ...s, script: doctored } : s
+        ));
+      } else {
+        alert(`No active Persona or Genre Harness applied, or dialogue is already in alignment. Register character rules for "@${characterName}" in the Visuals Library under the "Consistency Harness" tab.`);
+      }
+    } catch (e: any) {
+      console.error("Dialogue doctoring failed:", e);
+      alert(`Doctoring failed: ${e?.message || e}`);
+    } finally {
+      setDoctoringIds(prev => ({ ...prev, [segment.id]: false }));
+    }
+  };
+
+  /**
+   * Applies active Genre/Literary prompt harnesses and Persona Speech templates to doctor all scripts in batch
+   */
+  const handleApplyGenreHarnessToAll = async () => {
+    if (scriptSegments.length === 0) return;
+    
+    // Check if we have active harnesses at all
+    const activeHarnesses = promptHarnesses.filter(h => h.active === 1);
+    if (activeHarnesses.length === 0) {
+      alert("No active literary or persona harnesses registered! Please register Genre/Persona rules in the Visuals Library under the 'Consistency Harness' tab first.");
+      return;
+    }
+
+    setIsApplyingGenre(true);
+    try {
+      let appliedCount = 0;
+      for (const segment of scriptSegments) {
+        const text = segment.script || '';
+        if (!text || !text.trim()) continue;
+
+        const expanded = await applyPromptHarnessRules(text, project?.id || '');
+        if (expanded && expanded.trim() !== text.trim()) {
+          await updateVocabulary(segment.id, { script: expanded });
+          appliedCount++;
+        }
+      }
+      
+      if (appliedCount > 0) {
+        await loadData(project?.id || '');
+        alert(`Successfully aligned and doctored ${appliedCount} scenes matching your project's Literary Genre and Persona Speech settings! (已成功适配并修饰 ${appliedCount} 处场景)`);
+      } else {
+        alert("All segments are already aligned with current Genre & Persona harnesses! No changes were needed.");
+      }
+    } catch (e: any) {
+      console.error("Genre batch alignment failed:", e);
+      alert(`Batch alignment failed: ${e?.message || e}`);
+    } finally {
+      setIsApplyingGenre(false);
+    }
+  };
+
+  /**
    * Translates all project segments
    */
   const handleTranslateAllSegments = async () => {
@@ -1131,6 +1223,15 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           console.error("Failed to parse local storage roles for dialog script mapping:", roleErr);
         }
       }
+    }
+
+    // Apply Emotion/SSML and Pronunciation Phonetic Harnesses
+    try {
+      const processed = await applyAudioHarness(textToSpeak, project?.id || id!, speakerPrompt);
+      textToSpeak = processed.textToSpeak;
+      speakerPrompt = processed.speakerPrompt;
+    } catch (harnessErr) {
+      console.warn("Failed to apply audio harness:", harnessErr);
     }
 
     if (!textToSpeak.trim()) return;
@@ -1866,6 +1967,23 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                   {translatingIds[segment.id] ? <Loader2 className="w-3 h-3 animate-spin"/> : <Languages className="w-3.5 h-3.5 text-blue-400" />}
                                   TRANSLATE
                                 </button>
+
+                                {/* Persona Doctoring Dialogue Trigger */}
+                                {isDialogue && (
+                                  <button
+                                    onClick={() => handleDoctorDialogue(segment)}
+                                    disabled={doctoringIds[segment.id]}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm hover:bg-white/5 text-gray-400 hover:text-white transition-all text-[9.5px] font-black cursor-pointer"
+                                    title="Doctors dialogue via active character Persona Speech and Genre literary harnesses (自动修饰对白口吻)"
+                                  >
+                                    {doctoringIds[segment.id] ? (
+                                      <Loader2 className="w-3 h-3 animate-spin text-orange-400"/>
+                                    ) : (
+                                      <Sparkles className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
+                                    )}
+                                    <span>ALIGN PERSONA (口吻修饰)</span>
+                                  </button>
+                                )}
                               </>
                             )}
 
@@ -2085,6 +2203,57 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                       <span>{isTranslatingAll ? 'TRANSLATING ENTIRE SCRIPT...' : 'BATCH TRANSLATE FULL PROJECT'}</span>
                     </button>
                   </div>
+                </div>
+
+                {/* Genre & Persona Speech Harness Control Suite */}
+                <div className="desktop-card p-8 bg-[#111114] border border-orange-900/10 rounded-lg space-y-6">
+                  <h3 className="mono-text text-orange-400 flex items-center gap-3">
+                    <Sparkles className="w-4 h-4 text-orange-400 animate-pulse" />
+                    <span>LITERARY GENRE & PERSONA SUITE</span>
+                  </h3>
+                  
+                  <p className="text-[11px] leading-relaxed text-gray-500 font-mono">
+                    Apply active <strong>Genre Literary Harnesses</strong> and <strong>Persona Speech Mannerisms</strong> to rewrite or doctor all storyboard segments to align with your creative rules.
+                  </p>
+
+                  {/* Registered Rules count indicator */}
+                  <div className="bg-[#1a1a1e] p-4 rounded border border-white/5 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] uppercase font-mono text-white/40 tracking-wider font-extrabold">Registered Harnesses:</span>
+                      <span className="text-xs font-mono font-bold text-orange-400">
+                        {promptHarnesses.length} Registered
+                      </span>
+                    </div>
+                    {promptHarnesses.length > 0 ? (
+                      <div className="space-y-1.5 max-h-[120px] overflow-y-auto custom-scrollbar pr-1">
+                        {promptHarnesses.map(h => (
+                          <div key={h.id} className="flex justify-between items-center text-[9px] font-mono bg-black/40 px-2.5 py-1.5 rounded border border-white/[0.03]">
+                            <span className="text-orange-300 font-extrabold">{h.triggerKeyword}</span>
+                            <span className="px-1.5 py-0.2 rounded bg-orange-500/10 text-orange-400 text-[8px] uppercase tracking-wide font-black">
+                              {h.type || 'static'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 text-center bg-black/20 rounded border border-white/5 text-[9px] text-white/30 font-mono">
+                        No active harness rules found. Add style rules in the Visuals Library.
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={handleApplyGenreHarnessToAll}
+                    disabled={isApplyingGenre || scriptSegments.length === 0}
+                    className="w-full h-11 border border-orange-500/20 bg-orange-500/5 hover:bg-orange-500/10 hover:border-orange-500/40 text-orange-400 font-bold text-[10px] tracking-widest uppercase flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    {isApplyingGenre ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 text-orange-400" />
+                    )}
+                    <span>{isApplyingGenre ? 'DOCTORING ALL DIALOGUES...' : 'BATCH ALIGN GENRE & PERSONA'}</span>
+                  </button>
                 </div>
 
                 {/* Synthesis constraints info */}

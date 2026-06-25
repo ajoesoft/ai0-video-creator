@@ -347,12 +347,24 @@ export function ProjectDetail() {
                 ) : (
                   <>
                     {project?.coverImagePath ? (
-                      <img 
-                        id="project-detail-cover-image"
-                        src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (coverImageBase64 || getAssetUrl(project.coverImagePath))} 
-                        alt={project.name} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
-                      />
+                      project.coverImagePath.endsWith('.mp4') || project.coverImagePath.endsWith('.webm') ? (
+                        <video 
+                          id="project-detail-cover-video"
+                          src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (localCoverBase64 || getAssetUrl(project.coverImagePath))} 
+                          muted
+                          loop
+                          autoPlay
+                          playsInline
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+                        />
+                      ) : (
+                        <img 
+                          id="project-detail-cover-image"
+                          src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (localCoverBase64 || getAssetUrl(project.coverImagePath))} 
+                          alt={project.name} 
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+                        />
+                      )
                     ) : (
                       <div className="absolute inset-x-0 flex flex-col items-center justify-center text-gray-800 bg-gradient-to-br from-brand-primary/10 to-transparent">
                         <div className="w-20 h-20 rounded-full bg-white/2 flex items-center justify-center mb-4">

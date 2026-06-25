@@ -126,3 +126,6 @@ npm install
   ```bash
   npm run tauri build
   ```
+
+## 📄 License
+Under the Business Source License 1.1. Commercial usage requires a separate commercial license from the author; custom integrations may specify additional separate terms.  
