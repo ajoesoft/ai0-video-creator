@@ -29,7 +29,7 @@
 
 Whether you are crafting short vertical reels, horizontal narrative stories, multi-actor conversations, vocabulary educational cards, or running frame-accurate lip-sync video translations, `ai0-video-creator` handles the orchestration via native APIs, Ollama, and customizable ComfyUI backends.
 
-## 📸 Studio Screenshots (Stored in ./output/)
+## 📸 Studio Screenshots
 <table align="center" width="100%">
   <tr>
     <td width="50%" align="center">
@@ -160,7 +160,7 @@ Under the Business Source License 1.1. Commercial usage requires a separate comm
 ## 项目介绍
 ai0-video-creator 是面向新一代AI内容创作者与开发者打造的工业级桌面影音创作工具。基于 Tauri v2 + Rust + React 19 构建，打通脚本撰写到高清视频生成全链路，支持本地离线运行、Ollama大模型、自定义ComfyUI AI工作流，同时兼容云端Gemini翻译、火山引擎语音克隆、LTX/Wav2Lip唇形同步等能力。
 
-## 📸 软件界面截图（文件存放于项目 ./output/ 目录）
+## 📸 软件界面截图
 <table align="center" width="100%">
   <tr>
     <td width="50%" align="center">
