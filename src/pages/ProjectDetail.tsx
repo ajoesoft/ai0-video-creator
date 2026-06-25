@@ -324,7 +324,10 @@ export function ProjectDetail() {
                   Edit Cover
                 </button>
               </div>
-              <div className="aspect-[16/10] w-full rounded-3xl bg-black border border-white/5 overflow-hidden group relative shadow-2xl flex items-center justify-center">
+              <div 
+                style={{ aspectRatio: project?.width && project?.height ? `${project.width}/${project.height}` : '16/10' }}
+                className="w-full h-auto max-h-[480px] rounded-3xl bg-black border border-white/5 overflow-hidden group relative shadow-2xl flex items-center justify-center mx-auto"
+              >
                 {isPlayingVideo && (project?.coverImagePath || synthesizedVideoPath) ? (
                   <div className="relative w-full h-full">
                     <video

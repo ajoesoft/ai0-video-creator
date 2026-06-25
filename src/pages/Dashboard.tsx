@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, Search, Filter, MoreVertical, Clock, Video, Smartphone, BookOpen, Users, Type, Edit, Trash2, Languages } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Search, Filter, MoreVertical, Clock, CheckCircle2, AlertCircle, Video, Smartphone, BookOpen, Users, Type, Edit, Trash2, Languages } from 'lucide-react';
 import { cn, useLocalImageBase64 } from '@/src/lib/utils';
 import { ProjectStatus, VideoProject, SceneType } from '@/src/types';
 import { format } from 'date-fns';
@@ -13,6 +13,7 @@ import {
   updateProject as dbUpdateProject,
   getSetting
 } from '@/src/lib/db';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists, mkdir } from '@tauri-apps/plugin-fs';
 
@@ -32,6 +33,8 @@ export function Dashboard() {
   const [editingProject, setEditingProject] = useState<VideoProject | null>(null);
   const [editName, setEditName] = useState('');
   const [editPrompt, setEditPrompt] = useState('');
+
+  // Project dimensions, aspect ratio & style
   const [aspectRatio, setAspectRatio] = useState<string>('16:9');
   const [selectedStyle, setSelectedStyle] = useState<string>('Cinematic');
   const [width, setWidth] = useState<number>(1920);
@@ -77,7 +80,6 @@ export function Dashboard() {
     
     try {
       const workspacePath = await getSetting('workspace_path');
-      console.log(`## workspacePath: ${workspacePath}`);
       const id = crypto.randomUUID();
       let projectPath = '';
 
@@ -85,14 +87,12 @@ export function Dashboard() {
       if (isTauri && workspacePath) {
         try {
           projectPath = await join(workspacePath, id);
-          console.log(`## projectPath: ${projectPath}`);
           await mkdir(projectPath, { recursive: true });
           
           const dirs = ['audio', 'video', 'image', 'script', 'cover'];
           for (const dir of dirs) {
             const subDir = await join(projectPath, dir);
             if (!(await exists(subDir))) {
-              console.log(`## subDir: ${subDir}`);
               await mkdir(subDir);
             }
           }
@@ -504,13 +504,21 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
       className="group flex flex-col h-full cursor-pointer"
     >
       <div className="desktop-card flex-1 flex flex-col hover:border-brand-primary/40 transition-all bg-black/40 relative">
-        <div className="aspect-[16/10] bg-[#111114] relative overflow-hidden">
+        <div className="aspect-[16/10] bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center">
           {project?.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64) ? (
-            <img 
-              src={project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64} 
-              alt={project.name} 
-              className="w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-105 transition-all duration-700" 
-            />
+            <>
+              {/* Cinematic Blurred Background */}
+              <div 
+                className="absolute inset-0 bg-cover bg-center blur-md opacity-30 select-none scale-110 pointer-events-none transition-all duration-700 group-hover:opacity-40" 
+                style={{ backgroundImage: `url(${project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64})` }}
+              />
+              {/* Uncropped True Aspect Ratio Image */}
+              <img 
+                src={project.coverImagePath.startsWith('http') ? project.coverImagePath : coverImageBase64} 
+                alt={project.name} 
+                className="relative max-w-full max-h-full object-contain z-10 shadow-xl group-hover:scale-[1.03] transition-transform duration-700" 
+              />
+            </>
           ) : (
             <div className="w-full h-full flex items-center justify-center opacity-10 bg-gradient-to-br from-brand-primary/20 to-transparent">
               <SceneIcon className="w-16 h-16" />

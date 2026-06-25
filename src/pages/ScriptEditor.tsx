@@ -384,7 +384,10 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
 
   return (
     <div className="flex flex-col gap-3 h-full justify-center">
-      <div className="aspect-video w-full bg-[#0a0a0c] border border-white/5 overflow-hidden relative rounded group/cover flex items-center justify-center">
+      <div 
+        style={{ aspectRatio: project?.width && project?.height ? `${project.width}/${project.height}` : '16/9' }}
+        className="w-full h-auto max-h-[260px] bg-[#0a0a0c] border border-white/5 overflow-hidden relative rounded group/cover flex items-center justify-center mx-auto"
+      >
         {isGenerating && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-2">
             <Loader2 className="w-6 h-6 text-brand-primary animate-spin" />

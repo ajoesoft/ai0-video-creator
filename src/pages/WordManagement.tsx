@@ -95,13 +95,21 @@ function VocabularyCard({
       </div>
 
       {/* Vocabulary Card Cover */}
-      <div className="aspect-[16/10] bg-[#111114] -mx-6 -mt-6 mb-4 relative overflow-hidden">
+      <div className="aspect-[16/10] bg-[#0c0c0e] -mx-6 -mt-6 mb-4 relative overflow-hidden flex items-center justify-center">
         {imageSrc ? (
-          <img 
-            src={imageSrc} 
-            alt={word.word} 
-            className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
-          />
+          <>
+            {/* Cinematic Blurred Background */}
+            <div 
+              className="absolute inset-0 bg-cover bg-center blur-md opacity-30 select-none scale-110 pointer-events-none transition-all duration-700 group-hover:opacity-40" 
+              style={{ backgroundImage: `url(${imageSrc})` }}
+            />
+            {/* Uncropped True Aspect Ratio Image */}
+            <img 
+              src={imageSrc} 
+              alt={word.word} 
+              className="relative max-w-full max-h-full object-contain z-10 shadow-xl group-hover:scale-[1.03] transition-transform duration-700" 
+            />
+          </>
         ) : (
           <div className="w-full h-full flex items-center justify-center opacity-10 bg-gradient-to-br from-brand-primary/20 to-transparent">
             <ImageIcon className="w-12 h-12" />
@@ -1247,9 +1255,9 @@ export function WordManagement() {
                         </button>
                       )}
                     </div>
-                    <div className="aspect-[16/10] rounded-xl bg-white/5 border border-white/10 overflow-hidden relative">
+                    <div className="aspect-[16/10] rounded-xl bg-[#0c0c0e] border border-white/10 overflow-hidden relative flex items-center justify-center">
                       {inlineGenerating && (
-                        <div className="absolute inset-0 bg-black/80 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-2 p-4">
+                        <div className="absolute inset-0 bg-black/80 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center gap-2 p-4">
                           <Loader2 className="w-6 h-6 text-brand-primary animate-spin" />
                           <span className="text-[9px] font-bold text-brand-primary uppercase tracking-widest block animate-pulse">GENERATING PREVIEW</span>
                           <p className="text-[8px] font-mono text-gray-400 text-center uppercase tracking-widest">{inlineProgress}</p>
@@ -1257,11 +1265,19 @@ export function WordManagement() {
                       )}
 
                       {formData.imagePath ? (
-                        <img 
-                          src={modalImageBase64} 
-                          alt="Visual asset preview"
-                          className="w-full h-full object-cover"
-                        />
+                        <>
+                          {/* Cinematic Blurred Background */}
+                          <div 
+                            className="absolute inset-0 bg-cover bg-center blur-md opacity-30 select-none scale-110 pointer-events-none" 
+                            style={{ backgroundImage: `url(${modalImageBase64})` }}
+                          />
+                          {/* Uncropped True Aspect Ratio Image */}
+                          <img 
+                            src={modalImageBase64} 
+                            alt="Visual asset preview"
+                            className="relative max-w-full max-h-full object-contain z-10 shadow-xl" 
+                          />
+                        </>
                       ) : (
                         <div className="absolute inset-0 flex items-center justify-center opacity-10">
                           <ImageIcon className="w-8 h-8" />

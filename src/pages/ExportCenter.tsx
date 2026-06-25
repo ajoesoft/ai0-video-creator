@@ -501,7 +501,10 @@ export function ExportCenter() {
           <div className="p-6 bg-black border border-white/5 rounded flex flex-col sm:flex-row items-center gap-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-brand-primary/5 to-transparent pointer-events-none" />
             
-            <div className="w-48 aspect-video bg-[#111114] border border-white/5 overflow-hidden relative group rounded flex-shrink-0">
+            <div 
+              style={{ aspectRatio: project?.width && project?.height ? `${project.width}/${project.height}` : '16/9' }}
+              className="h-28 bg-[#0c0c0e] border border-white/5 overflow-hidden relative group rounded flex-shrink-0 flex items-center justify-center"
+            >
                 {coverPath && (coverPath.startsWith('http') || coverImageBase64) ? (
                   <img 
                     id="export-center-cover-image"
