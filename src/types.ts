@@ -96,6 +96,14 @@ export interface Vocabulary {
   updatedAt: number;
   status: number;
   chinese?: string;
+  textToImagePrompt?: string;
+  imageToVideoPrompt?: string;
+  refImagePrompt?: string;
+  refVideoPrompt?: string;
+  translation?: string;
+  voiceover?: string;
+  translationSpeechFile?: string;
+  dialog?: string;
 }
 
 export interface VisualLibraryItem {
@@ -124,7 +132,7 @@ export interface PromptHarness {
   active: number;          // 1 = Active, 0 = Inactive
   createdAt: number;
   updatedAt: number;
-  type?: 'static' | 'dynamic' | 'style' | 'adapter' | 'audio';
+  type?: 'static' | 'dynamic' | 'style' | 'adapter' | 'audio' | 'genre' | 'persona';
   template?: string;       // E.g., dynamic template or model adapter instructions
   parameters?: string;     // JSON formatted variables
   targetModel?: string;    // Target generation engine filter, e.g. "ltx-video"

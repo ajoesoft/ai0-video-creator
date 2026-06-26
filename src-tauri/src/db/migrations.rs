@@ -1,4 +1,6 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
+use std::path::Path;
+use std::fs;
 
 pub fn get_migrations() -> Vec<Migration> {
     vec![
@@ -588,6 +590,21 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
                 println!("[Rust Migrations] Successfully constructed translation State inside app_settings for {}.", uuid);
             }
         }
+    }
+
+    // Auto-alter vocabulary table to support our newly requested properties (text to image, image to video, translation, voiceover, translation speech file, dialog, ref/reg prompts)
+    let alter_vocabulary = vec![
+        "ALTER TABLE vocabulary ADD COLUMN text_to_image_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN image_to_video_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN ref_image_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN ref_video_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN translation TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN voiceover TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN translation_speech_file TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN dialog TEXT",
+    ];
+    for q in alter_vocabulary {
+        let _ = conn.execute(q, []);
     }
 
     println!("[Rust Migrations] All backend migrations completed successfully!");

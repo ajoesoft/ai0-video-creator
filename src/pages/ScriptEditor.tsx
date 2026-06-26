@@ -333,6 +333,8 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
         await updateVocabulary(segment.id, {
           imagePath: savedPath,
           qwenImagePrompt: promptInput,
+          textToImagePrompt: promptInput,
+          refImagePrompt: promptInput,
           data: JSON.stringify(updatedData)
         });
 
@@ -971,9 +973,9 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
       if (translation) {
         // Save the translated text inside 'chinese' as it's the DB column for alternate-language transcripts
-        await updateVocabulary(segment.id, { chinese: translation });
+        await updateVocabulary(segment.id, { chinese: translation, translation: translation });
         setScriptSegments(prev => prev.map(s => 
-          s.id === segment.id ? { ...s, chinese: translation } : s
+          s.id === segment.id ? { ...s, chinese: translation, translation: translation } : s
         ));
       }
     } catch (e) {
@@ -1092,9 +1094,9 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           }
 
           if (translation) {
-            await updateVocabulary(segment.id, { chinese: translation });
+            await updateVocabulary(segment.id, { chinese: translation, translation: translation });
             setScriptSegments(prev => prev.map(s => 
-              s.id === segment.id ? { ...s, chinese: translation } : s
+              s.id === segment.id ? { ...s, chinese: translation, translation: translation } : s
             ));
           }
           setTranslatingIds(prev => ({ ...prev, [segment.id]: false }));
@@ -1279,9 +1281,16 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             if (isTranslated) {
               const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
               currentCustomData.translatedAudioPath = localAudioPath;
-              await updateVocabulary(segment.id, { data: JSON.stringify(currentCustomData) });
+              await updateVocabulary(segment.id, { 
+                data: JSON.stringify(currentCustomData),
+                translationSpeechFile: localAudioPath,
+                voiceover: speakerPrompt
+              });
             } else {
-              await updateVocabulary(segment.id, { audioPath: localAudioPath });
+              await updateVocabulary(segment.id, { 
+                audioPath: localAudioPath,
+                voiceover: speakerPrompt
+              });
             }
             finalPath = localAudioPath;
           }
@@ -1291,9 +1300,16 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           if (isTranslated) {
             const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
             currentCustomData.translatedAudioPath = base64Uri;
-            await updateVocabulary(segment.id, { data: JSON.stringify(currentCustomData) });
+            await updateVocabulary(segment.id, { 
+              data: JSON.stringify(currentCustomData),
+              translationSpeechFile: base64Uri,
+              voiceover: speakerPrompt
+            });
           } else {
-            await updateVocabulary(segment.id, { audioPath: base64Uri });
+            await updateVocabulary(segment.id, { 
+              audioPath: base64Uri,
+              voiceover: speakerPrompt
+            });
           }
           finalPath = base64Uri;
         }
@@ -1325,9 +1341,16 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             if (isTranslated) {
               const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
               currentCustomData.translatedAudioPath = localAudioPath;
-              await updateVocabulary(segment.id, { data: JSON.stringify(currentCustomData) });
+              await updateVocabulary(segment.id, { 
+                data: JSON.stringify(currentCustomData),
+                translationSpeechFile: localAudioPath,
+                voiceover: speakerPrompt
+              });
             } else {
-              await updateVocabulary(segment.id, { audioPath: localAudioPath });
+              await updateVocabulary(segment.id, { 
+                audioPath: localAudioPath,
+                voiceover: speakerPrompt
+              });
             }
             finalPath = localAudioPath;
           } else {
@@ -1335,9 +1358,16 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             if (isTranslated) {
               const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
               currentCustomData.translatedAudioPath = cloudUrl;
-              await updateVocabulary(segment.id, { data: JSON.stringify(currentCustomData) });
+              await updateVocabulary(segment.id, { 
+                data: JSON.stringify(currentCustomData),
+                translationSpeechFile: cloudUrl,
+                voiceover: speakerPrompt
+              });
             } else {
-              await updateVocabulary(segment.id, { audioPath: cloudUrl });
+              await updateVocabulary(segment.id, { 
+                audioPath: cloudUrl,
+                voiceover: speakerPrompt
+              });
             }
             finalPath = cloudUrl;
           }
@@ -1448,7 +1478,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             }
 
             if (translationText) {
-              await updateVocabulary(segment.id, { chinese: translationText });
+              await updateVocabulary(segment.id, { chinese: translationText, translation: translationText });
             }
           } catch (transErr) {
             console.error("Auto Translation inside Build All Speech failed:", transErr);
@@ -1499,13 +1529,18 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    * Standard segment handlers
    */
   const handleUpdateContent = async (segmentId: number, content: string) => {
-    setScriptSegments(prev => prev.map(s => s.id === segmentId ? { ...s, script: content } : s));
-    await updateVocabulary(segmentId, { script: content });
+    const seg = scriptSegments.find(s => s.id === segmentId);
+    const updates: Partial<Vocabulary> = { script: content };
+    if (seg && (seg.category === 'dialogue' || seg.category === 'dialog')) {
+      updates.dialog = content;
+    }
+    setScriptSegments(prev => prev.map(s => s.id === segmentId ? { ...s, script: content, ...(seg && (seg.category === 'dialogue' || seg.category === 'dialog') ? { dialog: content } : {}) } : s));
+    await updateVocabulary(segmentId, updates);
   };
 
   const handleUpdateChinese = async (segmentId: number, content: string) => {
-    setScriptSegments(prev => prev.map(s => s.id === segmentId ? { ...s, chinese: content } : s));
-    await updateVocabulary(segmentId, { chinese: content });
+    setScriptSegments(prev => prev.map(s => s.id === segmentId ? { ...s, chinese: content, translation: content } : s));
+    await updateVocabulary(segmentId, { chinese: content, translation: content });
   };
 
   const handleAddSegment = async () => {
@@ -2132,7 +2167,11 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     key={item.val}
                                     type="button"
                                     onClick={async () => {
-                                      await updateVocabulary(segment.id, { category: item.val });
+                                      const updates: Partial<Vocabulary> = { category: item.val };
+                                      if (item.val === 'dialogue') {
+                                        updates.dialog = segment.script || segment.word || '';
+                                      }
+                                      await updateVocabulary(segment.id, updates);
                                       loadData(id!);
                                     }}
                                     className={cn(
@@ -2737,11 +2776,18 @@ export function VideoGenModal({
   onClose: () => void; 
   onRefresh: () => void; 
 }) {
+  let customData: any = {};
+  try {
+    customData = segment.data ? JSON.parse(segment.data) : {};
+  } catch (e) {
+    customData = {};
+  }
+
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoProgress, setVideoProgress] = useState('');
   const [ltxPrompt, setLtxPrompt] = useState(segment.ltx23Prompt || segment.script || segment.word || '');
   const [generationMethod, setGenerationMethod] = useState<'text' | 'start_end' | 'image_audio' | 'image_only'>('image_only');
-  const [videoDuration, setVideoDuration] = useState<number>(4.0);
+  const [videoDuration, setVideoDuration] = useState<number>(customData.videoDuration || 10.0);
   
   // Model select for reference images
   const [imageModel, setImageModel] = useState<'z-image-turbo' | 'qwen-image-2512'>('z-image-turbo');
@@ -2811,12 +2857,6 @@ export function VideoGenModal({
   };
 
   // Parse list of existing image paths
-  let customData: any = {};
-  try {
-    customData = segment.data ? JSON.parse(segment.data) : {};
-  } catch (e) {
-    customData = {};
-  }
   const imagesList: string[] = Array.isArray(customData.images) ? customData.images : [];
   if (segment.imagePath && !imagesList.includes(segment.imagePath)) {
     imagesList.unshift(segment.imagePath);
@@ -2914,6 +2954,8 @@ export function VideoGenModal({
 
         await updateVocabulary(segment.id, {
           imagePath: savedPath,
+          textToImagePrompt: ltxPrompt,
+          refImagePrompt: ltxPrompt,
           data: JSON.stringify(updatedData)
         });
 
@@ -3027,6 +3069,21 @@ export function VideoGenModal({
     setIsGeneratingVideo(true);
     setVideoProgress('Preparing LTX-2.3 execution workflow...');
     try {
+      // Save current video generation configuration (duration and prompt) when render is pressed
+      let currentCData: any = {};
+      try {
+        currentCData = segment.data ? JSON.parse(segment.data) : {};
+      } catch (e) {}
+      currentCData.videoDuration = videoDuration;
+
+      await updateVocabulary(segment.id, {
+        ltx23Prompt: ltxPrompt,
+        imageToVideoPrompt: ltxPrompt,
+        refVideoPrompt: ltxPrompt,
+        data: JSON.stringify(currentCData)
+      });
+      onRefresh();
+
       let audioPathToSend: string | undefined = undefined;
       if (audioSource === 'scene_audio' && segment.audioPath) {
         audioPathToSend = segment.audioPath;
@@ -3100,7 +3157,9 @@ export function VideoGenModal({
 
         await updateVocabulary(segment.id, {
           videoPath: finalVideoPath,
-          ltx23Prompt: ltxPrompt
+          ltx23Prompt: ltxPrompt,
+          imageToVideoPrompt: ltxPrompt,
+          refVideoPrompt: ltxPrompt
         });
         onRefresh();
         alert('Scene Video successfully created with LTX-2.3!');
@@ -3297,15 +3356,31 @@ export function VideoGenModal({
                   <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
                     Video Duration (视频时长: 秒)
                   </label>
-                  <span className="text-xs font-mono font-bold text-blue-400">{videoDuration}s</span>
+                  <div className="flex items-center gap-1">
+                    <input 
+                      type="number" 
+                      min="1" 
+                      max="300" 
+                      step="0.5"
+                      value={videoDuration}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val)) {
+                          setVideoDuration(val);
+                        }
+                      }}
+                      className="w-14 bg-black/60 border border-white/10 rounded px-1.5 py-0.5 text-xs font-mono font-bold text-blue-400 text-center focus:outline-none focus:border-blue-500"
+                    />
+                    <span className="text-xs font-mono font-bold text-blue-400">s</span>
+                  </div>
                 </div>
                 <input 
                   type="range"
                   min="1"
-                  max="30"
+                  max="120"
                   step="0.5"
                   className="w-full accent-blue-500 bg-white/10 rounded-lg appearance-none cursor-pointer h-1.5"
-                  value={videoDuration}
+                  value={videoDuration > 120 ? 120 : videoDuration}
                   onChange={(e) => setVideoDuration(parseFloat(e.target.value))}
                 />
               </div>

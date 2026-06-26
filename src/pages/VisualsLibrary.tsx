@@ -28,7 +28,7 @@ import {
   User,
   Check
 } from 'lucide-react';
-import { cn, useMediaUrl, useLocalImageBase64 } from '@/src/lib/utils';
+import { cn, useMediaUrl, useLocalImageBase64, getAssetUrl } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   fetchProjectById, 
@@ -79,6 +79,7 @@ export function VisualsLibrary() {
   // App context states
   const [project, setProject] = useState<VideoProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const projectAspectRatio = project?.width && project?.height ? `${project.width}/${project.height}` : '16/9';
   
   // Interactive workspace toggle
   const [workspaceTab, setWorkspaceTab] = useState<'visual_db' | 'storyboard' | 'harness'>('visual_db');
@@ -389,9 +390,7 @@ export function VisualsLibrary() {
     }
 
     try {
-      currentRef.src = audioPath.startsWith('http') || audioPath.startsWith('data:') 
-        ? audioPath 
-        : `http://localhost:3000/view_file?path=${encodeURIComponent(audioPath)}`;
+      currentRef.src = getAssetUrl(audioPath);
       
       currentRef.play()
         .then(() => {
@@ -801,7 +800,10 @@ export function VisualsLibrary() {
                     className="group flex flex-col bg-white/[0.01] hover:bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all duration-300 rounded-sm overflow-hidden relative"
                   >
                     {/* Media Aspect Preview Frame */}
-                    <div className="aspect-video bg-[#0b0b0d] border-b border-white/5 overflow-hidden relative group/cover">
+                    <div 
+                      style={{ aspectRatio: projectAspectRatio }}
+                      className="w-full bg-[#0b0b0d] border-b border-white/5 overflow-hidden relative group/cover"
+                    >
                       {item.imagePath ? (
                         <VisualAssetItemImage 
                           path={item.imagePath} 
@@ -1010,11 +1012,17 @@ export function VisualsLibrary() {
                       </div>
                       
                       {asset.imagePath ? (
-                        <div className="aspect-video w-full rounded overflow-hidden relative border border-white/10 bg-black">
+                        <div 
+                          style={{ aspectRatio: projectAspectRatio }}
+                          className="w-full rounded overflow-hidden relative border border-white/10 bg-black"
+                        >
                           <VisualAssetItemImage path={asset.imagePath} title={asset.word || ""} className="w-full h-full object-cover" />
                         </div>
                       ) : (
-                        <div className="aspect-video w-full rounded border border-dashed border-white/5 bg-black/30 flex items-center justify-center text-white/20 text-xs">
+                        <div 
+                          style={{ aspectRatio: projectAspectRatio }}
+                          className="w-full rounded border border-dashed border-white/5 bg-black/30 flex items-center justify-center text-white/20 text-xs"
+                        >
                           Awaiting Render Cover
                         </div>
                       )}
@@ -1823,7 +1831,10 @@ export function VisualsLibrary() {
                     <div className="space-y-1 bg-black/45 border border-white/5 p-4 rounded relative">
                       <label className="text-[9px] font-mono text-pink-300 font-bold block mb-1">Image cover preview:</label>
                       {editingItem.imagePath ? (
-                        <div className="aspect-video w-full relative rounded border border-white/10 overflow-hidden shadow-md group/cover-modal">
+                        <div 
+                          style={{ aspectRatio: projectAspectRatio }}
+                          className="w-full relative rounded border border-white/10 overflow-hidden shadow-md group/cover-modal"
+                        >
                           <img 
                             src={editingItemImageBase64} 
                             alt="" 
@@ -1835,7 +1846,10 @@ export function VisualsLibrary() {
                           </div>
                         </div>
                       ) : (
-                        <div className="aspect-video w-full rounded border border-dashed border-white/5 bg-black/50 flex flex-col items-center justify-center text-white/20 text-[10px] font-mono font-bold uppercase gap-1 tracking-wider">
+                        <div 
+                          style={{ aspectRatio: projectAspectRatio }}
+                          className="w-full rounded border border-dashed border-white/5 bg-black/50 flex flex-col items-center justify-center text-white/20 text-[10px] font-mono font-bold uppercase gap-1 tracking-wider"
+                        >
                           <ImageIcon className="w-5 h-5 opacity-40 animate-pulse text-pink-400" />
                           <span>No Image rendered</span>
                         </div>
@@ -1858,7 +1872,7 @@ export function VisualsLibrary() {
                           </div>
                           
                           <audio 
-                            src={editingItem.audioPath} 
+                            src={getAssetUrl(editingItem.audioPath)} 
                             controls 
                             className="w-full h-8 max-h-[30px] rounded focus:outline-none mt-1 opacity-75"
                           />
@@ -1875,9 +1889,12 @@ export function VisualsLibrary() {
                     <div className="space-y-1 bg-black/45 border border-white/5 p-4 rounded relative">
                       <label className="text-[9px] font-mono text-blue-300 font-bold block mb-1">Motion Video Player render:</label>
                       {editingItem.videoPath ? (
-                        <div className="aspect-video w-full rounded border border-white/10 bg-black relative overflow-hidden flex flex-col justify-end shadow-md">
+                        <div 
+                          style={{ aspectRatio: projectAspectRatio }}
+                          className="w-full rounded border border-white/10 bg-black relative overflow-hidden flex flex-col justify-end shadow-md"
+                        >
                           <video 
-                            src={editingItem.videoPath}
+                            src={getAssetUrl(editingItem.videoPath)}
                             controls
                             autoPlay
                             loop
@@ -1889,7 +1906,10 @@ export function VisualsLibrary() {
                           </div>
                         </div>
                       ) : (
-                        <div className="aspect-video w-full rounded border border-dashed border-white/5 bg-black/50 flex flex-col items-center justify-center text-white/20 text-[10px] font-mono font-bold uppercase gap-1 tracking-wider">
+                        <div 
+                          style={{ aspectRatio: projectAspectRatio }}
+                          className="w-full rounded border border-dashed border-white/5 bg-black/50 flex flex-col items-center justify-center text-white/20 text-[10px] font-mono font-bold uppercase gap-1 tracking-wider"
+                        >
                           <Video className="w-5 h-5 opacity-40 animate-pulse text-blue-400" />
                           <span>No Video segment animated</span>
                         </div>
@@ -1980,7 +2000,7 @@ export function VisualsLibrary() {
               {/* Looping video container */}
               <div className="aspect-video w-full bg-black relative">
                 <video 
-                  src={fullscreenVideoPath}
+                  src={getAssetUrl(fullscreenVideoPath)}
                   autoPlay
                   controls
                   loop

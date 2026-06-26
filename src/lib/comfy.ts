@@ -348,6 +348,33 @@ export class ComfyService {
     }
   }
 
+  async freeVram(): Promise<boolean> {
+    await this.syncConfig();
+    try {
+      // ComfyUI /free endpoint unloads models and invokes torch.cuda.empty_cache()
+      const response = await this.fetch(`http://${this.config.serverAddress}/free`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unload_models: true, free_memory: true })
+      });
+      console.log("[ComfyService] Free VRAM response status:", response.status);
+      return response.ok;
+    } catch (e) {
+      console.warn("[ComfyService] Failed to free VRAM via /free:", e);
+      try {
+        // Fallback /unload_models for older ComfyUI versions
+        const response = await this.fetch(`http://${this.config.serverAddress}/unload_models`, {
+          method: "POST"
+        });
+        console.log("[ComfyService] Unload models fallback response status:", response.status);
+        return response.ok;
+      } catch (err) {
+        console.warn("[ComfyService] Failed fallback /unload_models:", err);
+        return false;
+      }
+    }
+  }
+
   async uploadFile(file: File): Promise<string> {
     await this.syncConfig();
     const formData = new FormData();
@@ -508,6 +535,9 @@ export class ComfyService {
         localPath
       });
 
+      // Automatically free GPU VRAM
+      this.freeVram().catch(err => console.warn("[ComfyService] Failed to auto-free VRAM after generation:", err));
+
       return savedPath;
     } catch (e: any) {
       throw new Error(e?.toString() || "Rust Image Generation Call failed");
@@ -580,6 +610,10 @@ export class ComfyService {
         }
       }
     }
+
+    // Automatically free GPU VRAM
+    this.freeVram().catch(err => console.warn("[ComfyService] Failed to auto-free VRAM after generation:", err));
+
     return images;
   }
 
@@ -1415,6 +1449,9 @@ export class ComfyService {
       localPath
     });
 
+    // Automatically free GPU VRAM
+    this.freeVram().catch(err => console.warn("[ComfyService] Failed to auto-free VRAM after generation:", err));
+
     return savedPath;
   }
 
@@ -1517,6 +1554,9 @@ export class ComfyService {
       serverAddress: this.config.serverAddress,
       localPath
     });
+
+    // Automatically free GPU VRAM
+    this.freeVram().catch(err => console.warn("[ComfyService] Failed to auto-free VRAM after generation:", err));
 
     return savedPath;
   }
@@ -2093,6 +2133,9 @@ export class ComfyService {
       localPath
     });
 
+    // Automatically free GPU VRAM
+    this.freeVram().catch(err => console.warn("[ComfyService] Failed to auto-free VRAM after generation:", err));
+
     return savedPath;
   }
 
@@ -2281,6 +2324,16 @@ export class ComfyService {
 
     if (!params.audio || params.audio.trim() === "" || isComfyInputDirectory(params.audio)) {
       workflow["188"].inputs["audio"] = null;
+    }
+
+    if (!params.video || params.video.trim() === "" || isComfyInputDirectory(params.video)) {
+      delete workflow["5444"];
+      delete workflow["5458"];
+    }
+
+    if (!params.image2 || params.image2.trim() === "" || isComfyInputDirectory(params.image2)) {
+      delete workflow["5434"];
+      delete workflow["5437"];
     }
 
     return workflow;

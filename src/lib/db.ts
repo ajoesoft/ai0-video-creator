@@ -1227,7 +1227,15 @@ export async function fetchVocabularyByProject(projectUuid: string): Promise<Voc
         createdAt: typeof v.created_at === 'string' ? new Date(v.created_at).getTime() : v.created_at,
         updatedAt: typeof v.updated_at === 'string' ? new Date(v.updated_at).getTime() : v.updated_at,
         status: v.status,
-        chinese: v.chinese
+        chinese: v.chinese,
+        textToImagePrompt: v.text_to_image_prompt,
+        imageToVideoPrompt: v.image_to_video_prompt,
+        refImagePrompt: v.ref_image_prompt,
+        refVideoPrompt: v.ref_video_prompt,
+        translation: v.translation,
+        voiceover: v.voiceover,
+        translationSpeechFile: v.translation_speech_file,
+        dialog: v.dialog
       }));
     }
   }
@@ -1247,13 +1255,17 @@ export async function createVocabulary(vocabulary: Partial<Vocabulary>): Promise
           project_uuid, word, audio_path, index_char, example, image_path, 
           phonetic_symbols, chinese_definition, data, prompt, video_path, 
           ltx23_prompt, t2v_prompt, qwen_image_prompt, category, script, 
-          created_at, updated_at, status, chinese
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          created_at, updated_at, status, chinese,
+          text_to_image_prompt, image_to_video_prompt, ref_image_prompt, ref_video_prompt,
+          translation, voiceover, translation_speech_file, dialog
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           vocabulary.projectUuid, vocabulary.word || "", vocabulary.audioPath || null, vocabulary.indexChar || null, vocabulary.example || null, vocabulary.imagePath || null,
           vocabulary.phoneticSymbols || null, vocabulary.chineseDefinition || null, vocabulary.data || null, vocabulary.prompt || null, vocabulary.videoPath || null,
           vocabulary.ltx23Prompt || null, vocabulary.t2vPrompt || null, vocabulary.qwenImagePrompt || null, vocabulary.category || null, vocabulary.script || null,
-          now, now, vocabulary.status || 1, vocabulary.chinese || null
+          now, now, vocabulary.status || 1, vocabulary.chinese || null,
+          vocabulary.textToImagePrompt || null, vocabulary.imageToVideoPrompt || null, vocabulary.refImagePrompt || null, vocabulary.refVideoPrompt || null,
+          vocabulary.translation || null, vocabulary.voiceover || null, vocabulary.translationSpeechFile || null, vocabulary.dialog || null
         ]
       );
       return true;
@@ -1285,6 +1297,14 @@ export async function createVocabulary(vocabulary: Partial<Vocabulary>): Promise
     updatedAt: Date.now(),
     status: vocabulary.status || 1,
     chinese: vocabulary.chinese || '',
+    textToImagePrompt: vocabulary.textToImagePrompt || '',
+    imageToVideoPrompt: vocabulary.imageToVideoPrompt || '',
+    refImagePrompt: vocabulary.refImagePrompt || '',
+    refVideoPrompt: vocabulary.refVideoPrompt || '',
+    translation: vocabulary.translation || '',
+    voiceover: vocabulary.voiceover || '',
+    translationSpeechFile: vocabulary.translationSpeechFile || '',
+    dialog: vocabulary.dialog || '',
   };
   allVocab.push(newVocab);
   saveLocalStorageVocabulary(allVocab);

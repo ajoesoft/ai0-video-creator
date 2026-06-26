@@ -45,7 +45,7 @@ export function QueueManager() {
 
   // Form parameter states
   const [t2iPrompt, setT2iPrompt] = useState<string>('在赛博朋克废墟边缘，一个身穿 @盔甲_IP 的少女在雨中俯瞰城市。');
-  const [t2iEngine, setT2iEngine] = useState<string>('Flux-turbo');
+  const [t2iEngine, setT2iEngine] = useState<string>('z-image-turbo');
   const [t2vPrompt, setT2vPrompt] = useState<string>('A high-fidelity panoramic camera sweep, showing @主角 walking gracefully through the glowing forest.');
   const [t2vDuration, setT2vDuration] = useState<number>(4);
   const [i2vImage, setI2vImage] = useState<string>('');
@@ -321,9 +321,9 @@ export function QueueManager() {
                     onChange={(e) => setProjectId(e.target.value)}
                     className="w-full bg-black border border-white/10 text-xs text-white rounded px-3 py-2.5 focus:outline-none focus:border-brand-primary font-mono"
                   >
-                    <option value="global">-- 全局通用 (Global Space) --</option>
+                    <option value="global" className="text-black bg-white">-- 全局通用 (Global Space) --</option>
                     {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.sceneType})</option>
+                      <option key={p.id} value={p.id} className="text-black bg-white">{p.name} ({p.sceneType})</option>
                     ))}
                   </select>
                 </div>
@@ -461,8 +461,8 @@ export function QueueManager() {
                         onChange={(e) => setT2iEngine(e.target.value)}
                         className="w-full bg-black border border-white/10 font-mono text-xs text-white p-2"
                       >
-                        <option value="Flux-turbo">Flux-Turbo (极致超快Turbo，4次降噪)</option>
-                        <option value="SDXL-Anime">SDXL Animation 精致画风渲染</option>
+                        <option value="z-image-turbo" className="text-black bg-white">Z-Image-Turbo (极致超快 Turbo, 8步渲染)</option>
+                        <option value="qwen-image-2512" className="text-black bg-white">Qwen-Image-2512 (高清闪电 Lightning, 4步渲染)</option>
                       </select>
                     </div>
                   </div>

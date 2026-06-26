@@ -505,10 +505,10 @@ export function ExportCenter() {
               style={{ aspectRatio: project?.width && project?.height ? `${project.width}/${project.height}` : '16/9' }}
               className="h-28 bg-[#0c0c0e] border border-white/5 overflow-hidden relative group rounded flex-shrink-0 flex items-center justify-center"
             >
-                {coverPath && (coverPath.startsWith('http') || coverImageBase64) ? (
+                {resolvedCoverSrc ? (
                   <img 
                     id="export-center-cover-image"
-                    src={coverPath.startsWith('http') ? coverPath : coverImageBase64} 
+                    src={resolvedCoverSrc} 
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
                     alt="project cover" 
                   />
