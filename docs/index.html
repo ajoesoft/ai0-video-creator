@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ai0 Video Creator | Tauri Desktop AI Video Editor for ComfyUI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        body {
+            background-color: #0f0f11;
+            color: #f0f0f0;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            border-bottom: 1px solid #27272a;
+            padding-bottom: 2rem;
+        }
+        h1 {
+            font-size: 2.8rem;
+            color: #ff782b;
+            margin-bottom: 1rem;
+        }
+        .subtitle {
+            font-size: 1.2rem;
+            color: #a1a1aa;
+            max-width: 800px;
+            margin: 0 auto 2rem;
+        }
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        a.btn {
+            padding: 0.8rem 1.8rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: opacity 0.2s ease;
+        }
+        .btn-primary {
+            background: #ff782b;
+            color: #000;
+        }
+        .btn-secondary {
+            border: 1px solid #ff782b;
+            color: #ff782b;
+            background: transparent;
+        }
+        a.btn:hover {
+            opacity: 0.85;
+        }
+        section {
+            margin: 4rem 0;
+        }
+        h2 {
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #ff782b;
+            padding-left: 1rem;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.8rem;
+        }
+        .feature-card {
+            background: #18181b;
+            padding: 1.6rem;
+            border-radius: 10px;
+            border: 1px solid #27272a;
+        }
+        .feature-card h3 {
+            color: #ffb377;
+            margin-bottom: 0.8rem;
+        }
+        .screenshot-wrap {
+            margin: 3rem 0;
+        }
+        .screenshot-wrap img {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid #27272a;
+            margin: 1rem 0;
+        }
+        code {
+            background: #1e1e2e;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            color: #ff9f5c;
+            font-family: monospace;
+        }
+        pre {
+            background: #1e1e2e;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        footer {
+            margin-top: 6rem;
+            padding-top: 2rem;
+            border-top: 1px solid #27272a;
+            text-align: center;
+            color: #71717a;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Ai0 Video Creator</h1>
+        <p class="subtitle">
+            Full-featured Tauri v2 desktop AI video suite. Support local ComfyUI offline workflow & cloud API dual backend.
+            Create short dramas, translated dubbed videos, vocabulary clips, dialogue scenes and original stories end-to-end.
+        </p>
+        <div class="btn-group">
+            <a href="https://github.com/ajoesoft/ai0-video-creator" class="btn btn-primary">GitHub Repository</a>
+            <a href="./README.md" class="btn btn-secondary">Full Documentation</a>
+        </div>
+    </header>
+
+    <section>
+        <h2>Two Operation Modes</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>Local Offline Mode (ComfyUI)</h3>
+                <p>Connect your local ComfyUI instance with LTX-2.3 support. All video rendering run on your GPU, no private data uploaded to cloud. Optimized for RTX3060 12GB low VRAM GPUs.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Cloud API Mode</h3>
+                <p>For devices without powerful discrete GPU. Switch to remote cloud video generation API to produce all types of video content locally inside the desktop app.</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>All Supported Video Content Types</h2>
+        <ul style="padding-left: 1.5rem; font-size: 1.1rem;">
+            <li>Consistent IP character short fantasy / historical dramas</li>
+            <li>Multi-language translated AI videos with auto voice dubbing & subtitle</li>
+            <li>English vocabulary educational clips with scene dialogue</li>
+            <li>Independent dialogue scene short clips for script creation</li>
+            <li>Vertical cinematic original narrative story reels (9:16 1080P 24FPS)</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>Core Functional Modules</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>Visual Assets Database</h3>
+                <p>Save reusable IP characters, environments and props. Lock character facial features to eliminate flicker across all generated video shots.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Script Synthesis Editor</h3>
+                <p>Write scene dialogue, voiceover and cinematic prompts. Local LLM for translation, character tone adjustment, one-click bind assets to ComfyUI render jobs.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Qwen3 Local TTS Audio</h3>
+                <p>Custom voice clone, batch voice line generation. Map independent speaker roles for multi-character film scripts.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Multi-Track Timeline Editor</h3>
+                <p>Auto import ComfyUI generated clips, separate video/audio/subtitle tracks, real-time preview, one-click FFmpeg MP4 export.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Batch Video Translation Station</h3>
+                <p>Offline pipeline: audio extract, transcription, translation, dubbing, LTX lip-sync correction for finished AI videos.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Local Ollama Chat Assistant</h3>
+                <p>Built-in LLM sandbox to write scripts, translate text, debug generation prompts and configure system behavior.</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>ComfyUI Startup Command (Required)</h2>
+        <p>Launch ComfyUI with cross-origin header & low VRAM optimization for desktop app connection:</p>
+<pre>
+python main.py --listen 0.0.0.0 --enable-cors-header --lowvram
+</pre>
+        <ul style="padding-left:1.5rem; margin-top:1rem;">
+            <li><code>--enable-cors-header</code>: Allow cross-origin request from Tauri desktop app</li>
+            <li><code>--lowvram</code>: Fix OOM error for 12GB VRAM GPUs like RTX3060</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>Full App Screenshots Gallery</h2>
+        <div class="screenshot-wrap">
+            <h3>1. Dashboard Project Catalog & Ollama Local Chat Panel</h3>
+            <img src="images/screen1_dashboard_chat.png" alt="Dashboard & Local Ollama Chat Assistant UI">
+
+            <h3>2. Main Dashboard Project Library</h3>
+            <img src="images/screen2_dashboard_projects.png" alt="Dashboard project catalog page">
+
+            <h3>3. Script Cover Image Generation Modal</h3>
+            <img src="images/screen3_cover_gen.png" alt="Generate cover image with z-image-turbo model">
+
+            <h3>4. Project Detail Overview Page</h3>
+            <img src="images/screen4_project_detail.png" alt="Project detail page with production config">
+
+            <h3>5. Script Synthesis Scene Editor</h3>
+            <img src="images/screen5_script_editor.png" alt="Script writing, translation & IP persona harness panel">
+
+            <h3>6. Qwen3 Voice Synthesis Audio Workspace</h3>
+            <img src="images/screen6_audio_tts.png" alt="Batch script voice synthesis & speaker role mapping">
+
+            <h3>7. Multi-Track Timeline Editing View</h3>
+            <img src="images/screen7_timeline_editor.png" alt="Timeline with video, audio and subtitle tracks">
+
+            <h3>8. Batch Multi-Video Translation Pipeline</h3>
+            <img src="images/screen8_video_translation.png" alt="Import multiple MP4 for transcription, dubbing & lip-sync">
+
+            <h3>9. Visual Assets IP Character Database</h3>
+            <img src="images/screen9_visual_assets.png" alt="IP character, environment & prop asset gallery">
+        </div>
+    </section>
+
+    <section>
+        <h2>Hardware Requirements</h2>
+        <ul style="padding-left:1.5rem;">
+            <li>Minimum: RTX3060 12GB (lowvram mode, software FP8 emulation)</li>
+            <li>Recommended: RTX4060Ti 16GB+ (hardware FP8 acceleration for LTX video)</li>
+            <li>CPU-only: Supported via cloud API backend without local GPU</li>
+        </ul>
+    </section>
+
+    <footer>
+        <p>Ai0 Video Creator | Open Source MIT License</p>
+        <p>GitHub Pages Site: <a href="https://ai0.github.io" style="color:#ff782b;">ai0.github.io</a></p>
+    </footer>
+</body>
+</html>
