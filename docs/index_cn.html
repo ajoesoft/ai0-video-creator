@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ai0 Video Creator | Tauri 桌面AI视频制作工具，适配ComfyUI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        body {
+            background-color: #0f0f11;
+            color: #f0f0f0;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            border-bottom: 1px solid #27272a;
+            padding-bottom: 2rem;
+        }
+        .lang-switch {
+            margin-bottom: 1rem;
+        }
+        .lang-switch a {
+            color: #ff782b;
+            text-decoration: none;
+        }
+        h1 {
+            font-size: 2.8rem;
+            color: #ff782b;
+            margin-bottom: 1rem;
+        }
+        .subtitle {
+            font-size: 1.2rem;
+            color: #a1a1aa;
+            max-width: 800px;
+            margin: 0 auto 2rem;
+        }
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        a.btn {
+            padding: 0.8rem 1.8rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: opacity 0.2s ease;
+        }
+        .btn-primary {
+            background: #ff782b;
+            color: #000;
+        }
+        .btn-secondary {
+            border: 1px solid #ff782b;
+            color: #ff782b;
+            background: transparent;
+        }
+        a.btn:hover {
+            opacity: 0.85;
+        }
+        section {
+            margin: 4rem 0;
+        }
+        h2 {
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            border-left: 4px solid #ff782b;
+            padding-left: 1rem;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.8rem;
+        }
+        .feature-card {
+            background: #18181b;
+            padding: 1.6rem;
+            border-radius: 10px;
+            border: 1px solid #27272a;
+        }
+        .feature-card h3 {
+            color: #ffb377;
+            margin-bottom: 0.8rem;
+        }
+        .screenshot-wrap {
+            margin: 3rem 0;
+        }
+        .screenshot-wrap img {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid #27272a;
+            margin: 1rem 0;
+        }
+        code {
+            background: #1e1e2e;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            color: #ff9f5c;
+            font-family: monospace;
+        }
+        pre {
+            background: #1e1e2e;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        footer {
+            margin-top: 6rem;
+            padding-top: 2rem;
+            border-top: 1px solid #27272a;
+            text-align: center;
+            color: #71717a;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="lang-switch">
+            当前语言：中文 | <a href="./index.html">切换 English Version</a>
+        </div>
+        <h1>Ai0 Video Creator</h1>
+        <p class="subtitle">
+            全功能 Tauri v2 桌面AI视频创作套件，同时支持本地ComfyUI离线工作流与云端API双后端。
+            一站式制作短剧、多语言翻译配音视频、单词教学短片、对话片段、原创叙事故事。
+        </p>
+        <div class="btn-group">
+            <a href="https://github.com/ajoesoft/ai0-video-creator" class="btn btn-primary">GitHub 项目仓库</a>
+            <a href="./README_cn.md" class="btn btn-secondary">完整中文文档</a>
+        </div>
+    </header>
+
+    <section>
+        <h2>两种运行模式</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>本地离线模式（对接ComfyUI）</h3>
+                <p>连接本地ComfyUI，原生支持LTX-2.3视频模型，全部渲染运算在本地显卡完成，无任何素材上传云端。针对RTX3060 12G低显存显卡做内存优化。</p>
+            </div>
+            <div class="feature-card">
+                <h3>云端API模式</h3>
+                <p>无高性能独立显卡设备专用，切换远程云端视频生成接口，在本软件内完成全类型视频内容制作。</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>支持制作的全部视频类型</h2>
+        <ul style="padding-left: 1.5rem; font-size: 1.1rem;">
+            <li>人物形象统一的古风/奇幻短剧系列</li>
+            <li>自动配音、内嵌字幕的多语言AI翻译影片</li>
+            <li>带场景对话的英语单词教学短片</li>
+            <li>独立剧情对话片段，用于剧本创作练习</li>
+            <li>9:16竖屏电影质感原创故事短片（1080P 24帧）</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>核心功能模块</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>视觉资产人物库</h3>
+                <p>存储可复用IP角色、场景环境、道具素材，锁定人物五官特征，解决多镜头画面人物闪烁问题。</p>
+            </div>
+            <div class="feature-card">
+                <h3>剧本综合编辑器</h3>
+                <p>撰写场景对白、旁白与电影级渲染提示词，本地大模型完成双语翻译、人物口吻定制，一键绑定素材提交ComfyUI渲染。</p>
+            </div>
+            <div class="feature-card">
+                <h3>Qwen3本地语音合成</h3>
+                <p>自定义音色克隆，批量生成剧本配音，区分旁白、青年、老人等独立声线，适配多角色影视剧本。</p>
+            </div>
+            <div class="feature-card">
+                <h3>多轨道时间线编辑器</h3>
+                <p>自动导入ComfyUI渲染片段，分离视频/音频/字幕轨道，实时预览成片，FFmpeg一键导出MP4成品。</p>
+            </div>
+            <div class="feature-card">
+                <h3>批量视频翻译工作站</h3>
+                <p>离线完整流水线：音频分离、语音转写、跨语言翻译、配音、LTX唇形同步修正，用于现有AI影片重制字幕与配音。</p>
+            </div>
+            <div class="feature-card">
+                <h3>内置Ollama本地对话助手</h3>
+                <p>内置本地大模型沙箱，可写剧本、翻译文本、调试渲染提示词、自定义系统行为指令，无需额外工具。</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>ComfyUI 必需启动命令</h2>
+        <p>启动ComfyUI时开启跨域头与低显存优化，允许桌面软件连接本地服务：</p>
+<pre>
+python main.py --listen 0.0.0.0 --enable-cors-header --lowvram
+</pre>
+        <ul style="padding-left:1.5rem; margin-top:1rem;">
+            <li><code>--enable-cors-header</code>：允许Tauri桌面程序跨域请求</li>
+            <li><code>--lowvram</code>：修复RTX3060 12G等显卡显存溢出报错</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>软件完整界面截图</h2>
+        <div class="screenshot-wrap">
+            <h3>1. 项目仪表盘 + Ollama本地对话面板</h3>
+            <img src="images/screen1_dashboard_chat.png" alt="仪表盘与本地Ollama对话助手界面">
+
+            <h3>2. 仪表盘项目素材库主页</h3>
+            <img src="images/screen2_dashboard_projects.png" alt="仪表盘所有已完成/归档视频项目">
+
+            <h3>3. 项目封面图生成弹窗</h3>
+            <img src="images/screen3_cover_gen.png" alt="使用z-image-turbo生成封面画面">
+
+            <h3>4. 项目总览详情页</h3>
+            <img src="images/screen4_project_detail.png" alt="项目信息、分辨率预设与三大功能入口">
+
+            <h3>5. 剧本编辑撰写面板</h3>
+            <img src="images/screen5_script_editor.png" alt="剧本写作、翻译、人物人设绑定界面">
+
+            <h3>6. Qwen3语音合成音频工作台</h3>
+            <img src="images/screen6_audio_tts.png" alt="批量配音生成、角色声线映射管理">
+
+            <h3>7. 多轨道时间线剪辑界面</h3>
+            <img src="images/screen7_timeline_editor.png" alt="视频音频字幕分轨道编辑，实时预览成片">
+
+            <h3>8. 批量多视频翻译流水线</h3>
+            <img src="images/screen8_video_translation.png" alt="批量导入视频，完成转写翻译配音唇形同步">
+
+            <h3>9. IP角色视觉资产素材库</h3>
+            <img src="images/screen9_visual_assets.png" alt="统一人物、场景、道具素材仓库">
+        </div>
+    </section>
+
+    <section>
+        <h2>硬件配置要求</h2>
+        <ul style="padding-left:1.5rem;">
+            <li>最低配置：RTX3060 12G（低显存模式，FP8软件模拟运算）</li>
+            <li>推荐配置：RTX4060Ti 16G及以上（硬件FP8加速LTX视频渲染）</li>
+            <li>无独立显卡：切换云端API模式，仅使用CPU运行</li>
+        </ul>
+    </section>
+
+    <footer>
+        <p>Ai0 Video Creator | 开源 MIT 开源协议</p>
+        <p>项目官网：<a href="https://ai0.github.io" style="color:#ff782b;">ai0.github.io</a></p>
+    </footer>
+</body>
+</html>
