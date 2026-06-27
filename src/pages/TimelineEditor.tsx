@@ -28,6 +28,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { cn, getAssetUrl, useMediaUrl, useLocalImageBase64 } from '@/src/lib/utils';
+import { useTranslation } from '../contexts/LanguageContext';
+import { globalTranslations } from '../localization/globalTranslations';
 import { 
   fetchProjectById, 
   fetchVocabularyByProject, 
@@ -54,6 +56,8 @@ interface TimelineClip {
 
 export function TimelineEditor() {
   const { id: projectId } = useParams<{ id: string }>();
+  const { language } = useTranslation();
+  const gt = (key: keyof typeof globalTranslations['en']) => globalTranslations[language]?.[key] || globalTranslations['en'][key];
   
   // Data State
   const [project, setProject] = useState<VideoProject | null>(null);
@@ -614,7 +618,7 @@ export function TimelineEditor() {
 
   // Reset timeline to original DB order
   const handleResetTimeline = () => {
-    if (window.confirm('确定要重置时间线为默认顺序吗？所有未保存的自定义调整都将丢失。')) {
+    if (window.confirm(gt('resetTimelineConfirm'))) {
       initializeDefaultClips(vocabulary);
       setSelectedClipId(null);
     }
@@ -1217,13 +1221,13 @@ export function TimelineEditor() {
             {activeTab === 'script' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-[11px] uppercase tracking-wider font-mono font-bold text-gray-400">项目脚本段落 ({vocabulary.length})</h4>
-                  <span className="text-[10px] text-gray-500 font-mono">双击卡片预览视频 | 点击 + 插入</span>
+                  <h4 className="text-[11px] uppercase tracking-wider font-mono font-bold text-gray-400">{gt('projectScriptSegments')} ({vocabulary.length})</h4>
+                  <span className="text-[10px] text-gray-500 font-mono">{gt('doubleClickPreviewTips')}</span>
                 </div>
 
                 {vocabulary.length === 0 ? (
                   <div className="py-12 text-center text-xs opacity-30 border border-dashed border-white/10 rounded-sm">
-                    未检测到当前项目的配置脚本
+                    {gt('noConfigScript')}
                   </div>
                 ) : (
                   vocabulary.map((segment, idx) => {
@@ -1232,7 +1236,7 @@ export function TimelineEditor() {
                       <div 
                         key={segment.id} 
                         className="p-3 bg-white/[0.01] hover:bg-white/[0.03] border border-white/5 hover:border-amber-500/20 rounded duration-200 group flex flex-col gap-3 cursor-pointer select-none"
-                        title="💡 双击卡片可实时预览对应的视频片段"
+                        title={gt('doubleClickPreview')}
                       >
                         {/* Title and descriptions */}
                         <div className="flex items-start gap-3 w-full">
@@ -1346,10 +1350,10 @@ export function TimelineEditor() {
                                     handleAddAssetToTimeline('visual', segment);
                                   }}
                                   className="py-1 px-1.5 bg-white/5 hover:bg-white/10 text-gray-200 text-[9px] rounded border border-white/10 flex items-center justify-center gap-0.5"
-                                  title="在时间线上新增此画面分镜轨道"
+                                  title={language === 'zh' ? "在时间线上新增此画面分镜轨道" : "Add this storyboard segment to timeline"}
                                 >
                                   <Plus className="w-2.5 h-2.5" />
-                                  <span>+ 轴</span>
+                                  <span>{language === 'zh' ? '+ 轴' : '+ Timeline'}</span>
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -1357,9 +1361,9 @@ export function TimelineEditor() {
                                     handlePreviewVideo(segment.videoPath!, segment.word || "Preview Segment");
                                   }}
                                   className="py-1 px-1.5 bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-[9px] rounded border border-white/10"
-                                  title="预览该导出的分镜片段"
+                                  title={gt('previewExportedScene')}
                                 >
-                                  播放
+                                  {language === 'zh' ? '播放' : 'Play'}
                                 </button>
                               </div>
                             ) : (
@@ -1369,10 +1373,10 @@ export function TimelineEditor() {
                                   handleGenerateVideoFile(segment);
                                 }}
                                 className="py-1 px-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 text-[9px] rounded border border-purple-500/20 flex items-center gap-0.5 transition-all font-mono"
-                                title="结合底画与语音生成 LTX 空域镜头片段"
+                                title={language === 'zh' ? "结合底画与语音生成 LTX 空域镜头片段" : "Generate LTX video segment"}
                               >
                                 <Video className="w-2.5 h-2.5" />
-                                <span>生成分镜</span>
+                                <span>{language === 'zh' ? '生成分镜' : 'Gen Scene'}</span>
                               </button>
                             )}
                           </div>
@@ -1388,13 +1392,13 @@ export function TimelineEditor() {
             {activeTab === 'audio' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-[11px] uppercase tracking-wider font-mono font-bold text-gray-400">生成的配音音频 ({vocabulary.filter(v => v.audioPath || v.data).length})</h4>
-                  <span className="text-[10px] text-gray-500 font-mono">可直接拖拽至时间轴音频轨道 🖱️</span>
+                  <h4 className="text-[11px] uppercase tracking-wider font-mono font-bold text-gray-400">{gt('generatedVoiceover')} ({vocabulary.filter(v => v.audioPath || v.data).length})</h4>
+                  <span className="text-[10px] text-gray-500 font-mono">{language === 'zh' ? '可直接拖拽至时间轴音频轨道 🖱️' : 'Drag directly to audio track 🖱️'}</span>
                 </div>
 
                 {vocabulary.filter(v => v.audioPath || v.data).length === 0 ? (
                   <div className="py-12 text-center text-xs opacity-30 border border-dashed border-white/10 rounded-sm">
-                    暂无已生成的配音音频，请前往配音引擎生成
+                    {gt('noGeneratedVoiceover')}
                   </div>
                 ) : (
                   vocabulary.map((item) => {
@@ -1415,7 +1419,7 @@ export function TimelineEditor() {
                           }));
                         }}
                         className="p-3 bg-white/[0.01] hover:bg-[#0f1d14] border border-white/5 hover:border-emerald-500/40 rounded duration-200 group flex items-center justify-between gap-3 cursor-grab select-none"
-                        title="点击卡片预览音频，按住可拖拽到下方音频轨道，或点击“+ 轨道”"
+                        title={gt('clickToPreviewAndDrag')}
                       >
                         <div 
                           className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer"
@@ -1440,10 +1444,10 @@ export function TimelineEditor() {
                           <button
                             onClick={() => handleAddAssetToTimeline('audio', item)}
                             className="py-1 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] rounded border border-emerald-500/20 flex items-center justify-center gap-1"
-                            title="在插头处添加音频片段"
+                            title={language === 'zh' ? "在插头处添加音频片段" : "Add audio segment to playhead"}
                           >
                             <Plus className="w-3 h-3" />
-                            <span>轨道</span>
+                            <span>{gt('addTrack')}</span>
                           </button>
                         </div>
                       </div>
@@ -1457,13 +1461,13 @@ export function TimelineEditor() {
             {activeTab === 'video' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between mb-1">
-                  <h4 className="text-[11px] uppercase tracking-wider font-mono font-bold text-gray-400">生成的视频片段 ({vocabulary.filter(v => v.videoPath).length})</h4>
-                  <span className="text-[10px] text-gray-500 font-mono">双击预览 | 拖拽至视频轨道 🎬</span>
+                  <h4 className="text-[11px] uppercase tracking-wider font-mono font-bold text-gray-400">{gt('generatedSegments')} ({vocabulary.filter(v => v.videoPath).length})</h4>
+                  <span className="text-[10px] text-gray-500 font-mono">{language === 'zh' ? '双击预览 | 拖拽至视频轨道 🎬' : 'Double click to preview | Drag to video track 🎬'}</span>
                 </div>
 
                 {vocabulary.filter(v => v.videoPath).length === 0 ? (
                   <div className="py-12 text-center text-xs opacity-30 border border-dashed border-white/10 rounded-sm">
-                    暂无视频场景片段，请前往场景视觉生成
+                    {language === 'zh' ? '暂无视频场景片段，请前往场景视觉生成' : 'No video segments generated yet. Please generate them in the Storyboard first.'}
                   </div>
                 ) : (
                   vocabulary.map((item) => {
@@ -1740,13 +1744,13 @@ export function TimelineEditor() {
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4 fill-current" />
-                        <span>开始 FFmpeg 渲染合成</span>
+                        <span>{gt('startFfmpegRender')}</span>
                       </>
                     )}
                   </button>
 
                   <p className="text-[10px] text-gray-500 leading-normal text-center">
-                    FFmpeg 将把轨道中的视频进行拼接、绑定对应时间占位的音频音轨，并调用 libass 底层渲染器渲染硬字幕，合成完整的 1080p MP4。
+                    {gt('ffmpegCombineDesc')}
                   </p>
                 </div>
               </div>
@@ -2133,7 +2137,7 @@ export function TimelineEditor() {
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-mono text-emerald-400 font-bold flex items-center gap-1.5">
                       <Check className="w-4 h-4 text-emerald-400" />
-                      <span>合成结果：视频编译成功!</span>
+                      <span>{gt('renderSuccessMsg')}</span>
                     </span>
                     <span className="text-[10px] text-gray-500 font-mono">13.2 MB</span>
                   </div>
@@ -2141,7 +2145,7 @@ export function TimelineEditor() {
                   {/* Physical output workspace save path display */}
                   <div className="text-[10.5px] bg-[#0c130f] p-3 rounded border border-emerald-500/15 space-y-1 font-mono text-gray-400 select-text selection:bg-emerald-800">
                     <div className="flex justify-between items-center text-[10px] text-emerald-400">
-                      <span>保存的目标最终合成视频路径 Target Output Path:</span>
+                      <span>{gt('targetOutputPath')}</span>
                       <span className="text-[8.5px] px-1 bg-emerald-500/15 text-emerald-300 rounded font-bold font-mono">FFmpeg</span>
                     </div>
                     <div className="text-gray-300 break-all bg-black/50 p-2 rounded border border-white/[0.03] text-[9.5px] leading-relaxed select-all">

@@ -26,6 +26,7 @@ import { VideoProject, Vocabulary, SceneType, PromptHarness, VisualLibraryItem }
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, getAssetUrl, useLocalImageBase64 } from '../lib/utils';
 import { useTranslation } from '../contexts/LanguageContext';
+import { globalTranslations } from '../localization/globalTranslations';
 
 function VocabularyCard({ 
   word, 
@@ -293,6 +294,8 @@ function VocabularyCard({
 
 export function WordManagement() {
   const { id } = useParams<{ id: string }>();
+  const { language } = useTranslation();
+  const gt = (key: keyof typeof globalTranslations['en']) => globalTranslations[language]?.[key] || globalTranslations['en'][key];
   const [project, setProject] = useState<VideoProject | null>(null);
   const [words, setWords] = useState<Vocabulary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1155,7 +1158,7 @@ export function WordManagement() {
 
                     <div className="pt-2">
                       <div className="flex justify-between items-center mb-1">
-                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Video Duration (视频时长: 秒)</label>
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{gt('videoDurationLabel')}</label>
                         <span className="text-xs font-mono font-bold text-brand-primary">{(formData as any).duration || 5.0}s</span>
                       </div>
                       <input 
@@ -1168,14 +1171,14 @@ export function WordManagement() {
                         onChange={(e) => setFormData({...formData, duration: parseFloat(e.target.value)} as any)}
                       />
                       <p className="text-[9px] text-gray-500 mt-1">
-                        控制生成的视频时长（秒）。时长过长会相应增加生成等待时间。
+                        {gt('videoDurationDesc')}
                       </p>
                     </div>
 
                     {activeHarnesses.length > 0 && (
                       <div className="space-y-1.5 pt-1">
                         <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest block">
-                          Insert Project Prompt Harness (插入组件模板)
+                          {gt('insertHarnessLabel')}
                         </span>
                         <div className="flex flex-wrap gap-1 font-mono">
                           {activeHarnesses.map(h => {

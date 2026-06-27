@@ -1,27 +1,36 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
-use std::path::Path;
-use std::fs;
 
 pub fn get_migrations() -> Vec<Migration> {
     vec![
         Migration {
             version: 1,
-            description: "initial_setup",
-            sql: "CREATE TABLE IF NOT EXISTS video_projects (project_uuid TEXT PRIMARY KEY, project_name TEXT NOT NULL, project_prompt TEXT, cover_image_path TEXT, create_time INTEGER NOT NULL, update_time INTEGER NOT NULL, project_status INTEGER NOT NULL DEFAULT 0);",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "add_scene_columns",
-            sql: "ALTER TABLE video_projects ADD COLUMN scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word'));
-                  ALTER TABLE video_projects ADD COLUMN scene_config_id INTEGER;
-                  ALTER TABLE video_projects ADD COLUMN template_id INTEGER;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "create_scene_tables",
-            sql: "CREATE TABLE IF NOT EXISTS scene_config (
+            description: "initial_setup_unified",
+            sql: "
+                CREATE TABLE IF NOT EXISTS video_projects (
+                    project_uuid TEXT PRIMARY KEY,
+                    project_name TEXT NOT NULL,
+                    project_prompt TEXT,
+                    cover_image_path TEXT,
+                    create_time INTEGER NOT NULL,
+                    update_time INTEGER NOT NULL,
+                    project_status INTEGER NOT NULL DEFAULT 0,
+                    scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation')),
+                    scene_config_id INTEGER,
+                    template_id INTEGER,
+                    project_path TEXT,
+                    width INTEGER DEFAULT 1920,
+                    height INTEGER DEFAULT 1080,
+                    aspect_ratio TEXT DEFAULT '16:9',
+                    visual_style TEXT DEFAULT 'Cinematic',
+                    video_url TEXT,
+                    audio_url TEXT,
+                    audio_duration REAL DEFAULT 0.0,
+                    srt_original TEXT,
+                    text_original TEXT,
+                    detected_language TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS scene_config (
                     config_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     scene_type TEXT NOT NULL CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word')),
                     script_rules TEXT NOT NULL,
@@ -30,6 +39,7 @@ pub fn get_migrations() -> Vec<Migration> {
                     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
                 CREATE TABLE IF NOT EXISTS scene_template (
                     template_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     scene_type TEXT NOT NULL CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word')),
@@ -40,6 +50,7 @@ pub fn get_migrations() -> Vec<Migration> {
                     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
                 CREATE TABLE IF NOT EXISTS dialogue_role (
                     role_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_uuid TEXT NOT NULL,
@@ -50,6 +61,7 @@ pub fn get_migrations() -> Vec<Migration> {
                     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
                 );
+
                 CREATE TABLE IF NOT EXISTS word_detail (
                     word_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_uuid TEXT NOT NULL,
@@ -62,13 +74,9 @@ pub fn get_migrations() -> Vec<Migration> {
                     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
-                );",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 4,
-            description: "add_vocabulary_table",
-            sql: "CREATE TABLE IF NOT EXISTS vocabulary (
+                );
+
+                CREATE TABLE IF NOT EXISTS vocabulary (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_uuid TEXT NOT NULL,
                     word TEXT NOT NULL,
@@ -90,97 +98,109 @@ pub fn get_migrations() -> Vec<Migration> {
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     status INTEGER DEFAULT 1,
                     chinese TEXT,
+                    text_to_image_prompt TEXT,
+                    image_to_video_prompt TEXT,
+                    ref_image_prompt TEXT,
+                    ref_video_prompt TEXT,
+                    translation TEXT,
+                    voiceover TEXT,
+                    translation_speech_file TEXT,
+                    dialog TEXT,
                     FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
-                );",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 5,
-            description: "add_settings_table",
-            sql: "CREATE TABLE IF NOT EXISTS app_settings (
+                );
+
+                CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                );",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 6,
-            description: "add_project_path_column",
-            sql: "ALTER TABLE video_projects ADD COLUMN project_path TEXT;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 7,
-            description: "support_video_translation_scene",
-            sql: "PRAGMA foreign_keys=OFF;
-                  CREATE TABLE video_projects_new (
-                      project_uuid TEXT PRIMARY KEY,
-                      project_name TEXT NOT NULL,
-                      project_prompt TEXT,
-                      cover_image_path TEXT,
-                      create_time INTEGER NOT NULL,
-                      update_time INTEGER NOT NULL,
-                      project_status INTEGER NOT NULL DEFAULT 0,
-                      scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation')),
-                      scene_config_id INTEGER,
-                      template_id INTEGER,
-                      project_path TEXT
-                  );
-                  INSERT INTO video_projects_new (project_uuid, project_name, project_prompt, cover_image_path, create_time, update_time, project_status, scene_type, scene_config_id, template_id, project_path)
-                  SELECT project_uuid, project_name, project_prompt, cover_image_path, create_time, update_time, project_status, scene_type, scene_config_id, template_id, project_path FROM video_projects;
-                  DROP TABLE video_projects;
-                  ALTER TABLE video_projects_new RENAME TO video_projects;
-                  PRAGMA foreign_keys=ON;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 8,
-            description: "fix_video_projects_translation_table",
-            sql: "CREATE TABLE IF NOT EXISTS video_projects_new (
-                      project_uuid TEXT PRIMARY KEY,
-                      project_name TEXT NOT NULL,
-                      project_prompt TEXT,
-                      cover_image_path TEXT,
-                      create_time INTEGER NOT NULL,
-                      update_time INTEGER NOT NULL,
-                      project_status INTEGER NOT NULL DEFAULT 0,
-                      scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation')),
-                      scene_config_id INTEGER,
-                      template_id INTEGER,
-                      project_path TEXT
-                  );",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 9,
-            description: "fix_video_projects_translation_copy",
-            sql: "INSERT OR REPLACE INTO video_projects_new (
-                      project_uuid, project_name, project_prompt, cover_image_path, 
-                      create_time, update_time, project_status, scene_type, 
-                      scene_config_id, template_id, project_path
-                  )
-                  SELECT 
-                      project_uuid, project_name, project_prompt, cover_image_path, 
-                      create_time, update_time, project_status, 
-                      CASE 
-                          WHEN scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation') THEN scene_type 
-                          ELSE 'short_video' 
-                      END, 
-                      scene_config_id, template_id, project_path 
-                  FROM video_projects;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 10,
-            description: "fix_video_projects_translation_drop",
-            sql: "DROP TABLE IF EXISTS video_projects;",
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 11,
-            description: "fix_video_projects_translation_rename",
-            sql: "ALTER TABLE video_projects_new RENAME TO video_projects;",
+                );
+
+                CREATE TABLE IF NOT EXISTS visual_library (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT,
+                    scene_id TEXT,
+                    title TEXT,
+                    type TEXT,
+                    uuid TEXT,
+                    short_name TEXT,
+                    image_prompt TEXT,
+                    video_prompt TEXT,
+                    audio_prompt TEXT,
+                    image_path TEXT,
+                    video_path TEXT,
+                    audio_path TEXT,
+                    created_at INTEGER,
+                    updated_at INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS prompt_harness (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT,
+                    trigger_keyword TEXT,
+                    visual_asset_id INTEGER,
+                    active INTEGER DEFAULT 1,
+                    created_at INTEGER,
+                    updated_at INTEGER,
+                    type TEXT,
+                    template TEXT,
+                    parameters TEXT,
+                    target_model TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS background_tasks (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    name TEXT,
+                    type TEXT,
+                    status TEXT,
+                    params TEXT,
+                    result TEXT,
+                    error TEXT,
+                    progress INTEGER DEFAULT 0,
+                    scheduled_at INTEGER,
+                    created_at INTEGER,
+                    started_at INTEGER,
+                    completed_at INTEGER,
+                    priority INTEGER DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS video_translation_projects (
+                    project_id TEXT PRIMARY KEY,
+                    name TEXT,
+                    video_url TEXT,
+                    cover_url TEXT,
+                    audio_url TEXT,
+                    audio_duration REAL,
+                    srt_original TEXT,
+                    text_original TEXT,
+                    detected_language TEXT,
+                    status TEXT,
+                    created_at INTEGER,
+                    updated_at INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS video_translation_timeline (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT,
+                    segment_index INTEGER,
+                    start_sec REAL,
+                    end_sec REAL,
+                    text TEXT,
+                    translated_text TEXT,
+                    video_url TEXT,
+                    audio_url TEXT,
+                    created_at INTEGER,
+                    updated_at INTEGER
+                );
+
+                CREATE TABLE IF NOT EXISTS video_translation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT,
+                    log_type TEXT,
+                    message TEXT,
+                    timestamp INTEGER
+                );
+            ",
             kind: MigrationKind::Up,
         }
     ]
@@ -190,7 +210,121 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
     println!("[Rust Migrations] Connecting to database at file: {}", db_path);
     let conn = rusqlite::Connection::open(db_path)?;
 
-    // 1. Ensure app_settings exists first for v2 check
+    // Core self-healing step: Ensure EVERY table exists by running table creation directly from Rust
+    println!("[Rust Migrations] Creating/verifying all core tables...");
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS video_projects (
+            project_uuid TEXT PRIMARY KEY,
+            project_name TEXT NOT NULL,
+            project_prompt TEXT,
+            cover_image_path TEXT,
+            create_time INTEGER NOT NULL,
+            update_time INTEGER NOT NULL,
+            project_status INTEGER NOT NULL DEFAULT 0,
+            scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation')),
+            scene_config_id INTEGER,
+            template_id INTEGER,
+            project_path TEXT,
+            width INTEGER DEFAULT 1920,
+            height INTEGER DEFAULT 1080,
+            aspect_ratio TEXT DEFAULT '16:9',
+            visual_style TEXT DEFAULT 'Cinematic',
+            video_url TEXT,
+            audio_url TEXT,
+            audio_duration REAL DEFAULT 0.0,
+            srt_original TEXT,
+            text_original TEXT,
+            detected_language TEXT
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS scene_config (
+            config_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scene_type TEXT NOT NULL CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word')),
+            script_rules TEXT NOT NULL,
+            ai_params TEXT NOT NULL,
+            export_config TEXT NOT NULL,
+            create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS scene_template (
+            template_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scene_type TEXT NOT NULL CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word')),
+            template_name TEXT NOT NULL,
+            template_path TEXT NOT NULL,
+            template_type TEXT NOT NULL CHECK (template_type IN ('script', 'image', 'timeline')),
+            is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+            create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS dialogue_role (
+            role_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_uuid TEXT NOT NULL,
+            role_name TEXT NOT NULL,
+            role_voice TEXT NOT NULL,
+            role_avatar TEXT,
+            create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS word_detail (
+            word_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_uuid TEXT NOT NULL,
+            word TEXT NOT NULL,
+            phonetic TEXT NOT NULL,
+            paraphrase TEXT NOT NULL,
+            example TEXT,
+            audio_path TEXT,
+            image_path TEXT,
+            create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_uuid) REFERENCES video_projects(project_uuid) ON DELETE CASCADE
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS vocabulary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_uuid TEXT NOT NULL,
+            word TEXT NOT NULL,
+            audio_path TEXT,
+            index_char TEXT,
+            example TEXT,
+            image_path TEXT,
+            phonetic_symbols TEXT,
+            chinese_definition TEXT,
+            data TEXT,
+            prompt TEXT,
+            video_path TEXT,
+            ltx23_prompt TEXT,
+            t2v_prompt TEXT,
+            qwen_image_prompt TEXT,
+            category TEXT,
+            script TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            status INTEGER DEFAULT 1,
+            chinese TEXT
+        );",
+        [],
+    )?;
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY,
@@ -200,33 +334,6 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         [],
     )?;
 
-    // 2. Auto-alter video_projects to support newer columns
-    let alter_queries = vec![
-        "ALTER TABLE video_projects ADD COLUMN width INTEGER DEFAULT 1920",
-        "ALTER TABLE video_projects ADD COLUMN height INTEGER DEFAULT 1080",
-        "ALTER TABLE video_projects ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'",
-        "ALTER TABLE video_projects ADD COLUMN visual_style TEXT DEFAULT 'Cinematic'",
-        "ALTER TABLE video_projects ADD COLUMN video_url TEXT",
-        "ALTER TABLE video_projects ADD COLUMN audio_url TEXT",
-        "ALTER TABLE video_projects ADD COLUMN audio_duration REAL DEFAULT 0.0",
-        "ALTER TABLE video_projects ADD COLUMN srt_original TEXT",
-        "ALTER TABLE video_projects ADD COLUMN text_original TEXT",
-        "ALTER TABLE video_projects ADD COLUMN detected_language TEXT",
-    ];
-    for q in alter_queries {
-        let _ = conn.execute(q, []);
-    }
-
-    // 3. Auto-alter video_translation_timeline to support segments urls
-    let alter_timeline = vec![
-        "ALTER TABLE video_translation_timeline ADD COLUMN video_url TEXT",
-        "ALTER TABLE video_translation_timeline ADD COLUMN audio_url TEXT",
-    ];
-    for q in alter_timeline {
-        let _ = conn.execute(q, []);
-    }
-
-    // 4. Auto-create visual_library table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS visual_library (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -248,7 +355,6 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         [],
     )?;
 
-    // 5. Auto-create prompt_harness table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS prompt_harness (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,12 +363,15 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
             visual_asset_id INTEGER,
             active INTEGER DEFAULT 1,
             created_at INTEGER,
-            updated_at INTEGER
+            updated_at INTEGER,
+            type TEXT,
+            template TEXT,
+            parameters TEXT,
+            target_model TEXT
         );",
         [],
     )?;
 
-    // 6. Auto-create background_tasks table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS background_tasks (
             id TEXT PRIMARY KEY,
@@ -283,7 +392,60 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         [],
     )?;
 
-    // 7. Safe check and auto-creation / migration for video_translation_projects with v2 schema check
+    // Robust column alter safety checks
+    let alter_queries = vec![
+        "ALTER TABLE video_projects ADD COLUMN scene_type TEXT DEFAULT 'short_video' CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word', 'video_translation'))",
+        "ALTER TABLE video_projects ADD COLUMN scene_config_id INTEGER",
+        "ALTER TABLE video_projects ADD COLUMN template_id INTEGER",
+        "ALTER TABLE video_projects ADD COLUMN project_path TEXT",
+        "ALTER TABLE video_projects ADD COLUMN width INTEGER DEFAULT 1920",
+        "ALTER TABLE video_projects ADD COLUMN height INTEGER DEFAULT 1080",
+        "ALTER TABLE video_projects ADD COLUMN aspect_ratio TEXT DEFAULT '16:9'",
+        "ALTER TABLE video_projects ADD COLUMN visual_style TEXT DEFAULT 'Cinematic'",
+        "ALTER TABLE video_projects ADD COLUMN video_url TEXT",
+        "ALTER TABLE video_projects ADD COLUMN audio_url TEXT",
+        "ALTER TABLE video_projects ADD COLUMN audio_duration REAL DEFAULT 0.0",
+        "ALTER TABLE video_projects ADD COLUMN srt_original TEXT",
+        "ALTER TABLE video_projects ADD COLUMN text_original TEXT",
+        "ALTER TABLE video_projects ADD COLUMN detected_language TEXT",
+    ];
+    for q in alter_queries {
+        let _ = conn.execute(q, []);
+    }
+
+    let alter_vocabulary = vec![
+        "ALTER TABLE vocabulary ADD COLUMN text_to_image_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN image_to_video_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN ref_image_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN ref_video_prompt TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN translation TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN voiceover TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN translation_speech_file TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN dialog TEXT",
+    ];
+    for q in alter_vocabulary {
+        let _ = conn.execute(q, []);
+    }
+
+    let alter_timeline = vec![
+        "ALTER TABLE video_translation_timeline ADD COLUMN video_url TEXT",
+        "ALTER TABLE video_translation_timeline ADD COLUMN audio_url TEXT",
+    ];
+    for q in alter_timeline {
+        let _ = conn.execute(q, []);
+    }
+
+    let alter_harness = vec![
+        "ALTER TABLE prompt_harness ADD COLUMN type TEXT",
+        "ALTER TABLE prompt_harness ADD COLUMN template TEXT",
+        "ALTER TABLE prompt_harness ADD COLUMN parameters TEXT",
+        "ALTER TABLE prompt_harness ADD COLUMN target_model TEXT",
+    ];
+    for q in alter_harness {
+        let _ = conn.execute(q, []);
+    }
+
+    // Safe check and auto-creation / migration for video_translation_projects with v2 schema check
     let mut is_migrated = false;
     if let Ok(val) = conn.query_row::<String, _, _>(
         "SELECT value FROM app_settings WHERE key = 'video_translation_schema_v2' LIMIT 1",
@@ -309,7 +471,7 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         );
     }
 
-    // 8. Recreate video_translation_projects table
+    // Recreate video_translation_projects table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS video_translation_projects (
             project_id TEXT PRIMARY KEY,
@@ -328,7 +490,7 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         [],
     )?;
 
-    // 9. Recreate video_translation_timeline table
+    // Recreate video_translation_timeline table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS video_translation_timeline (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -346,7 +508,7 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         [],
     )?;
 
-    // 10. Recreate video_translation_logs table
+    // Recreate video_translation_logs table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS video_translation_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -358,7 +520,7 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         [],
     )?;
 
-    // 11. Self-migration: Merge all unique translation projects inside video_translation_projects table into unified video_projects table
+    // Self-migration: Merge all unique translation projects inside video_translation_projects table into unified video_projects table
     println!("[Rust Migrations] Merging video_translation_projects rows into video_projects...");
     
     struct TransProject {
@@ -590,21 +752,6 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
                 println!("[Rust Migrations] Successfully constructed translation State inside app_settings for {}.", uuid);
             }
         }
-    }
-
-    // Auto-alter vocabulary table to support our newly requested properties (text to image, image to video, translation, voiceover, translation speech file, dialog, ref/reg prompts)
-    let alter_vocabulary = vec![
-        "ALTER TABLE vocabulary ADD COLUMN text_to_image_prompt TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN image_to_video_prompt TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN ref_image_prompt TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN ref_video_prompt TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN translation TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN voiceover TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN translation_speech_file TEXT",
-        "ALTER TABLE vocabulary ADD COLUMN dialog TEXT",
-    ];
-    for q in alter_vocabulary {
-        let _ = conn.execute(q, []);
     }
 
     println!("[Rust Migrations] All backend migrations completed successfully!");

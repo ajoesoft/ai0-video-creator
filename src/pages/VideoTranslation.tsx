@@ -33,6 +33,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from '../contexts/LanguageContext';
 import { videoTranslationTranslations } from '../localization/videoTranslationLocales';
+import { globalTranslations } from '../localization/globalTranslations';
 import { getGeminiClient, translateTextGemini, transcribeAudioGemini, synthesizeSpeechGemini } from '../lib/gemini';
 import { comfy } from '../lib/comfy';
 import { parseSRT, compileDialogueToASS, formatAssTime, SubtitleDialogueLine, DEFAULT_SUBTITLE_STYLE } from '../lib/subtitles';
@@ -396,6 +397,7 @@ export function VideoTranslation() {
   const { t: gT, language } = useTranslation();
   const vtLocales = videoTranslationTranslations[language] || videoTranslationTranslations['en'];
   const vt = (key: keyof typeof videoTranslationTranslations['en']) => vtLocales[key];
+  const gt = (key: keyof typeof globalTranslations['en']) => globalTranslations[language]?.[key] || globalTranslations['en'][key];
   const { id: routeProjectId } = useParams();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -907,7 +909,7 @@ export function VideoTranslation() {
     const projectIdParam = searchParams.get('project_id') || activeProjectId;
     
     if (!activeProject || !projectIdParam) {
-      alert("请先选择一个待保存的项目！");
+      alert(gt('alertSelectSaveProject'));
       return;
     }
     
@@ -964,12 +966,12 @@ export function VideoTranslation() {
 
       if (!silent) {
         addLog(projectIdParam, `[SYSTEM] Saved all timelines and synthesis outputs to core project [${projectIdParam}] successfully.`);
-        alert("项目数据及译后口型配置已保存成功！");
+        alert(language === 'zh' ? "项目数据及译后口型配置已保存成功！" : "Project data and lipsync configurations saved successfully!");
       }
     } catch (err: any) {
       console.error("Failed to save translation project:", err);
       if (!silent) {
-        alert("保存到项目时发生错误: " + err.message);
+        alert((language === 'zh' ? "保存到项目时发生错误: " : "Error saving project: ") + err.message);
       }
     }
   };
@@ -2848,8 +2850,7 @@ ${fastenText}`;
                         <div className="space-y-1 max-w-md">
                           <p className="text-xs font-semibold text-gray-400">{vt('noSubtitleTrack')}</p>
                           <p className="text-[10px] text-gray-500 leading-relaxed">
-                            系统当前未检测到内存中的剧本。如果您已在 [ 提取分离 ] 模块中运行过 Qwen3-ASR，
-                            可直接点击下方按钮从项目物理路径中的 `script/timeline.srt` 载入。
+                            {gt('scriptMemoryEmptyDesc')}
                           </p>
                         </div>
                         {isTauri && (
@@ -2858,7 +2859,7 @@ ${fastenText}`;
                               try {
                                 const workspacePath = await getSetting('workspace_path') || '';
                                 if (!workspacePath) {
-                                  alert("请先设置工作空间路径！");
+                                  alert(gt('workspacePathNotSet'));
                                   return;
                                 }
                                 const { exists, readFile } = await import('@tauri-apps/plugin-fs');
@@ -2917,12 +2918,18 @@ ${fastenText}`;
                                     textTranslated: localTextTranslated || (localSrtTranslated ? compileSrtToPlain(localSrtTranslated) : "")
                                   });
                                   addLog(activeProject.id, `[Success] Resolved and loaded plain text JSON / SRT segments from project script directory.`);
-                                  alert("成功载入本地 ASR 对白剧本" + (localTranslatedDialogues.length > 0 ? "及翻译剧本" : "") + "！");
+                                  alert(language === 'zh' 
+                                    ? ("成功载入本地 ASR 对白剧本" + (localTranslatedDialogues.length > 0 ? "及翻译剧本" : "") + "！")
+                                    : ("Successfully loaded local ASR dialogue script" + (localTranslatedDialogues.length > 0 ? " and translation script" : "") + "!")
+                                  );
                                 } else {
-                                  alert(`未在剧本文件夹下检测到任何剧本文件。\n路径: ${txtPath}`);
+                                  alert(language === 'zh'
+                                    ? `未在剧本文件夹下检测到任何剧本文件。\n路径: ${txtPath}`
+                                    : `No script files detected in the script directory.\nPath: ${txtPath}`
+                                  );
                                 }
                               } catch (err: any) {
-                                alert("读取本地文件失败: " + err.message);
+                                alert((language === 'zh' ? "读取本地文件失败: " : "Failed to read local file: ") + err.message);
                               }
                             }}
                             className="px-4 py-2 bg-brand-primary text-black hover:opacity-90 text-[11px] font-bold uppercase rounded transition-all flex items-center gap-1.5"
@@ -3396,3 +3403,4 @@ ${fastenText}`;
     </div>
   );
 }
+    

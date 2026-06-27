@@ -49,6 +49,7 @@ import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness } from '../t
 import { exists, mkdir } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
 import { useTranslation } from '../contexts/LanguageContext';
+import { globalTranslations } from '../localization/globalTranslations';
 
 function VisualAssetItemImage({ path, title, className = "w-full h-full object-cover" }: { path: string | undefined | null, title?: string, className?: string }) {
   const base64Src = useLocalImageBase64(path);
@@ -74,7 +75,8 @@ function VisualAssetItemImage({ path, title, className = "w-full h-full object-c
 
 export function VisualsLibrary() {
   const { id } = useParams<{ id: string }>();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const gt = (key: keyof typeof globalTranslations['en']) => globalTranslations[language]?.[key] || globalTranslations['en'][key];
   
   // App context states
   const [project, setProject] = useState<VideoProject | null>(null);
@@ -185,18 +187,18 @@ export function VisualsLibrary() {
   // ========================================================
   const handleCreateHarness = async () => {
     if (!newHarnessTrigger.trim()) {
-      alert("Trigger Keyword cannot be empty! (触发关键词不能为空)");
+      alert(gt('alertTriggerEmpty'));
       return;
     }
     if (newHarnessType === 'static' && !newHarnessAssetId) {
-      alert("Please select a target Visual Asset to reference for Static mappings! (请选择一个目标视觉资产)");
+      alert(gt('alertSelectVisualAsset'));
       return;
     }
     
     // Check if duplicate trigger keyword exists for this project
     const duplicate = promptHarnesses.some(h => h.triggerKeyword.toLowerCase() === newHarnessTrigger.trim().toLowerCase());
     if (duplicate) {
-      alert("This trigger keyword reference mapping already exists! (该关键词映射已存在)");
+      alert(gt('alertHarnessExists'));
       return;
     }
 

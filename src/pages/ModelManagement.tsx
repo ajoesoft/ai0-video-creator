@@ -33,14 +33,18 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from '../contexts/LanguageContext';
+import { globalTranslations } from '../localization/globalTranslations';
 import { getSetting, setSetting } from '../lib/db';
 
 export interface WorkflowConfig {
   id: string;
   name: string;
+  nameEn?: string;
   key: string;
   presetFile: string;
   description: string;
+  descriptionEn?: string;
   defaultModelName: string;
   inputPromptNode: string;
   inputPromptProp: string;
@@ -60,9 +64,11 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
   {
     id: 'text_to_image',
     name: '文生图 (Text-to-Image)',
+    nameEn: 'Text-to-Image (T2I)',
     key: 'comfy_wf_text_to_image',
     presetFile: 'ai0-video-creator-z_image_turbo-api.txt',
     description: '用于文本/提示词生成高保真、极速图像，默认集成 Z-IMAGE-TURBO 或 Qwen-Image 算子。',
+    descriptionEn: 'Generates high-fidelity, ultra-fast images from text prompts, integrated with Z-IMAGE-TURBO or Qwen-Image.',
     defaultModelName: 'Z-IMAGE-TURBO',
     inputPromptNode: '57:27',
     inputPromptProp: 'text',
@@ -80,9 +86,11 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
   {
     id: 'video_generation',
     name: '视频生成 (Video Generation)',
+    nameEn: 'Video Generation (T2V/I2V)',
     key: 'comfy_wf_video_generation',
     presetFile: 'ai0-video-creator-LTX-2.3-All-In-One-api.txt',
     description: '支持：文生视频、图生视频、图+音频生视频、首尾帧图+音频生视频的多合一视频算子。',
+    descriptionEn: 'Supports multi-in-one operations: Text-to-Video, Image-to-Video, Image+Audio-to-Video, and First/Last frames interpolation.',
     defaultModelName: 'LTX-2.3-All-In-One',
     inputPromptNode: '5536',
     inputPromptProp: 'text',
@@ -100,9 +108,11 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
   {
     id: 'tts',
     name: '声音克隆 & TTS (TTS Voice)',
+    nameEn: 'Voice Cloning & TTS',
     key: 'comfy_wf_tts',
     presetFile: 'ai0-video-creator-VoxCPM2-voice-clone-api.txt',
     description: '利用给定的参考声音文件进行情感/音色复刻合成的 TTS 文本转语音工作流。',
+    descriptionEn: 'Replicates speech emotion and tone from a reference audio file for custom synthesized text-to-speech workflows.',
     defaultModelName: 'VoxCPM2',
     inputPromptNode: '28',
     inputPromptProp: 'text',
@@ -120,9 +130,11 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
   {
     id: 'lipsync',
     name: '唇形同步 (LIPSYNC)',
+    nameEn: 'Lip Synchronization (LipSync)',
     key: 'comfy_wf_lipsync',
     presetFile: 'ai0-video-creator-latentsync1.5_comfyui_basic.txt',
     description: '通过音频对齐技术将人物说话视频口型与新生成的音频进行完全口型对齐同步的管线。',
+    descriptionEn: 'Uses advanced audio alignment to precisely synchronize a speaker\'s lip movements with newly generated speech.',
     defaultModelName: 'LatentSync',
     inputPromptNode: '',
     inputPromptProp: '',
@@ -140,9 +152,11 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
   {
     id: 'asr',
     name: '语音识别 (ASR Subtitle)',
+    nameEn: 'Speech Recognition (ASR Subtitles)',
     key: 'comfy_wf_asr',
     presetFile: 'ai0-video-creator-Qwen3 ASR 3.0-api.txt',
     description: '识别导入音频中人声，自动输出包含精准切分时间戳的时间字幕 (SRT/TXT)。',
+    descriptionEn: 'Extracts human speech from imported audio to produce accurate subtitles with precise time-codes (SRT/TXT).',
     defaultModelName: 'QWEN3-ASR',
     inputPromptNode: '',
     inputPromptProp: '',
@@ -160,9 +174,11 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
   {
     id: 'translation',
     name: '文本翻译 (LLM Translation)',
+    nameEn: 'LLM Translation',
     key: 'comfy_wf_translation',
     presetFile: 'ai0-HY-MT20-translation-api.txt',
     description: '专业的语言翻译与文本对齐工作流。采用大语言模型对多国语言文本进行本地化翻译。',
+    descriptionEn: 'Professional translation and text alignment workflows leveraging LLMs for fast localized multi-lingual text translation.',
     defaultModelName: 'HY-MT20',
     inputPromptNode: '2',
     inputPromptProp: 'text',
@@ -180,6 +196,8 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
 ];
 
 export function ModelManagement() {
+  const { language } = useTranslation();
+  const gt = (key: keyof typeof globalTranslations['en']) => globalTranslations[language]?.[key] || globalTranslations['en'][key];
   const [activeTab, setActiveTab] = useState<'local' | 'cloud' | 'workflows'>('local');
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
 
@@ -418,7 +436,7 @@ export function ModelManagement() {
       JSON.parse(jsonText);
       setValidationError(null);
     } catch (err: any) {
-      setValidationError(`JSON 语法错误 (Syntax Error): ${err.message}`);
+      setValidationError(language === 'zh' ? `JSON 语法错误 (Syntax Error): ${err.message}` : `JSON Syntax Error: ${err.message}`);
       return;
     }
 
@@ -446,7 +464,7 @@ export function ModelManagement() {
       setSaveSuccess(selectedWfId);
       setTimeout(() => setSaveSuccess(null), 3000);
     } catch (dbErr: any) {
-      setValidationError(`保存数据库失败: ${dbErr.toString()}`);
+      setValidationError(language === 'zh' ? `保存数据库失败: ${dbErr.toString()}` : `Failed to save settings: ${dbErr.toString()}`);
     }
   };
 
@@ -457,7 +475,7 @@ export function ModelManagement() {
       setJsonText(formatted);
       setValidationError(null);
     } catch (err: any) {
-      setValidationError(`无法格式化，存在 JSON 语法错误: ${err.message}`);
+      setValidationError(language === 'zh' ? `无法格式化，存在 JSON 语法错误: ${err.message}` : `Cannot format: JSON syntax error: ${err.message}`);
     }
   };
 
@@ -496,10 +514,10 @@ export function ModelManagement() {
         setSaveSuccess('reset_' + selectedWfId);
         setTimeout(() => setSaveSuccess(null), 3000);
       } else {
-        setValidationError(`读取原始预设文件 ${registry.presetFile} 失败，请检查文件是否存在`);
+        setValidationError(language === 'zh' ? `读取原始预设文件 ${registry.presetFile} 失败，请检查文件是否存在` : `Failed to read preset file ${registry.presetFile}. Verify file existence.`);
       }
     } catch (err: any) {
-      setValidationError(`重置失败: ${err.toString()}`);
+      setValidationError(language === 'zh' ? `重置失败: ${err.toString()}` : `Reset failed: ${err.toString()}`);
     }
   };
 
@@ -520,7 +538,7 @@ export function ModelManagement() {
   const loadComfyDetails = async (rootPath: string) => {
     const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
     if (!rootPath) {
-      setDetailsError('ComfyUI 根目录路径未配置。请先在 "离线权重 Local Models" 选项卡中配置您的 ComfyUI 根目录路径并保存。');
+      setDetailsError(language === 'zh' ? 'ComfyUI 根目录路径未配置。请先在 "离线权重 Local Models" 选项卡中配置您的 ComfyUI 根目录路径并保存。' : 'ComfyUI root path is not configured. Please specify and save your ComfyUI root directory in the Local Models tab first.');
       setComfyDetails(null);
       return;
     }
@@ -531,7 +549,7 @@ export function ModelManagement() {
     if (!isTauri) {
       // Elegant web fallback mock presentation
       setTimeout(async () => {
-        const mockNodes = [
+        const mockNodes = language === 'zh' ? [
           'ComfyUI-VideoHelperSuite (视频渲染辅助套件)',
           'ComfyUI-Impact-Pack (智能遮罩与人脸修复套件)',
           'ComfyUI-Advanced-ControlNet (高级控制网动作库)',
@@ -542,45 +560,56 @@ export function ModelManagement() {
           'ComfyUI_LayerStyle (图层遮罩与颜色映射辅助套件)',
           'ComfyUI-Flowty-TripoSR (3D快速资产生成算子)',
           'comfyui-suara-tts (多语种原声TTS智能转换器)'
+        ] : [
+          'ComfyUI-VideoHelperSuite (Video Render Helper Suite)',
+          'ComfyUI-Impact-Pack (Smart Masking & Face Face Repair Suite)',
+          'ComfyUI-Advanced-ControlNet (Advanced ControlNet Library)',
+          'ComfyUI_IPAdapter_plus (Image Style & Structure Adapter)',
+          'ComfyUI-AnimateDiff-Evolved (Long Video Interpolation & Orchestration)',
+          'comfyui-reactor-node (One-click Face Swap Core)',
+          'Wav2Lip-ComfyUI (Audio-Visual LipSync Core)',
+          'ComfyUI_LayerStyle (Layer Masking & Color Mapping Suite)',
+          'ComfyUI-Flowty-TripoSR (3D Asset Generator)',
+          'comfyui-suara-tts (Multi-lingual Vocal TTS Engine)'
         ];
         const mockModels = {
-          'checkpoints (基础底模)': [
+          [language === 'zh' ? 'checkpoints (基础底模)' : 'checkpoints (Base Models)']: [
             'SD1.5/v1-5-pruned-emaonly.safetensors (5.2 GB)',
             'SDXL/sd_xl_base_1.0.safetensors (6.9 GB)',
             'Pony/ponyDiffusionV6XL_v6StartWithThis.safetensors (6.4 GB)',
             'AnimagineXL_v3.0.safetensors (6.6 GB)',
             'Flux1/flux1-dev-fp8.safetensors (17.2 GB)'
           ],
-          'loras (微调权重)': [
+          [language === 'zh' ? 'loras (微调权重)' : 'loras (LoRA Weights)']: [
             'sdxl_lightning_8step_lora.safetensors (168 MB)',
             'lcm_sdxl_lora.safetensors (135 MB)',
             'ghibli_style_offset.safetensors (32 MB)',
             '3d_render_illustration_style.safetensors (144 MB)',
             'cyberpunk_neon_atmosphere_v2.safetensors (144 MB)'
           ],
-          'controlnet (结构控制网)': [
+          [language === 'zh' ? 'controlnet (结构控制网)' : 'controlnet (ControlNet)']: [
             'control_v11p_sd15_canny.pth (1.4 GB)',
             'control_v11f1p_sd15_depth.pth (1.4 GB)',
             't2iadapter_sketch_sd14v1.pth (750 MB)',
             'sdxl_controlnet_openpose.safetensors (2.1 GB)',
             'flux1_controlnet_lineart.safetensors (1.9 GB)'
           ],
-          'animatediff_models (动态插帧模型)': [
+          [language === 'zh' ? 'animatediff_models (动态插帧模型)' : 'animatediff_models (Frame Interpolation)']: [
             'v3_sd15_adapter.ckpt (150 MB)',
             'v3_sd15_mm.ckpt (1.6 GB)',
             'mm_sdxl_v10.safetensors (2.2 GB)'
           ],
-          'vae (变分自动编码器)': [
+          [language === 'zh' ? 'vae (变分自动编码器)' : 'vae (Variational AutoEncoder)']: [
             'vae-ft-mse-840000-ema-pruned.safetensors (335 MB)',
             'sdxl_vae.safetensors (335 MB)',
             'flux_vae.safetensors (335 MB)'
           ],
-          'upscale_models (超分辨率放大)': [
+          [language === 'zh' ? 'upscale_models (超分辨率放大)' : 'upscale_models (Upscalers)']: [
             'RealESRGAN_x4plus.pth (64 MB)',
             '4x-UltraSharp.pth (67 MB)',
             'DAT-2_x4.pth (120 MB)'
           ],
-          'unet (扩散去噪核心)': [
+          [language === 'zh' ? 'unet (扩散去噪核心)' : 'unet (Diffusion Unet Core)']: [
             'flux1-dev.sft (23.8 GB)',
             'flux1-schnell.sft (23.8 GB)'
           ]
@@ -611,7 +640,7 @@ export function ModelManagement() {
         }
       }
     } catch (err: any) {
-      setDetailsError(err?.toString() || '扫描 ComfyUI 根目录失败，请确认该目录是否存在或具有读写权限。');
+      setDetailsError(err?.toString() || (language === 'zh' ? '扫描 ComfyUI 根目录失败，请确认该目录是否存在或具有读写权限。' : 'Failed to scan ComfyUI root directory. Make sure it exists and has read/write permissions.'));
       setComfyDetails(null);
     } finally {
       setIsLoadingDetails(false);
@@ -624,7 +653,7 @@ export function ModelManagement() {
       const selected = await open({
         directory: true,
         multiple: false,
-        title: 'Select ComfyUI Root Repository Path (选择 ComfyUI 根目录路径)'
+        title: language === 'zh' ? '选择 ComfyUI 根目录路径 (Select ComfyUI Root Path)' : 'Select ComfyUI Root Repository Path'
       });
 
       if (selected && typeof selected === 'string') {
@@ -725,8 +754,8 @@ export function ModelManagement() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
         <div className="space-y-1">
-          <h2 className="text-3xl font-bold tracking-tight">模型与云服务管理 Model Matrix</h2>
-          <p className="text-gray-400 text-sm">Deploy local weights or configure remote APIs for commercial-grade video & sound localizations.</p>
+          <h2 className="text-3xl font-bold tracking-tight">{gt('modelMatrixTitle')}</h2>
+          <p className="text-gray-400 text-sm">{gt('modelMatrixDesc')}</p>
         </div>
         
         {/* Tab Selector */}
@@ -739,7 +768,7 @@ export function ModelManagement() {
              )}
            >
               <Cloud className="w-3.5 h-3.5" />
-              云端服务与模式选型 (Cloud APIs & Router)
+              {gt('tabCloudApis')}
            </button>
            <button 
              onClick={() => setActiveTab('local')}
@@ -749,7 +778,7 @@ export function ModelManagement() {
              )}
            >
               <HardDrive className="w-3.5 h-3.5" />
-              ComfyUI 本地模型与节点 (Local Weight & Node)
+              {gt('tabLocalWeights')}
            </button>
            <button 
              onClick={() => setActiveTab('workflows')}
@@ -759,7 +788,7 @@ export function ModelManagement() {
              )}
            >
               <Database className="w-3.5 h-3.5" />
-              ComfyUI 工作流与映射 (Workflow Customizer)
+              {gt('tabWorkflows')}
            </button>
         </div>
       </div>
@@ -782,14 +811,16 @@ export function ModelManagement() {
                   </div>
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-white text-base">ComfyUI 本地创作工作空间 (Local ComfyUI Workspace)</h3>
+                      <h3 className="font-bold text-white text-base">{language === 'zh' ? 'ComfyUI 本地创作工作空间 (Local ComfyUI Workspace)' : 'Local ComfyUI Workspace'}</h3>
                       <div className="flex items-center gap-1.5 text-xs text-brand-primary bg-brand-primary/10 px-2.5 py-0.5 rounded-full font-bold">
                         <span className="w-1.5 h-1.5 bg-brand-primary rounded-full animate-ping" />
                         <span>Workspace Core</span>
                       </div>
                     </div>
-                    <p className="text-gray-400 text-xs">
-                      配置本地运行路径，让系统获得物理访问权限，支持断点扫描、预设一键解压以及对嘴、合成等算子调用。
+                    <p className="text-gray-400 text-xs text-left">
+                      {language === 'zh' 
+                        ? '配置本地运行路径，让系统获得物理访问权限，支持断点扫描、预设一键解压以及对嘴、合成等算子调用。' 
+                        : 'Configure your local runtime path to grant workspace access. Enables incremental disk scans, one-click preset deployment, and local lip-sync execution.'}
                     </p>
                   </div>
                 </div>
@@ -800,23 +831,23 @@ export function ModelManagement() {
                     className="desktop-button-ghost py-2 md:py-2.5 px-4 text-xs flex items-center gap-2 border border-white/10 hover:bg-white/5 h-10 font-bold"
                   >
                     <RefreshCcw className={cn("w-3.5 h-3.5", isLoadingDetails && "animate-spin")} />
-                    <span>刷新盘存 Rescan</span>
+                    <span>{language === 'zh' ? '刷新盘存 Rescan' : 'Rescan Directory'}</span>
                   </button>
                   <button 
                     onClick={handleSelectComfyuiRoot}
                     className="desktop-button-primary bg-brand-primary hover:bg-brand-primary/90 text-black font-semibold py-2 md:py-2.5 px-4 text-xs flex items-center gap-2 h-10 shrink-0"
                   >
                     <FolderOpen className="w-4 h-4" />
-                    <span>更改物理路径 Change Path</span>
+                    <span>{language === 'zh' ? '更改物理路径 Change Path' : 'Change Directory Path'}</span>
                   </button>
                 </div>
               </div>
-
+              
               {/* Path Display and Error Alert */}
               <div className="space-y-3 text-left">
                 <div className="flex flex-col md:flex-row gap-3">
                   <div className="flex-1 space-y-1.5">
-                    <span className="text-[10px] uppercase font-mono font-bold text-gray-500">ComfyUI Workspace Folder (当前安装盘符路径)</span>
+                    <span className="text-[10px] uppercase font-mono font-bold text-gray-500">{language === 'zh' ? 'ComfyUI Workspace Folder (当前安装盘符路径)' : 'ComfyUI Workspace Folder (Local Disk Installation Path)'}</span>
                     <input 
                       type="text" 
                       value={comfyuiRootPath}
@@ -830,7 +861,7 @@ export function ModelManagement() {
                 {saveSuccess === 'comfyui' && (
                   <p className="text-green-400 text-[10px] font-semibold flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" />
-                    <span>路径保存成功，已刷新节点与模型依赖树！</span>
+                    <span>{language === 'zh' ? '路径保存成功，已刷新节点与模型依赖树！' : 'Workspace path saved successfully! Node & weight dependency trees refreshed.'}</span>
                   </p>
                 )}
 
@@ -838,7 +869,7 @@ export function ModelManagement() {
                   <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl flex items-start gap-3 w-full">
                     <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                     <div className="space-y-1 text-xs">
-                      <p className="font-bold">本地磁盘扫描部分受限 (Sync Blocked)</p>
+                      <p className="font-bold">{language === 'zh' ? '本地磁盘扫描部分受限 (Sync Blocked)' : 'Workspace Scanning Blocked (Sync Blocked)'}</p>
                       <p>{detailsError}</p>
                     </div>
                   </div>
@@ -853,7 +884,7 @@ export function ModelManagement() {
               <div className="xl:col-span-4 space-y-4">
                 <div className="desktop-card p-5 bg-black/40 space-y-4 border border-white/5">
                   <div className="border-b border-white/5 pb-3">
-                    <h4 className="font-bold text-white text-sm">内置离线模型高速下载 (Preset Depot)</h4>
+                    <h4 className="font-bold text-white text-sm">{language === 'zh' ? '内置离线模型高速下载 (Preset Depot)' : 'Offline Preset Weights & Depot'}</h4>
                     <p className="text-gray-500 text-[10px] uppercase font-mono mb-1">Mirror repository weights for Local Models Tab</p>
                   </div>
                   
@@ -891,10 +922,10 @@ export function ModelManagement() {
                             <>
                               <button className="text-[10px] font-bold text-gray-500 hover:text-white transition-colors flex items-center gap-1 bg-transparent">
                                 <Info className="w-3.5 h-3.5 opacity-50" />
-                                盘存备忘 Checked
+                                {language === 'zh' ? '盘存备忘 Checked' : 'Checked In Inventory'}
                               </button>
                               <button className="p-1.5 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded transition-colors text-xs font-semibold">
-                                移除配置
+                                {language === 'zh' ? '移除配置' : 'De-register Preset'}
                               </button>
                             </>
                           ) : (
@@ -906,12 +937,12 @@ export function ModelManagement() {
                               {isDownloading === model.id ? (
                                 <>
                                   <Loader2 className="w-3 animate-spin" />
-                                  正在下载 Pulling...
+                                  {language === 'zh' ? '正在下载 Pulling...' : 'Downloading Depot Presets...'}
                                 </>
                               ) : (
                                 <>
                                   <Download className="w-3 h-3" />
-                                  物理拉取安装 Preset
+                                  {language === 'zh' ? '物理拉取安装 Preset' : 'Decompress & Deploy Preset'}
                                 </>
                               )}
                             </button>
@@ -933,8 +964,12 @@ export function ModelManagement() {
                     
                     <div className="p-4 bg-white/[0.01] border border-dashed border-white/5 hover:border-brand-primary/20 rounded-xl transition-all flex flex-col items-center justify-center text-center gap-2 py-6">
                       <Search className="w-6 h-6 text-gray-600" />
-                      <span className="text-xs font-bold text-gray-400">导入外部第三方预置权重</span>
-                      <p className="text-[10px] text-gray-500 leading-relaxed px-2">直接将 Civitai/Huggingface checkpoint 存入 /models/ 对应目录进行物理 Rescan 即可载入模型。</p>
+                      <span className="text-xs font-bold text-gray-400">{language === 'zh' ? '导入外部第三方预置权重' : 'Import Custom Third-party Weights'}</span>
+                      <p className="text-[10px] text-gray-500 leading-relaxed px-2">
+                        {language === 'zh' 
+                          ? '直接将 Civitai/Huggingface checkpoint 存入 /models/ 对应目录进行物理 Rescan 即可载入模型。' 
+                          : 'Copy standard Civitai/Huggingface checkpoints to the respective subfolders inside your ComfyUI models directory, then click Rescan.'}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -945,7 +980,7 @@ export function ModelManagement() {
                 {isLoadingDetails ? (
                   <div className="flex flex-col items-center justify-center py-40 gap-3 border border-white/5 rounded-2xl bg-black/40">
                     <Loader2 className="w-8 h-8 text-brand-primary animate-spin" />
-                    <p className="text-xs text-gray-400 font-mono">正在遍历磁盘 ComfyUI 物理依赖，核准根节点与权重树...</p>
+                    <p className="text-xs text-gray-400 font-mono">{language === 'zh' ? '正在遍历磁盘 ComfyUI 物理依赖，核准根节点与权重树...' : 'Crawling local disk directory tree, verifying nodes and model checkpoints...'}</p>
                   </div>
                 ) : comfyDetails ? (
                   <div className="space-y-4">
@@ -956,7 +991,7 @@ export function ModelManagement() {
                         type="text" 
                         value={comfySearch}
                         onChange={(e) => setComfySearch(e.target.value)}
-                        placeholder="检索物理盘面上的已安装自定义节点插件，或在 models 底下的预编译 weights 权重文件（支持模糊搜索）..."
+                        placeholder={language === 'zh' ? '检索物理盘面上的已安装自定义节点插件，或在 models 底下的预编译 weights 权重文件（支持模糊搜索）...' : 'Search scanned physical plugins, active nodes, or models mapping directory (supports fuzzy match)...'}
                         className="flex-1 bg-transparent text-xs text-white border-0 focus:outline-none focus:ring-0 placeholder:text-gray-600"
                       />
                     </div>
@@ -965,7 +1000,7 @@ export function ModelManagement() {
                       {/* Detected Custom Nodes */}
                       <div className="md:col-span-5 desktop-card p-5 bg-black/40 space-y-4 border border-white/5">
                         <div className="border-b border-white/5 pb-2 flex items-center justify-between">
-                          <span className="text-xs font-bold text-white uppercase tracking-wider">已检测自定义插件套件 ({comfyDetails.custom_nodes.length})</span>
+                          <span className="text-xs font-bold text-white uppercase tracking-wider">{language === 'zh' ? `已检测自定义插件套件 (${comfyDetails.custom_nodes.length})` : `Discovered Node Plugins (${comfyDetails.custom_nodes.length})`}</span>
                           <span className="text-[9px] font-mono bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">custom_nodes</span>
                         </div>
 
@@ -983,7 +1018,7 @@ export function ModelManagement() {
                               </div>
                             ))}
                           {comfyDetails.custom_nodes.filter(node => node.toLowerCase().includes(comfySearch.toLowerCase())).length === 0 && (
-                            <p className="text-xs text-gray-500 text-center py-6">未检索匹配到任何物理节点套件</p>
+                            <p className="text-xs text-gray-500 text-center py-6">{language === 'zh' ? '未检索匹配到任何物理节点套件' : 'No matching custom node plugins scanned on disk'}</p>
                           )}
                         </div>
                       </div>
@@ -991,7 +1026,7 @@ export function ModelManagement() {
                       {/* Detected Weight repositories */}
                       <div className="md:col-span-7 desktop-card p-5 bg-black/40 space-y-4 border border-white/5">
                         <div className="border-b border-white/5 pb-2 flex items-center justify-between">
-                          <span className="text-xs font-bold text-white uppercase tracking-wider">本地安全模型矩阵 (Models Map)</span>
+                          <span className="text-xs font-bold text-white uppercase tracking-wider">{language === 'zh' ? '本地安全模型矩阵 (Models Map)' : 'Local Safe Model Directory Matrix (Models Map)'}</span>
                           <span className="text-[9px] font-mono bg-white/5 text-gray-400 px-1.5 py-0.5 rounded">models/*</span>
                         </div>
 
@@ -1026,7 +1061,7 @@ export function ModelManagement() {
                             );
                           })}
                           {Object.keys(comfyDetails.models).length === 0 && (
-                            <p className="text-xs text-gray-500 text-center py-10">未检测到任何 ComfyUI 文件夹或模型文件</p>
+                            <p className="text-xs text-gray-500 text-center py-10">{language === 'zh' ? '未检测到任何 ComfyUI 文件夹 or 模型文件' : 'No model folders or checkpoints found in specified path'}</p>
                           )}
                         </div>
                       </div>
@@ -1036,9 +1071,11 @@ export function ModelManagement() {
                   <div className="desktop-card border-dashed p-10 flex flex-col items-center justify-center text-center gap-4 hover:bg-brand-primary/5 hover:border-brand-primary/30 transition-all group w-full py-24">
                     <Workflow className="w-12 h-12 text-gray-600 group-hover:text-brand-primary" />
                     <div className="space-y-1">
-                      <h4 className="font-bold text-white text-base">ComfyUI 物理工作空间离线</h4>
+                      <h4 className="font-bold text-white text-base">{language === 'zh' ? 'ComfyUI 物理工作空间离线' : 'ComfyUI Workspace Offline'}</h4>
                       <p className="text-xs text-gray-500 max-w-sm leading-relaxed mx-auto">
-                        请在上方输入有效的 ComfyUI 的物理全局安装路径。绑定后系统即可与底层磁盘树实现热连接，检测所有 custom_nodes 与 model 权重存放序列。
+                        {language === 'zh' 
+                          ? '请在上方输入有效的 ComfyUI 的物理全局安装路径。绑定后系统即可与底层磁盘树实现热连接，检测所有 custom_nodes 与 model 权重存放序列。' 
+                          : 'Please specify a valid, fully qualified physical installation path for ComfyUI. Once connected, the systems scans the active custom_nodes and checkpoint folders.'}
                       </p>
                     </div>
                   </div>
@@ -1064,8 +1101,12 @@ export function ModelManagement() {
                     <Sliders className="w-5 h-5 text-brand-primary" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-white text-base text-left">智能化管线运行方式与调度 (Pipeline Engine Dispatcher)</h3>
-                    <p className="text-gray-400 text-xs text-left">请分别为 6 大创意工序指派当前的底层运行模式。您可以随时在 Local Models (本地 ComfyUI) 或是高效云端接口之间切换。</p>
+                    <h3 className="font-bold text-white text-base text-left">{language === 'zh' ? '智能化管线运行方式与调度 (Pipeline Engine Dispatcher)' : 'Pipeline Engine Dispatcher'}</h3>
+                    <p className="text-gray-400 text-xs text-left">
+                      {language === 'zh' 
+                        ? '请分别为 6 大创意工序指派当前的底层运行模式。您可以随时在 Local Models (本地 ComfyUI) 或是高效云端接口之间切换。' 
+                        : 'Assign the execution engine for the 6 core pipelines. Hot-swap instantly between Local Models (ComfyUI) and high-speed cloud APIs.'}
+                    </p>
                   </div>
                 </div>
                 <span className="text-[10px] font-mono text-brand-primary bg-brand-primary/10 border border-brand-primary/20 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider self-start sm:self-center">
@@ -1083,8 +1124,8 @@ export function ModelManagement() {
                           <Image className="w-4 h-4 text-orange-400" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-white">文生图 (Text-to-Image)</h4>
-                          <span className="text-[10px] text-gray-500 leading-none">预设: Z-IMAGE-TURBO / Imagen 3</span>
+                          <h4 className="font-bold text-sm text-white">{language === 'zh' ? '文生图 (Text-to-Image)' : 'Text-to-Image'}</h4>
+                          <span className="text-[10px] text-gray-500 leading-none">{language === 'zh' ? '预设: Z-IMAGE-TURBO / Imagen 3' : 'Preset: Z-IMAGE-TURBO / Imagen 3'}</span>
                         </div>
                       </div>
                       <span className={cn(
@@ -1095,7 +1136,9 @@ export function ModelManagement() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed min-h-[36px]">
-                      生成高解析海报素材。本地使用 ComfyUI 的 Z-IMAGE-TURBO 极速降噪渲染，云端则直接路由至 Google Gemini (Imagen 3)。
+                      {language === 'zh' 
+                        ? '生成高解析海报素材。本地使用 ComfyUI 的 Z-IMAGE-TURBO 极速降噪渲染，云端则直接路由至 Google Gemini (Imagen 3)。' 
+                        : 'Generate high-res poster materials. Local engine utilizes ComfyUI Z-IMAGE-TURBO for fast denoising; Cloud routes directly to Google Gemini (Imagen 3).'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1124,7 +1167,7 @@ export function ModelManagement() {
                           workflowModes.text_to_image === 'cloud' ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"
                         )}
                       >
-                        云端接口
+                        {language === 'zh' ? '云端接口' : 'Cloud API'}
                       </button>
                     </div>
                   </div>
@@ -1139,8 +1182,8 @@ export function ModelManagement() {
                           <Video className="w-4 h-4 text-pink-400" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-white">视频生成 (Video Generation)</h4>
-                          <span className="text-[10px] text-gray-500 leading-none">文生视频 / 图+声生视频 / 首尾帧</span>
+                          <h4 className="font-bold text-sm text-white">{language === 'zh' ? '视频生成 (Video Generation)' : 'Video Generation'}</h4>
+                          <span className="text-[10px] text-gray-500 leading-none">{language === 'zh' ? '文生视频 / 图+声生视频 / 首尾帧' : 'T2V / I+A2V / Keyframes'}</span>
                         </div>
                       </div>
                       <span className={cn(
@@ -1151,7 +1194,9 @@ export function ModelManagement() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed min-h-[36px]">
-                      合成多模态商业宣发短片。本地依赖 LTX-2.3 (支持物理合并编码)，云端调度 Google Gemini / Veo 商用引擎进行高帧渲染。
+                      {language === 'zh' 
+                        ? '合成多模态商业宣发短片。本地依赖 LTX-2.3 (支持物理合并编码)，云端调度 Google Gemini / Veo 商用引擎进行高帧渲染。' 
+                        : 'Synthesize multimodal promotional short videos. Local relies on LTX-2.3 (hardware combined encoding); Cloud dispatches Google Gemini / Veo for high frame-rate rendering.'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1180,7 +1225,7 @@ export function ModelManagement() {
                           workflowModes.video_generation === 'cloud' ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"
                         )}
                       >
-                        云端接口
+                        {language === 'zh' ? '云端接口' : 'Cloud API'}
                       </button>
                     </div>
                   </div>
@@ -1195,8 +1240,8 @@ export function ModelManagement() {
                           <Volume2 className="w-4 h-4 text-teal-400" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-white">声音克隆 (TTS Engine)</h4>
-                          <span className="text-[10px] text-gray-500 leading-none">预设: VoxCPM2 / 字节复刻</span>
+                          <h4 className="font-bold text-sm text-white">{language === 'zh' ? '声音克隆 (TTS Engine)' : 'Voice Cloning (TTS)'}</h4>
+                          <span className="text-[10px] text-gray-500 leading-none">{language === 'zh' ? '预设: VoxCPM2 / 字节复刻' : 'Preset: VoxCPM2 / ByteDance Clone'}</span>
                         </div>
                       </div>
                       <span className={cn(
@@ -1207,7 +1252,9 @@ export function ModelManagement() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed min-h-[36px]">
-                      多语种文本拟真人声演绎。本地驱动神经网络 VoxCPM2 快速克隆，云端则直连字节跳动火山引擎完成极速生成。
+                      {language === 'zh' 
+                        ? '多语种文本拟真人声演绎。本地驱动神经网络 VoxCPM2 快速克隆，云端则直连字节跳动火山引擎完成极速生成。' 
+                        : 'Natural voiceovers from text inputs. Local uses VoxCPM2 neural network cloning; Cloud integrates with ByteDance Volcengine for instant speech generation.'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1236,7 +1283,7 @@ export function ModelManagement() {
                           workflowModes.tts === 'cloud' ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"
                         )}
                       >
-                        云端接口
+                        {language === 'zh' ? '云端接口' : 'Cloud API'}
                       </button>
                     </div>
                   </div>
@@ -1251,8 +1298,8 @@ export function ModelManagement() {
                           <Sparkles className="w-4 h-4 text-indigo-400" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-white">唇形同步 (LIPSYNC)</h4>
-                          <span className="text-[10px] text-gray-500 leading-none">预设: LatentSync 对嘴同步</span>
+                          <h4 className="font-bold text-sm text-white">{language === 'zh' ? '唇形同步 (LIPSYNC)' : 'Lip Synchronization (LipSync)'}</h4>
+                          <span className="text-[10px] text-gray-500 leading-none">{language === 'zh' ? '预设: LatentSync 对嘴同步' : 'Preset: LatentSync Lip Alignment'}</span>
                         </div>
                       </div>
                       <span className={cn(
@@ -1263,7 +1310,9 @@ export function ModelManagement() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed min-h-[36px]">
-                      口型与画面高度音画吻合。本地采用 LatentSync 双向对嘴，云端采用专业的高性能 LipSync 云端对齐引擎。
+                      {language === 'zh' 
+                        ? '口型与画面高度音画吻合。本地采用 LatentSync 双向对嘴，云端采用专业的高性能 LipSync 云端对齐引擎。' 
+                        : 'Achieve pixel-perfect audio-to-video lip sync. Local uses LatentSync bidirectional warping; Cloud triggers premium high-performance LipSync alignment servers.'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1292,7 +1341,7 @@ export function ModelManagement() {
                           workflowModes.lipsync === 'cloud' ? "bg-purple-600 text-white shadow" : "text-gray-400 hover:text-white"
                         )}
                       >
-                        云端接口
+                        {language === 'zh' ? '云端接口' : 'Cloud API'}
                       </button>
                     </div>
                   </div>
@@ -1307,8 +1356,8 @@ export function ModelManagement() {
                           <Mic className="w-4 h-4 text-emerald-400" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-white">语音识别 (ASR Subtitle)</h4>
-                          <span className="text-[10px] text-gray-500 leading-none">预设: QWEN3-ASR 识别</span>
+                          <h4 className="font-bold text-sm text-white">{language === 'zh' ? '语音识别 (ASR Subtitle)' : 'Speech Recognition (ASR Subtitles)'}</h4>
+                          <span className="text-[10px] text-gray-500 leading-none">{language === 'zh' ? '预设: QWEN3-ASR 识别' : 'Preset: QWEN3-ASR Transcription'}</span>
                         </div>
                       </div>
                       <span className={cn(
@@ -1319,7 +1368,9 @@ export function ModelManagement() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed min-h-[36px]">
-                      音轨一键提取切分高精准字幕。本地使用 QWEN3-ASR 轻量大模型，云端自动调度 Google Gemini / Whisper 接口。
+                      {language === 'zh' 
+                        ? '音轨一键提取切分高精准字幕。本地使用 QWEN3-ASR 轻量大模型，云端自动调度 Google Gemini / Whisper 接口。' 
+                        : 'One-click audio transcription with millisecond-precision subtitles. Local leverages QWEN3-ASR; Cloud automates Whisper/Gemini audio parsing.'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1348,7 +1399,7 @@ export function ModelManagement() {
                           workflowModes.asr === 'cloud' ? "bg-purple-600 text-white shadow font-bold" : "text-gray-400 hover:text-white"
                         )}
                       >
-                        云端接口
+                        {language === 'zh' ? '云端接口' : 'Cloud API'}
                       </button>
                     </div>
                   </div>
@@ -1363,8 +1414,8 @@ export function ModelManagement() {
                           <Languages className="w-4 h-4 text-amber-400" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-white">文本翻译 (LLM Translation)</h4>
-                          <span className="text-[10px] text-gray-500 leading-none">预设: HY-MT20 精准翻译</span>
+                          <h4 className="font-bold text-sm text-white">{language === 'zh' ? '文本翻译 (LLM Translation)' : 'LLM Translation'}</h4>
+                          <span className="text-[10px] text-gray-500 leading-none">{language === 'zh' ? '预设: HY-MT20 精准翻译' : 'Preset: HY-MT20 Precision Translation'}</span>
                         </div>
                       </div>
                       <span className={cn(
@@ -1375,7 +1426,9 @@ export function ModelManagement() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-400 leading-relaxed min-h-[36px]">
-                      文章与字幕高雅多语种翻译。本地整合专属端侧大模型 HY-MT20，云端直接路由至 Google Gemini 2.5-Pro / 阿里通义。
+                      {language === 'zh' 
+                        ? '文章与字幕高雅多语种翻译。本地整合专属端侧大模型 HY-MT20，云端直接路由至 Google Gemini 2.5-Pro / 阿里通义。' 
+                        : 'Refined multilingual text translation. Local loads localized HY-MT20 model; Cloud routes directly to Google Gemini 2.5-Pro or Alibaba DashScope.'}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1404,7 +1457,7 @@ export function ModelManagement() {
                           workflowModes.translation === 'cloud' ? "bg-purple-600 text-white shadow font-bold" : "text-gray-400 hover:text-white"
                         )}
                       >
-                        云端接口
+                        {language === 'zh' ? '云端接口' : 'Cloud API'}
                       </button>
                     </div>
                   </div>
@@ -1420,8 +1473,12 @@ export function ModelManagement() {
                     <Cpu className="w-5 h-5 text-purple-400" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-white text-base">全局默认云端 API (Global Default Cloud API)</h3>
-                    <p className="text-gray-400 text-xs">当上方任一创意工序切换为【云端接口】模式时，系统将默认路由调用您在此选中的第三方云端服务商进行处理。</p>
+                    <h3 className="font-bold text-white text-base">{language === 'zh' ? '全局默认云端 API (Global Default Cloud API)' : 'Global Default Cloud API'}</h3>
+                    <p className="text-gray-400 text-xs">
+                      {language === 'zh' 
+                        ? '当上方任一创意工序切换为【云端接口】模式时，系统将默认路由调用您在此选中的第三方云端服务商进行处理。' 
+                        : 'When any pipeline above is set to Cloud mode, the system defaults to routing requests to the chosen provider below.'}
+                    </p>
                   </div>
                 </div>
                 
@@ -1431,15 +1488,15 @@ export function ModelManagement() {
                     onChange={(e) => setDefaultCloudApi(e.target.value)}
                     className="bg-black/60 border border-white/20 rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-brand-primary min-w-[200px]"
                   >
-                    <option value="gemini" className="text-black bg-white">Google Gemini API (默认)</option>
-                    <option value="ali" className="text-black bg-white">阿里云通义千问 (DashScope)</option>
-                    <option value="volc" className="text-black bg-white">火山引擎 (ByteDance Volcengine)</option>
+                    <option value="gemini" className="text-black bg-white">{language === 'zh' ? 'Google Gemini API (默认)' : 'Google Gemini API (Default)'}</option>
+                    <option value="ali" className="text-black bg-white">{language === 'zh' ? '阿里云通义千问 (DashScope)' : 'Alibaba DashScope (Qwen)'}</option>
+                    <option value="volc" className="text-black bg-white">{language === 'zh' ? '火山引擎 (ByteDance Volcengine)' : 'ByteDance Volcengine'}</option>
                   </select>
                   <button
                     onClick={() => handleSaveConfig('cloud_global')}
                     className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-semibold transition-all shadow shrink-0"
                   >
-                    {saveSuccess === 'cloud_global' ? '已保存！' : '保存设置'}
+                    {saveSuccess === 'cloud_global' ? (language === 'zh' ? '已保存！' : 'Saved!') : (language === 'zh' ? '保存设置' : 'Save Settings')}
                   </button>
                 </div>
               </div>
@@ -1455,7 +1512,7 @@ export function ModelManagement() {
                       <Sparkles className="w-6 h-6 text-purple-400 animate-pulse" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-white">谷歌 Gemini API 设置</h3>
+                      <h3 className="text-base font-bold text-white">{language === 'zh' ? '谷歌 Gemini API 设置' : 'Google Gemini API Settings'}</h3>
                       <p className="text-xs text-gray-500 font-mono">native multi-modal translator & context brain</p>
                     </div>
                   </div>
@@ -1464,12 +1521,12 @@ export function ModelManagement() {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-                        <span>Gemini API Key (谷歌 API 密钥)</span>
+                        <span>{language === 'zh' ? 'Gemini API Key (谷歌 API 密钥)' : 'Gemini API Key'}</span>
                         <span className="text-gray-500 lowercase">(from aistudio.google.com)</span>
                       </label>
                       <div className="relative">
                         <input 
-                          type={showGeminiKey ? "text" : "password"}
+                           type={showGeminiKey ? "text" : "password"}
                           value={geminiApiKey}
                           onChange={(e) => setGeminiApiKey(e.target.value)}
                           placeholder="Enter Gemini API Key (e.g. AIzaSy...)"
@@ -1487,7 +1544,7 @@ export function ModelManagement() {
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider">
-                        Active Model Choice (生效智脑代号)
+                        {language === 'zh' ? 'Active Model Choice (生效智脑代号)' : 'Active Model Choice'}
                       </label>
                       <select 
                         value={geminiActiveModel}
@@ -1507,7 +1564,7 @@ export function ModelManagement() {
                 <div className="pt-6 border-t border-white/5 flex items-center justify-between">
                   <div className="text-[10px] font-mono text-gray-500 flex items-center gap-1">
                     <Cpu className="w-3.5 h-3.5 opacity-60" />
-                    {geminiApiKey ? "Configured" : "Unconfigured / Local Mode"}
+                    {geminiApiKey ? (language === 'zh' ? '已配置' : 'Configured') : (language === 'zh' ? '未配置 / 本地模式' : 'Unconfigured / Local Mode')}
                   </div>
                   
                   <button 
@@ -1517,12 +1574,12 @@ export function ModelManagement() {
                     {saveSuccess === 'gemini' ? (
                       <>
                         <Check className="w-4 h-4" />
-                        已保存 Saved
+                        {language === 'zh' ? '已保存 Saved' : 'Saved'}
                       </>
                     ) : (
                       <>
                         <Save className="w-4 h-4" />
-                        保存配置 Save Gemini
+                        {language === 'zh' ? '保存配置 Save Gemini' : 'Save Gemini'}
                       </>
                     )}
                   </button>
@@ -1537,7 +1594,7 @@ export function ModelManagement() {
                       <Server className="w-6 h-6 text-orange-400" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-white">阿里云通义千问 (DashScope)</h3>
+                      <h3 className="text-base font-bold text-white">{language === 'zh' ? '阿里云通义千问 (DashScope)' : 'Alibaba DashScope (Qwen)'}</h3>
                       <p className="text-xs text-gray-500 font-mono">llm translation & scene script generator</p>
                     </div>
                   </div>
@@ -1546,7 +1603,7 @@ export function ModelManagement() {
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
-                        <span>DashScope API Key (通义 API 密钥)</span>
+                        <span>{language === 'zh' ? 'DashScope API Key (通义 API 密钥)' : 'DashScope API Key'}</span>
                         <span className="text-gray-500 lowercase">(dashscope.console.aliyun.com)</span>
                       </label>
                       <div className="relative">
@@ -1569,7 +1626,7 @@ export function ModelManagement() {
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider">
-                        Active Model (生效语言大模型)
+                        {language === 'zh' ? 'Active Model (生效语言大模型)' : 'Active Model'}
                       </label>
                       <select 
                         value={aliActiveModel}
@@ -1588,7 +1645,7 @@ export function ModelManagement() {
                 <div className="pt-6 border-t border-white/5 flex items-center justify-between">
                   <div className="text-[10px] font-mono text-gray-500 flex items-center gap-1">
                     <Cpu className="w-3.5 h-3.5 opacity-60" />
-                    {aliApiKey ? "Configured" : "Unconfigured / Off-Cloud"}
+                    {aliApiKey ? (language === 'zh' ? '已配置' : 'Configured') : (language === 'zh' ? '未配置 / 离线模式' : 'Unconfigured / Off-Cloud')}
                   </div>
                   
                   <button 
@@ -1598,12 +1655,12 @@ export function ModelManagement() {
                     {saveSuccess === 'ali' ? (
                       <>
                         <Check className="w-4 h-4" />
-                        已保存 Saved
+                        {language === 'zh' ? '已保存 Saved' : 'Saved'}
                       </>
                     ) : (
                       <>
                         <Save className="w-4 h-4" />
-                        保存配置 Save DashScope
+                        {language === 'zh' ? '保存配置 Save DashScope' : 'Save DashScope'}
                       </>
                     )}
                   </button>
@@ -1618,7 +1675,7 @@ export function ModelManagement() {
                       <Key className="w-6 h-6 text-blue-400" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-white">火山引擎 (ByteDance Volcengine)</h3>
+                      <h3 className="text-base font-bold text-white">{language === 'zh' ? '火山引擎 (ByteDance Volcengine)' : 'ByteDance Volcengine'}</h3>
                       <p className="text-xs text-gray-500 font-mono">commercial voice clone & lipsync pipeline</p>
                     </div>
                   </div>
@@ -1627,7 +1684,7 @@ export function ModelManagement() {
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">AppID (项目ID)</span>
+                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">{language === 'zh' ? 'AppID (项目ID)' : 'AppID'}</span>
                         <input 
                           type="text"
                           value={volcAppId}
@@ -1637,7 +1694,7 @@ export function ModelManagement() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">AccessKey (AK)</span>
+                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">{language === 'zh' ? 'AccessKey (AK)' : 'AccessKey (AK)'}</span>
                         <input 
                           type="text"
                           value={volcAK}
@@ -1650,7 +1707,7 @@ export function ModelManagement() {
 
                     <div className="space-y-2">
                       <label className="text-[10px] font-mono font-bold text-gray-400 uppercase tracking-wider">
-                        SecretKey (SK 安全秘钥)
+                        {language === 'zh' ? 'SecretKey (SK 安全秘钥)' : 'SecretKey (SK)'}
                       </label>
                       <div className="relative">
                         <input 
@@ -1672,7 +1729,7 @@ export function ModelManagement() {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">Voice ID (音色复刻号)</span>
+                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">{language === 'zh' ? 'Voice ID (音色复刻号)' : 'Voice ID'}</span>
                         <input 
                           type="text"
                           value={volcActiveVoice}
@@ -1682,7 +1739,7 @@ export function ModelManagement() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">Endpoint (服务终端)</span>
+                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase">{language === 'zh' ? 'Endpoint (服务终端)' : 'Endpoint'}</span>
                         <input 
                           type="text"
                           value={volcEndpointId}
@@ -1698,7 +1755,7 @@ export function ModelManagement() {
                 <div className="pt-6 border-t border-white/5 flex items-center justify-between gap-2">
                   <div className="text-[10px] font-mono text-gray-500 flex items-center gap-1 shrink-0">
                     <Cpu className="w-3.5 h-3.5 opacity-60" />
-                    {volcSK ? "Configured" : "Off-Cloud"}
+                    {volcSK ? (language === 'zh' ? '已配置' : 'Configured') : (language === 'zh' ? '未配置' : 'Off-Cloud')}
                   </div>
                   
                   <button 
@@ -1708,12 +1765,12 @@ export function ModelManagement() {
                     {saveSuccess === 'volc' ? (
                       <>
                         <Check className="w-4 h-4" />
-                        Saved
+                        {language === 'zh' ? '已保存 Saved' : 'Saved'}
                       </>
                     ) : (
                       <>
                         <Save className="w-4 h-4" />
-                        Save Volc
+                        {language === 'zh' ? '保存配置 Save Volc' : 'Save Volc'}
                       </>
                     )}
                   </button>
@@ -2080,7 +2137,7 @@ export function ModelManagement() {
                         className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-brand-primary hover:bg-brand-primary/95 text-black font-bold text-xs transition-all tracking-wider shadow-lg shadow-brand-primary/10 hover:shadow-brand-primary/20 self-end sm:self-auto"
                       >
                         <Save className="w-4 h-4" />
-                        保存配置并注入数据库 Save Settings
+                        Save Settings
                       </button>
                     </div>
                   </div>

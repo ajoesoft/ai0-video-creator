@@ -23,12 +23,16 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+import { useTranslation } from '../contexts/LanguageContext';
+import { globalTranslations } from '../localization/globalTranslations';
 import { motion, AnimatePresence } from 'motion/react';
 import { fetchBackgroundTasks, deleteBackgroundTask, clearCompletedTasks, updateBackgroundTask, fetchProjects } from '../lib/db';
 import { queueWorker } from '../lib/queueWorker';
 import { BackgroundTask, TaskStatus, TaskType, VideoProject } from '../types';
 
 export function QueueManager() {
+  const { language } = useTranslation();
+  const gt = (key: keyof typeof globalTranslations['en']) => globalTranslations[language]?.[key] || globalTranslations['en'][key];
   const [tasks, setTasks] = useState<BackgroundTask[]>([]);
   const [projects, setProjects] = useState<VideoProject[]>([]);
   const [activeFormTab, setActiveFormTab] = useState<TaskType>(TaskType.T2I);
@@ -121,7 +125,7 @@ export function QueueManager() {
           isTurbo: t2iEngine.includes('turbo'),
           localPath: `renders/t2i_task_${Date.now()}.png`
         };
-        fallbackName = `文生图: ${t2iPrompt.substring(0, 20)}...`;
+        fallbackName = language === 'zh' ? `文生图: ${t2iPrompt.substring(0, 20)}...` : `T2I: ${t2iPrompt.substring(0, 20)}...`;
         break;
 
       case TaskType.T2V:
@@ -132,7 +136,7 @@ export function QueueManager() {
           width: 768,
           height: 432
         };
-        fallbackName = `文生视频: ${t2vPrompt.substring(0, 20)}...`;
+        fallbackName = language === 'zh' ? `文生视频: ${t2vPrompt.substring(0, 20)}...` : `T2V: ${t2vPrompt.substring(0, 20)}...`;
         break;
 
       case TaskType.I2V:
@@ -141,7 +145,7 @@ export function QueueManager() {
           prompt: i2vPrompt,
           duration: 4
         };
-        fallbackName = `图生视频: ${i2vPrompt.substring(0, 20)}...`;
+        fallbackName = language === 'zh' ? `图生视频: ${i2vPrompt.substring(0, 20)}...` : `I2V: ${i2vPrompt.substring(0, 20)}...`;
         break;
 
       case TaskType.LIPSYNC:
@@ -150,16 +154,16 @@ export function QueueManager() {
           audio: lipsyncAudio || 'mock_voice_lines.mp3',
           prompt: 'highly accurate face lip alignment'
         };
-        fallbackName = `高精口型同步 (LipSync)`;
+        fallbackName = language === 'zh' ? `高精口型同步 (LipSync)` : `LipSync`;
         break;
 
       case TaskType.TTS:
         finalParams = {
           text: ttsText,
           voicePrompt: ttsVoice,
-          language: '中文'
+          language: language === 'zh' ? '中文' : 'English'
         };
-        fallbackName = `Qwen语音克隆: ${ttsText.substring(0, 20)}...`;
+        fallbackName = language === 'zh' ? `Qwen语音克隆: ${ttsText.substring(0, 20)}...` : `Qwen Voice Clone: ${ttsText.substring(0, 20)}...`;
         break;
     }
 
@@ -193,7 +197,7 @@ export function QueueManager() {
   };
 
   const handleClearHistory = async () => {
-    if (confirm("Are you sure you want to purge finished/cancelled tasks? (确定要清除所有已完成、已失败或已撤销的任务历史吗？)")) {
+    if (confirm(gt('purgeHistoryConfirm'))) {
       await clearCompletedTasks();
       queueWorker.start();
     }
@@ -225,11 +229,10 @@ export function QueueManager() {
             <span className="mono-text text-[10px] uppercase font-bold tracking-widest text-[#9f9fb2]">Computing Core Cluster</span>
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-            分布式异步任务队列管理器 <span className="font-mono text-xs text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded border border-brand-primary/20">Unified Task Control Center</span>
+            {gt('queueManagerTitle')} <span className="font-mono text-xs text-brand-primary bg-brand-primary/10 px-2 py-0.5 rounded border border-brand-primary/20">Unified Task Control Center</span>
           </h2>
           <p className="text-xs text-white/40 leading-relaxed max-w-[850px]">
-            统一调度 AI Studio 体系内所有的重型多模态运算进程（包括TTS克隆、Qwen-ASR、SDXL/Flux图文绘制、LTX-Video大模型渲染以及高精准 LipSync 角色对齐等）。
-            通过多优先级队列和定时启动机制，在后台平滑排队执行，确保单卡/多卡高功率硬件计算资源利用率拉满，绝不起始卡死或产生超 VRAM 崩溃。
+            {gt('queueManagerDesc')}
           </p>
         </div>
 
@@ -239,7 +242,7 @@ export function QueueManager() {
             className="px-4 py-2.5 bg-white/5 hover:bg-red-500/10 text-white/50 border border-white/5 hover:border-red-500/20 hover:text-red-400 font-mono text-xs font-bold uppercase tracking-wider rounded transition-all flex items-center gap-1.5"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>清除计算历史 (Purge Records)</span>
+            <span>{gt('purgeRecords')} (Purge Records)</span>
           </button>
         </div>
       </div>
@@ -251,50 +254,50 @@ export function QueueManager() {
           <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none group-hover:scale-110 transition-transform">
             <ListOrdered className="w-12 h-12 text-white" />
           </div>
-          <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">总登记任务 / Total</p>
+          <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">{gt('statsTotal')}</p>
           <p className="text-2xl font-bold font-mono tracking-tight text-white">{stats.total}</p>
-          <span className="text-[9px] text-white/30 block">排队生命期内总量统计</span>
+          <span className="text-[9px] text-white/30 block">{gt('statsTotalDesc')}</span>
         </div>
 
         <div className="bg-[#0b0b0d] border border-white/5 p-4 rounded-md space-y-1 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none bg-blue-400/20 rounded-bl-full" />
-          <p className="text-[10px] font-mono text-blue-400 uppercase tracking-wider">进行中 / Running</p>
+          <p className="text-[10px] font-mono text-blue-400 uppercase tracking-wider">{gt('statsRunning')}</p>
           <div className="flex items-center gap-2">
             <p className="text-2xl font-bold font-mono tracking-tight text-blue-400">{stats.running}</p>
             {stats.running > 0 && <Loader2 className="w-5 h-5 animate-spin text-blue-400" />}
           </div>
-          <span className="text-[9px] text-blue-400/50 block">正在计算管线中运转</span>
+          <span className="text-[9px] text-blue-400/50 block">{gt('statsRunningDesc')}</span>
         </div>
 
         <div className="bg-[#0b0b0d] border border-white/5 p-4 rounded-md space-y-1 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none bg-yellow-400/25 rounded-bl-full" />
-          <p className="text-[10px] font-mono text-yellow-300 uppercase tracking-wider">就绪等待 / Pending</p>
+          <p className="text-[10px] font-mono text-yellow-300 uppercase tracking-wider">{gt('statsPending')}</p>
           <p className="text-2xl font-bold font-mono tracking-tight text-yellow-300">{stats.pending}</p>
-          <span className="text-[9px] text-yellow-300/50 block">队列待决，按优先级触发</span>
+          <span className="text-[9px] text-yellow-300/50 block">{gt('statsPendingDesc')}</span>
         </div>
 
         <div className="bg-[#0b0b0d] border border-white/5 p-4 rounded-md space-y-1 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none bg-orange-400/25 rounded-bl-full" />
-          <p className="text-[10px] font-mono text-orange-400 uppercase tracking-wider">定时规划 / Scheduled</p>
+          <p className="text-[10px] font-mono text-orange-400 uppercase tracking-wider">{gt('statsScheduled')}</p>
           <div className="flex items-center gap-1.5">
             <p className="text-2xl font-bold font-mono tracking-tight text-orange-400">{stats.scheduled}</p>
             <Clock className="w-4 h-4 text-orange-400 animate-pulse" />
           </div>
-          <span className="text-[9px] text-orange-400/50 block">时钟未达延迟或克隆定时</span>
+          <span className="text-[9px] text-orange-400/50 block">{gt('statsScheduledDesc')}</span>
         </div>
 
         <div className="bg-[#0b0b0d] border border-white/5 p-4 rounded-md space-y-1 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none bg-green-400/25 rounded-bl-full" />
-          <p className="text-[10px] font-mono text-green-400 uppercase tracking-wider">计算成功 / Completed</p>
+          <p className="text-[10px] font-mono text-green-400 uppercase tracking-wider">{gt('statsCompleted')}</p>
           <p className="text-2xl font-bold font-mono tracking-tight text-green-400">{stats.completed}</p>
-          <span className="text-[9px] text-green-400/50 block">完美渲染并存储至本地</span>
+          <span className="text-[9px] text-green-400/50 block">{gt('statsCompletedDesc')}</span>
         </div>
 
         <div className="bg-[#0b0b0d] border border-white/5 p-4 rounded-md space-y-1 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none bg-red-400/25 rounded-bl-full" />
-          <p className="text-[10px] font-mono text-red-400 uppercase tracking-wider">意外错误 / Failed</p>
+          <p className="text-[10px] font-mono text-red-400 uppercase tracking-wider">{gt('statsFailed')}</p>
           <p className="text-2xl font-bold font-mono tracking-tight text-red-400">{stats.failed}</p>
-          <span className="text-[9px] text-red-400/50 block">发生故障中止排队</span>
+          <span className="text-[9px] text-red-400/50 block">{gt('statsFailedDesc')}</span>
         </div>
 
       </div>
@@ -314,14 +317,14 @@ export function QueueManager() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[9px] font-mono text-white/50 uppercase block tracking-wider font-semibold">
-                    1. 关联剧本项目 (Target Project)
+                    {gt('targetProject')}
                   </label>
                   <select
                     value={projectId}
                     onChange={(e) => setProjectId(e.target.value)}
                     className="w-full bg-black border border-white/10 text-xs text-white rounded px-3 py-2.5 focus:outline-none focus:border-brand-primary font-mono"
                   >
-                    <option value="global" className="text-black bg-white">-- 全局通用 (Global Space) --</option>
+                    <option value="global" className="text-black bg-white">{gt('globalSpace')}</option>
                     {projects.map(p => (
                       <option key={p.id} value={p.id} className="text-black bg-white">{p.name} ({p.sceneType})</option>
                     ))}
@@ -330,7 +333,7 @@ export function QueueManager() {
 
                 <div className="space-y-1">
                   <label className="text-[9px] font-mono text-white/50 uppercase block tracking-wider font-semibold">
-                    2. 分级优先级 (Priority Queue Weight)
+                    {gt('priorityQueueWeight')}
                   </label>
                   <input
                     type="number"
@@ -347,13 +350,13 @@ export function QueueManager() {
               {/* Task Custom Name Input */}
               <div className="space-y-1">
                 <label className="text-[9px] font-mono text-white/50 uppercase block tracking-wider font-semibold">
-                  3. 任务自定义标识名 (Identify Name)
+                  3. {gt('taskIdentifyName')}
                 </label>
                 <input
                   type="text"
                   value={taskName}
                   onChange={(e) => setTaskName(e.target.value)}
-                  placeholder="e.g. 故事第一幕 Flux 主角高姿态渲染 (可选)"
+                  placeholder={gt('taskIdentifyPlaceholder')}
                   className="w-full bg-black border border-white/10 text-xs text-white rounded px-3 py-2 focus:outline-none focus:border-brand-primary font-mono placeholder-white/20"
                 />
               </div>
@@ -363,7 +366,7 @@ export function QueueManager() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-brand-primary" />
-                    <span className="text-xs font-bold text-white font-mono">定时规划排队 (Schedule Trigger Configuration)</span>
+                    <span className="text-xs font-bold text-white font-mono">{gt('scheduleTriggerTitle')}</span>
                   </div>
                   <input 
                     type="checkbox"
@@ -381,7 +384,7 @@ export function QueueManager() {
                   >
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[8px] text-white/40 block">秒级延迟排队 (Delay Trigger In Seconds)</label>
+                        <label className="text-[8px] text-white/40 block">{gt('scheduleDelayLabel')}</label>
                         <input
                           type="number"
                           value={scheduleDelaySeconds}
@@ -390,7 +393,7 @@ export function QueueManager() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] text-white/40 block">或指定具体运行时刻 (Specific Time)</label>
+                        <label className="text-[8px] text-white/40 block">{gt('scheduleSpecificTime')}</label>
                         <input
                           type="datetime-local"
                           value={customDateTime}
@@ -399,7 +402,7 @@ export function QueueManager() {
                         />
                       </div>
                     </div>
-                    <span className="text-[8px] text-[#f43f5e] block uppercase font-bold leading-tight">! 注意: 当启动后，该任务只有在本地到达指定时间戳后才会被提取进 GPU 计算管道。</span>
+                    <span className="text-[8px] text-[#f43f5e] block uppercase font-bold leading-tight">{gt('scheduleWarning')}</span>
                   </motion.div>
                 )}
               </div>
@@ -407,15 +410,15 @@ export function QueueManager() {
               {/* Task category selector & Sub form Tabs */}
               <div className="space-y-2 pt-2">
                 <label className="text-[10px] font-mono text-white/40 uppercase block tracking-wider font-semibold">
-                  Select Task Sub-pipeline Architecture:
+                  {gt('selectSubPipeline')}
                 </label>
                 <div className="grid grid-cols-3 md:grid-cols-5 gap-1 bg-black/40 p-1 border border-white/5 rounded">
                   {[
-                    { type: TaskType.T2I, label: 'T2I 图', icon: ImageIcon },
-                    { type: TaskType.T2V, label: 'T2V 影', icon: Video },
-                    { type: TaskType.I2V, label: 'I2V 画', icon: Compass },
-                    { type: TaskType.LIPSYNC, label: 'LipSync 对', icon: FileText },
-                    { type: TaskType.TTS, label: 'TTS 语', icon: Mic2 },
+                    { type: TaskType.T2I, label: gt('t2iTab'), icon: ImageIcon },
+                    { type: TaskType.T2V, label: gt('t2vTab'), icon: Video },
+                    { type: TaskType.I2V, label: gt('i2vTab'), icon: Compass },
+                    { type: TaskType.LIPSYNC, label: gt('lipsyncTab'), icon: FileText },
+                    { type: TaskType.TTS, label: gt('ttsTab'), icon: Mic2 },
                   ].map((tab) => {
                     const Icon = tab.icon;
                     return (
@@ -443,7 +446,7 @@ export function QueueManager() {
                 {activeFormTab === TaskType.T2I && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">T2I 扩散大模型提示词 (Image Generation Prompt)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('t2iPromptLabel')}</label>
                       <textarea
                         value={t2iPrompt}
                         onChange={(e) => setT2iPrompt(e.target.value)}
@@ -451,18 +454,18 @@ export function QueueManager() {
                         className="w-full bg-black border border-white/10 rounded font-mono text-xs text-white p-2 focus:outline-none resize-none"
                       />
                       <span className="text-[8px] text-brand-primary block leading-tight font-mono">
-                        💡 引擎将在计算开始时全自动匹配并应用 IP 一致性 Prompt Harness 对其展开！
+                        {gt('t2iPromptHarnessTip')}
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[8px] font-mono text-white/40 block">基础推理模型引擎选择</label>
+                      <label className="text-[8px] font-mono text-white/40 block">{gt('t2iEngineLabel')}</label>
                       <select 
                         value={t2iEngine} 
                         onChange={(e) => setT2iEngine(e.target.value)}
                         className="w-full bg-black border border-white/10 font-mono text-xs text-white p-2"
                       >
-                        <option value="z-image-turbo" className="text-black bg-white">Z-Image-Turbo (极致超快 Turbo, 8步渲染)</option>
-                        <option value="qwen-image-2512" className="text-black bg-white">Qwen-Image-2512 (高清闪电 Lightning, 4步渲染)</option>
+                        <option value="z-image-turbo" className="text-black bg-white">{language === 'zh' ? 'Z-Image-Turbo (极致超快 Turbo, 8步渲染)' : 'Z-Image-Turbo (Ultra Fast Turbo, 8 steps render)'}</option>
+                        <option value="qwen-image-2512" className="text-black bg-white">{language === 'zh' ? 'Qwen-Image-2512 (高清闪电 Lightning, 4步渲染)' : 'Qwen-Image-2512 (High Definition Lightning, 4 steps render)'}</option>
                       </select>
                     </div>
                   </div>
@@ -471,7 +474,7 @@ export function QueueManager() {
                 {activeFormTab === TaskType.T2V && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">T2V 生成分镜指令 (Text-to-Video LTX-2.3 Engine Prompt)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('t2vPromptLabel')}</label>
                       <textarea
                         value={t2vPrompt}
                         onChange={(e) => setT2vPrompt(e.target.value)}
@@ -480,7 +483,7 @@ export function QueueManager() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[8px] font-mono text-white/40 block">生成视频持续时长 (Scene Duration In Secs)</label>
+                      <label className="text-[8px] font-mono text-white/40 block">{gt('t2vDurationLabel')}</label>
                       <input
                         type="number"
                         value={t2vDuration}
@@ -494,7 +497,7 @@ export function QueueManager() {
                 {activeFormTab === TaskType.I2V && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">基底图像路径/URL (Base Image Address)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('i2vImageLabel')}</label>
                       <input
                         type="text"
                         value={i2vImage}
@@ -504,7 +507,7 @@ export function QueueManager() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">分镜演变动态指令 (Evolution Dynamics Prompt)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('i2vPromptLabel')}</label>
                       <textarea
                         value={i2vPrompt}
                         onChange={(e) => setI2vPrompt(e.target.value)}
@@ -518,7 +521,7 @@ export function QueueManager() {
                 {activeFormTab === TaskType.LIPSYNC && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">人脸头像图片源 (Avatar Face Image path)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('lipsyncAvatarLabel')}</label>
                       <input
                         type="text"
                         value={lipsyncAvatar}
@@ -528,7 +531,7 @@ export function QueueManager() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">配音音频源文件 (Speech Audio path)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('lipsyncAudioLabel')}</label>
                       <input
                         type="text"
                         value={lipsyncAudio}
@@ -543,7 +546,7 @@ export function QueueManager() {
                 {activeFormTab === TaskType.TTS && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] font-mono text-white/40 block">TTS 文本转配音正文 (Synthesis Context Text)</label>
+                      <label className="text-[9px] font-mono text-white/40 block">{gt('ttsTextLabel')}</label>
                       <textarea
                         value={ttsText}
                         onChange={(e) => setTtsText(e.target.value)}
@@ -552,7 +555,7 @@ export function QueueManager() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[8px] font-mono text-white/40 block">克隆角色或配音模板 (Reference Cloner Design)</label>
+                      <label className="text-[8px] font-mono text-white/40 block">{gt('ttsVoiceLabel')}</label>
                       <input
                         type="text"
                         value={ttsVoice}
@@ -574,7 +577,7 @@ export function QueueManager() {
               className="w-full py-3 bg-brand-primary hover:bg-white text-black font-mono text-xs font-bold uppercase tracking-wider rounded transition-all active:scale-95 duration-150 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[3px]" />
-              <span>推入后台算力队列 (Enqueue Task)</span>
+              <span>{gt('enqueueTaskBtn')}</span>
             </button>
           </form>
 
@@ -582,16 +585,16 @@ export function QueueManager() {
           <div className="bg-black/40 border border-white/5 p-5 rounded-md space-y-3 font-mono text-[11px] text-white/50 leading-relaxed">
             <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 pb-2 border-b border-white/5">
               <HelpCircle className="w-4 h-4 text-brand-primary" />
-              <span>排队与算力说明 (Queue Policy Docs)</span>
+              <span>{gt('queuePolicyDocsTitle')}</span>
             </h4>
             <p>
-              1. <strong>单队列排队 (Single-queue Serialism)</strong>: 为最大程度降低大模型瞬间耗尽显卡 VRAM 的风险，所有任务序列都将按照优先级排序，逐一在后台串行提交。
+              1. <strong>{language === 'zh' ? '单队列排队 (Single-queue Serialism)' : 'Single-queue Serialism'}</strong>: {language === 'zh' ? '为最大程度降低大模型瞬间耗尽显卡 VRAM 的风险，所有任务序列都将按照优先级排序，逐一在后台串行提交。' : 'To prevent VRAM crashes, all task sequences are ordered by priority and dispatched serially.'}
             </p>
             <p>
-              2. <strong>智能 Harness 一致性注入</strong>: 系统集成 IP 触发技术。对于文生图与图生视频任务，若剧本文本包含已定义的 Trigger "@角色"，我们将在调用 Comfy 扩散模块的瞬间自动将关联高保真特征提示词贴合进去。
+              2. <strong>{language === 'zh' ? '智能 Harness 一致性注入' : 'Smart Consistency Harness'}</strong>: {language === 'zh' ? '系统集成 IP 触发技术。对于文生图与图生视频任务，若剧本文本包含已定义的 Trigger "@角色"，我们将在调用 Comfy 扩散模块 the moment 瞬间自动将关联高保真特征提示词贴合进去。' : 'Integrates character consistent IP injection. Standard prompts containing triggers like @character will map with high fidelity on launch.'}
             </p>
             <p>
-              3. <strong>定时任务与时钟轮</strong>: 设定为定时的任务将持状态 <code>pending</code> 挂起。只有当时钟检测到本地时间达到计划阈值，才会将其放入就绪队列激活执行。
+              3. <strong>{language === 'zh' ? '定时任务与时钟轮' : 'Scheduled Task Queueing'}</strong>: {language === 'zh' ? '设定为定时的任务将持状态 pending 挂起。只有当时钟检测到本地时间达到计划阈值，才会将其放入就绪队列激活执行。' : 'Tasks with specific delay timings remain pending until system clock thresholds match target configurations.'}
             </p>
           </div>
 
@@ -605,9 +608,13 @@ export function QueueManager() {
             <div className="flex items-center justify-between border-b border-white/5 pb-4">
               <div className="space-y-0.5">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                  活跃任务调配池 (Real-time Compute Queue Pool)
+                  {language === 'zh' ? '活跃任务调配池 (Real-time Compute Queue Pool)' : 'Real-time Compute Queue Pool'}
                 </h3>
-                <p className="text-[10px] text-white/40">列举所有生命期内的 pending, running, completed, cancelled, failed 状态实体</p>
+                <p className="text-[10px] text-white/40">
+                  {language === 'zh' 
+                    ? '列举所有生命期内的 pending, running, completed, cancelled, failed 状态实体' 
+                    : 'List of all active lifecycle states: pending, running, completed, cancelled, failed'}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded font-mono text-[9px] font-bold">
@@ -620,8 +627,14 @@ export function QueueManager() {
               <div className="py-24 border border-dashed border-white/5 rounded text-center space-y-3 text-white/30">
                 <Cpu className="w-10 h-10 mx-auto animate-pulse text-zinc-600" />
                 <div className="space-y-1">
-                  <p className="text-xs font-mono">调配池暂无正在计算的项目记录。</p>
-                  <p className="text-[10px] text-white/20">您可以使用左侧的模板配置测试快速派发任务排队运行。</p>
+                  <p className="text-xs font-mono">
+                    {language === 'zh' ? '调配池暂无正在计算的项目记录。' : 'No active computation task records in the queue pool.'}
+                  </p>
+                  <p className="text-[10px] text-white/20">
+                    {language === 'zh' 
+                      ? '您可以使用左侧的模板配置测试快速派发任务排队运行。' 
+                      : 'Use the task playbook on the left to quickly enqueue mock jobs.'}
+                  </p>
                 </div>
               </div>
             ) : (
@@ -840,7 +853,7 @@ export function QueueManager() {
               {/* Modal header */}
               <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div className="space-y-0.5">
-                  <span className="mono-text text-[9px] text-brand-primary tracking-widest font-bold uppercase">Task Payload Metadata</span>
+                  <span className="mono-text text-[9px] text-brand-primary tracking-widest font-bold uppercase">{gt('taskPayloadMetadata')}</span>
                   <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider">
                     Task ID: #{selectedTask.id}
                   </h3>
@@ -887,7 +900,7 @@ export function QueueManager() {
 
                 {/* String Parameter Payload input JSON */}
                 <div className="space-y-1">
-                  <span className="text-white/40 block">Input Arguments Map (Params)</span>
+                  <span className="text-white/40 block">{gt('taskParams')}</span>
                   <pre className="bg-black border border-white/5 p-3 rounded font-mono text-[10px] text-brand-primary leading-tight overflow-x-auto custom-scrollbar">
                     {JSON.stringify(JSON.parse(selectedTask.params), null, 2)}
                   </pre>
@@ -895,7 +908,7 @@ export function QueueManager() {
 
                 {/* Finalized Result JSON */}
                 <div className="space-y-1 pt-1">
-                  <span className="text-white/40 block">Computation Result Registry</span>
+                  <span className="text-white/40 block">{gt('taskResult')}</span>
                   <pre className="bg-[#040405] border border-white/5 p-3 rounded font-mono text-[10px] text-green-400 leading-tight overflow-x-auto custom-scrollbar">
                     {selectedTask.result 
                       ? JSON.stringify(JSON.parse(selectedTask.result), null, 2)
@@ -921,7 +934,7 @@ export function QueueManager() {
                   onClick={() => setSelectedTask(null)}
                   className="px-4 py-2 bg-brand-primary text-black font-mono text-[10px] uppercase font-bold tracking-wider rounded"
                 >
-                  Close Drawer
+                  {gt('btnCloseDrawer')}
                 </button>
               </div>
 
