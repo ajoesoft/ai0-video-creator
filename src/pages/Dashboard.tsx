@@ -468,6 +468,18 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
 
   const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
 
+  const getAspectRatioClass = (ratio?: string) => {
+    if (!ratio) return 'aspect-[16/10]';
+    const r = ratio.toLowerCase().trim().replace('：', ':');
+    if (r === '16:9') return 'aspect-[16/9]';
+    if (r === '9:16') return 'aspect-[9/16]';
+    if (r === '1:1') return 'aspect-square';
+    if (r === '4:3') return 'aspect-[4/3]';
+    if (r === '3:2') return 'aspect-[3/2]';
+    if (r === '2:3') return 'aspect-[2/3]';
+    return 'aspect-[16/10]';
+  };
+
   useEffect(() => {
     if (localCoverBase64) {
       setCoverImageBase64(localCoverBase64);
@@ -504,7 +516,7 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
       className="group flex flex-col h-full cursor-pointer"
     >
       <div className="desktop-card flex-1 flex flex-col hover:border-brand-primary/40 transition-all bg-black/40 relative">
-        <div className="aspect-[16/10] bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center">
+        <div className={cn("bg-[#0c0c0e] relative overflow-hidden flex items-center justify-center transition-all duration-300", getAspectRatioClass(project.aspectRatio))}>
           {project?.coverImagePath && (project.coverImagePath.startsWith('http') || coverImageBase64) ? (
             <>
               {/* Cinematic Blurred Background */}
@@ -533,15 +545,20 @@ function ProjectCard({ project, onEdit, onDelete }: { key?: string; project: Vid
               )}
             </>
           ) : (
-            <div className="w-full h-full flex items-center justify-center opacity-10 bg-gradient-to-br from-brand-primary/20 to-transparent">
+            <div className="w-full h-full flex items-center justify-center opacity-10 bg-gradient-to-br from-brand-primary/20 to-transparent min-h-[160px]">
               <SceneIcon className="w-16 h-16" />
             </div>
           )}
-          <div className="absolute top-4 left-4 z-10">
+          <div className="absolute top-4 left-4 z-10 flex flex-col gap-1.5 items-start">
              <div className="px-2 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-sm flex items-center gap-2">
                 <SceneIcon className="w-3 h-3 text-brand-primary" />
                 <span className="text-[8px] font-bold uppercase tracking-widest text-gray-300">{(project.sceneType || 'short_video').replace('_', ' ')}</span>
              </div>
+             {project.aspectRatio && (
+               <div className="px-1.5 py-0.5 bg-black/75 backdrop-blur-md border border-white/10 rounded-sm text-[7px] font-bold text-gray-400 uppercase tracking-wider font-mono">
+                 {project.aspectRatio}
+               </div>
+             )}
           </div>
           <div className="absolute top-4 right-4 z-20">
              <button 

@@ -19,6 +19,7 @@ import { join } from '@tauri-apps/api/path';
 import { cn } from '../lib/utils';
 import { getSetting, setSetting, getDbError, getDbPath } from '../lib/db';
 import { useTranslation } from '../contexts/LanguageContext';
+import { ComfyService } from '../lib/comfy';
 
 export function GlobalSettings() {
   const { t } = useTranslation();
@@ -49,6 +50,53 @@ export function GlobalSettings() {
   const [comfyuiPort, setComfyuiPort] = useState('8188');
   const [ollamaAddress, setOllamaAddress] = useState('127.0.0.1');
   const [ollamaPort, setOllamaPort] = useState('11434');
+
+  const [checkingConnection, setCheckingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'online' | 'offline'>('idle');
+
+  const handleCheckConnection = async (customAddr?: string, customPort?: string) => {
+    setCheckingConnection(true);
+    setConnectionStatus('idle');
+    try {
+      const addr = customAddr !== undefined ? customAddr : comfyuiAddress;
+      const port = customPort !== undefined ? customPort : comfyuiPort;
+      const comfy = new ComfyService({ serverAddress: `${addr}:${port}` });
+      const online = await comfy.checkConnection();
+      if (online) {
+        setConnectionStatus('online');
+      } else {
+        setConnectionStatus('offline');
+      }
+    } catch (e) {
+      console.error("[GlobalSettings] Error checking ComfyUI connection:", e);
+      setConnectionStatus('offline');
+    } finally {
+      setCheckingConnection(false);
+    }
+  };
+
+  const [freeingVram, setFreeingVram] = useState(false);
+  const [freeVramStatus, setFreeVramStatus] = useState<'idle' | 'success' | 'failed'>('idle');
+
+  const handleFreeVram = async () => {
+    setFreeingVram(true);
+    setFreeVramStatus('idle');
+    try {
+      const comfy = new ComfyService({ serverAddress: `${comfyuiAddress}:${comfyuiPort}` });
+      const ok = await comfy.freeVram();
+      if (ok) {
+        setFreeVramStatus('success');
+      } else {
+        setFreeVramStatus('failed');
+      }
+    } catch (e) {
+      console.error("[GlobalSettings] Error freeing ComfyUI VRAM:", e);
+      setFreeVramStatus('failed');
+    } finally {
+      setFreeingVram(false);
+      setTimeout(() => setFreeVramStatus('idle'), 4000);
+    }
+  };
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -212,10 +260,15 @@ export function GlobalSettings() {
       }
 
       const savedComfyAddr = await getSetting('comfyui_address');
-      setComfyuiAddress(savedComfyAddr || '127.0.0.1');
+      const resolvedComfyAddr = savedComfyAddr || '127.0.0.1';
+      setComfyuiAddress(resolvedComfyAddr);
 
       const savedComfyPort = await getSetting('comfyui_port');
-      setComfyuiPort(savedComfyPort || '8188');
+      const resolvedComfyPort = savedComfyPort || '8188';
+      setComfyuiPort(resolvedComfyPort);
+
+      // Check ComfyUI Connection status on load
+      handleCheckConnection(resolvedComfyAddr, resolvedComfyPort);
 
       const savedOllamaAddr = await getSetting('ollama_address');
       const resolvedOllamaAddr = savedOllamaAddr || '127.0.0.1';
@@ -734,30 +787,123 @@ export function GlobalSettings() {
             )}
 
             <div className="desktop-card p-6 space-y-6">
-              <h3 className="font-bold flex items-center gap-2 border-b border-border-subtle pb-4">
-                <Database className="w-4 h-4 text-brand-primary" />
-                ComfyUI Backend
+              <h3 className="font-bold flex items-center justify-between border-b border-border-subtle pb-4">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-brand-primary" />
+                  <span>ComfyUI Backend</span>
+                </div>
+                {connectionStatus === 'online' && (
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] text-emerald-400 font-bold font-mono uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Online
+                  </span>
+                )}
+                {connectionStatus === 'offline' && (
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/25 text-[10px] text-red-400 font-bold font-mono uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                    Offline
+                  </span>
+                )}
+                {connectionStatus === 'idle' && (
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-500/10 border border-gray-500/25 text-[10px] text-gray-400 font-bold font-mono uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+                    Not Tested
+                  </span>
+                )}
               </h3>
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Address</label>
-                  <input 
-                    type="text" 
-                    value={comfyuiAddress} 
-                    onChange={(e) => setComfyuiAddress(e.target.value)}
-                    className="desktop-input w-full font-mono text-xs" 
-                    placeholder="127.0.0.1"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  <div className="sm:col-span-8 space-y-2">
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Address</label>
+                    <input 
+                      type="text" 
+                      value={comfyuiAddress} 
+                      onChange={(e) => {
+                        setComfyuiAddress(e.target.value);
+                        setConnectionStatus('idle');
+                      }}
+                      className="desktop-input w-full font-mono text-xs" 
+                      placeholder="127.0.0.1"
+                    />
+                  </div>
+                  <div className="sm:col-span-4 space-y-2">
+                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Port</label>
+                    <input 
+                      type="number" 
+                      value={comfyuiPort} 
+                      onChange={(e) => {
+                        setComfyuiPort(e.target.value);
+                        setConnectionStatus('idle');
+                      }}
+                      className="desktop-input w-full font-mono text-xs" 
+                      placeholder="8188"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Server Port</label>
-                  <input 
-                    type="number" 
-                    value={comfyuiPort} 
-                    onChange={(e) => setComfyuiPort(e.target.value)}
-                    className="desktop-input w-full font-mono text-xs" 
-                    placeholder="8188"
-                  />
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    disabled={checkingConnection}
+                    onClick={() => handleCheckConnection()}
+                    className="px-3.5 py-1.5 rounded bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary font-bold font-mono text-[11px] uppercase tracking-wider border border-brand-primary/20 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                  >
+                    {checkingConnection ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Checking...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCcw className="w-3.5 h-3.5" />
+                        <span>Test Connection</span>
+                      </>
+                    )}
+                  </button>
+
+                  {connectionStatus === 'online' && (
+                    <span className="text-[10px] text-emerald-400 font-mono">
+                      ✓ Successfully pinged ComfyUI on http://{comfyuiAddress}:{comfyuiPort}
+                    </span>
+                  )}
+                  {connectionStatus === 'offline' && (
+                    <span className="text-[10px] text-red-400 font-mono">
+                      ✗ Cannot reach ComfyUI. Is it running?
+                    </span>
+                  )}
+                </div>
+
+                <div className="border-t border-white/[0.06] pt-4 mt-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-300">GPU VRAM Memory Cleanup</h4>
+                      <p className="text-[11px] text-gray-500 mt-0.5">Force unload ComfyUI models from VRAM and clear PyTorch CUDA memory cache.</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={freeingVram}
+                      onClick={handleFreeVram}
+                      className="px-3 py-1.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-bold font-mono text-[11px] uppercase tracking-wider border border-amber-500/20 disabled:opacity-50 transition-colors shrink-0 flex items-center gap-1.5 self-start sm:self-center"
+                    >
+                      {freeingVram ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Releasing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Cpu className="w-3 h-3" />
+                          <span>Release VRAM</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {freeVramStatus === 'success' && (
+                    <p className="text-[10px] text-emerald-400 font-bold font-mono uppercase tracking-wider animate-pulse">✓ GPU memory & model cache successfully cleared from VRAM!</p>
+                  )}
+                  {freeVramStatus === 'failed' && (
+                    <p className="text-[10px] text-red-400 font-bold font-mono uppercase tracking-wider">✗ Failed to free VRAM. Ensure ComfyUI server is online and reachable.</p>
+                  )}
                 </div>
               </div>
             </div>

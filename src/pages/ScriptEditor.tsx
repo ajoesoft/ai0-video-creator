@@ -57,7 +57,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { 
   translateTextGemini, 
   transcribeAudioGemini, 
-  synthesizeSpeechGemini 
+  synthesizeSpeechGemini,
+  getGeminiClient
 } from '../lib/gemini';
 import { applyAudioHarness } from '../lib/harness/audioHarness';
 import { 
@@ -244,7 +245,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
   const currentIdx = typeof customData.currentImageIndex === 'number' ? customData.currentImageIndex : 0;
 
   const handleOpenModal = () => {
-    setPromptInput(segment.qwenImagePrompt || segment.script || segment.word || "cinematic scene");
+    setPromptInput(segment.textToImagePrompt || segment.prompt || segment.qwenImagePrompt || segment.script || segment.word || "cinematic scene");
     setIsModalOpen(true);
   };
 
@@ -630,6 +631,8 @@ export function ScriptEditor() {
   
   // Script and Segment states
   const [scriptSegments, setScriptSegments] = useState<Vocabulary[]>([]);
+  const [activeSubTabs, setActiveSubTabs] = useState<Record<number, 'speech' | 'dialog' | 'direction' | 'textToImage' | 'videoPrompt'>>({});
+  const [generatingPromptIds, setGeneratingPromptIds] = useState<Record<number, boolean>>({});
   const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
 
   // Video Generation and Reordering states
@@ -670,6 +673,50 @@ export function ScriptEditor() {
   const [simulatedActiveCueIndex, setSimulatedActiveCueIndex] = useState(-1);
   const [simulatedActiveWordIndex, setSimulatedActiveWordIndex] = useState(-1);
   const [simulatorTimer, setSimulatorTimer] = useState<NodeJS.Timeout | null>(null);
+
+  const simulatorVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Resolve project-level synthesized video URL or path
+  const projectVideoPath = project ? (localStorage.getItem(`project_synthesized_video_${project.id}`) || project.videoUrl) : null;
+  const resolvedProjectVideoUrl = useMediaUrl(projectVideoPath, 'video');
+
+  // Helper to find the active segment corresponding to the current timing cue
+  const getActiveSegmentForCue = (): Vocabulary | null => {
+    if (simulatedActiveCueIndex === -1) return null;
+    const filtered = scriptSegments.filter(seg => 
+      ((seg.category || 'prose') === 'prose' || seg.category === 'dialogue' || seg.category === 'dialog') && 
+      (seg.script || seg.dialog || seg.word)
+    );
+    return filtered[simulatedActiveCueIndex] || null;
+  };
+  
+  const activeSegment = getActiveSegmentForCue();
+  const activeSegmentVideoUrl = useMediaUrl(activeSegment?.videoPath, 'video');
+
+  const resolvedVideoSrc = resolvedProjectVideoUrl || activeSegmentVideoUrl;
+  const hasProjectVideo = !!resolvedProjectVideoUrl;
+
+  const getAspectRatioClass = (ratio?: string) => {
+    if (!ratio) return 'aspect-video';
+    const r = ratio.toLowerCase().trim().replace('：', ':');
+    if (r === '16:9') return 'aspect-video';
+    if (r === '9:16') return 'aspect-[9/16]';
+    if (r === '1:1') return 'aspect-square';
+    if (r === '4:3') return 'aspect-[4/3]';
+    if (r === '3:2') return 'aspect-[3/2]';
+    if (r === '2:3') return 'aspect-[2/3]';
+    return 'aspect-video';
+  };
+
+  useEffect(() => {
+    if (simulatorVideoRef.current) {
+      if (isSimulatingKaraoke) {
+        simulatorVideoRef.current.play().catch(e => console.warn("Video autoplay failed:", e));
+      } else {
+        simulatorVideoRef.current.pause();
+      }
+    }
+  }, [isSimulatingKaraoke, resolvedVideoSrc]);
 
   // FFmpeg burning console panel states
   const [isBurning, setIsBurning] = useState(false);
@@ -769,6 +816,7 @@ export function ScriptEditor() {
       qwenImagePrompt: seg2.qwenImagePrompt,
       category: seg2.category,
       script: seg2.script,
+      dialog: seg2.dialog,
       status: seg2.status,
       chinese: seg2.chinese
     });
@@ -789,6 +837,7 @@ export function ScriptEditor() {
       qwenImagePrompt: temp.qwenImagePrompt,
       category: temp.category,
       script: temp.script,
+      dialog: temp.dialog,
       status: temp.status,
       chinese: temp.chinese
     });
@@ -852,10 +901,10 @@ export function ScriptEditor() {
   const getSubtitledCues = (): SubtitleDialogueLine[] => {
     let currentOffset = 0.5;
     return scriptSegments
-      .filter(seg => ((seg.category || 'prose') === 'prose' || seg.category === 'dialogue') && (seg.script || seg.word))
+      .filter(seg => ((seg.category || 'prose') === 'prose' || seg.category === 'dialogue' || seg.category === 'dialog') && (seg.script || seg.dialog || seg.word))
       .map((seg, idx) => {
         const dur = subtitleDurationOverrides[seg.id] || 4.2;
-        const textToUse = seg.chinese || seg.script || seg.word;
+        const textToUse = seg.chinese || (seg.category === 'dialogue' || seg.category === 'dialog' ? seg.dialog : seg.script) || seg.word;
         const entry: SubtitleDialogueLine = {
           index: idx + 1,
           startSec: currentOffset,
@@ -954,7 +1003,8 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    */
   const handleTranslateSegment = async (segment: Vocabulary) => {
     if (!segment.id) return;
-    const textToTranslate = segment.script || segment.word;
+    const isDialogue = segment.category === 'dialogue' || segment.category === 'dialog';
+    const textToTranslate = (isDialogue ? segment.dialog : segment.script) || segment.word;
     if (!textToTranslate || textToTranslate.trim() === '') return;
 
     setTranslatingIds(prev => ({ ...prev, [segment.id]: true }));
@@ -993,7 +1043,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    */
   const handleDoctorDialogue = async (segment: Vocabulary) => {
     if (!segment.id) return;
-    const textToDoctor = segment.script || '';
+    const textToDoctor = segment.dialog || segment.script || '';
     if (!textToDoctor || textToDoctor.trim() === '') {
       alert("Dialogue content is empty! (对白内容不能为空)");
       return;
@@ -1012,9 +1062,9 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     try {
       const doctored = await applyPromptHarnessRules(textToDoctor, project?.id || '');
       if (doctored && doctored.trim() !== textToDoctor.trim()) {
-        await updateVocabulary(segment.id, { script: doctored });
+        await updateVocabulary(segment.id, { dialog: doctored });
         setScriptSegments(prev => prev.map(s => 
-          s.id === segment.id ? { ...s, script: doctored } : s
+          s.id === segment.id ? { ...s, dialog: doctored } : s
         ));
       } else {
         alert(`No active Persona or Genre Harness applied, or dialogue is already in alignment. Register character rules for "@${characterName}" in the Visuals Library under the "Consistency Harness" tab.`);
@@ -1044,12 +1094,14 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     try {
       let appliedCount = 0;
       for (const segment of scriptSegments) {
-        const text = segment.script || '';
+        const isDialogue = segment.category === 'dialogue' || segment.category === 'dialog';
+        const text = (isDialogue ? segment.dialog : segment.script) || '';
         if (!text || !text.trim()) continue;
 
         const expanded = await applyPromptHarnessRules(text, project?.id || '');
         if (expanded && expanded.trim() !== text.trim()) {
-          await updateVocabulary(segment.id, { script: expanded });
+          const updates = isDialogue ? { dialog: expanded } : { script: expanded };
+          await updateVocabulary(segment.id, updates);
           appliedCount++;
         }
       }
@@ -1075,9 +1127,9 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     setIsTranslatingAll(true);
     try {
       for (const segment of scriptSegments) {
-        const type = segment.category || 'prose';
-        const txt = segment.script || segment.word;
-        if (type === 'prose' && txt && txt.trim() !== '') {
+        const isDialogue = segment.category === 'dialogue' || segment.category === 'dialog';
+        const txt = (isDialogue ? segment.dialog : segment.script) || segment.word;
+        if (txt && txt.trim() !== '') {
           setTranslatingIds(prev => ({ ...prev, [segment.id]: true }));
           
           let translation = "";
@@ -1185,7 +1237,8 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    */
   const handleGenerateSpeechTTS = async (segment: Vocabulary, isTranslated: boolean = false, overrideText?: string, skipReload: boolean = false) => {
     if (!segment.id) return;
-    const txt = overrideText !== undefined ? overrideText : (isTranslated ? (segment.chinese || '') : (segment.script || segment.word || ''));
+    const isDialogue = segment.category === 'dialogue' || segment.category === 'dialog';
+    const txt = overrideText !== undefined ? overrideText : (isTranslated ? (segment.chinese || '') : ((isDialogue ? segment.dialog : segment.script) || segment.word || ''));
     if (!txt.trim()) return;
 
     let speakerPrompt = LILY_VOICE_DESIGN_PROMPT;
@@ -1280,15 +1333,26 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
             if (isTranslated) {
               const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
-              currentCustomData.translatedAudioPath = localAudioPath;
+              if (isDialogue) {
+                currentCustomData.translatedDialogAudioPath = localAudioPath;
+              } else {
+                currentCustomData.translatedAudioPath = localAudioPath;
+              }
               await updateVocabulary(segment.id, { 
                 data: JSON.stringify(currentCustomData),
                 translationSpeechFile: localAudioPath,
                 voiceover: speakerPrompt
               });
             } else {
+              const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+              if (isDialogue) {
+                currentCustomData.dialogAudioPath = localAudioPath;
+              } else {
+                currentCustomData.speechAudioPath = localAudioPath;
+              }
               await updateVocabulary(segment.id, { 
                 audioPath: localAudioPath,
+                data: JSON.stringify(currentCustomData),
                 voiceover: speakerPrompt
               });
             }
@@ -1299,15 +1363,26 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           const base64Uri = base64AudioData.startsWith('data:') ? base64AudioData : `data:audio/mp3;base64,${base64AudioData}`;
           if (isTranslated) {
             const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
-            currentCustomData.translatedAudioPath = base64Uri;
+            if (isDialogue) {
+              currentCustomData.translatedDialogAudioPath = base64Uri;
+            } else {
+              currentCustomData.translatedAudioPath = base64Uri;
+            }
             await updateVocabulary(segment.id, { 
               data: JSON.stringify(currentCustomData),
               translationSpeechFile: base64Uri,
               voiceover: speakerPrompt
             });
           } else {
+            const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+            if (isDialogue) {
+              currentCustomData.dialogAudioPath = base64Uri;
+            } else {
+              currentCustomData.speechAudioPath = base64Uri;
+            }
             await updateVocabulary(segment.id, { 
               audioPath: base64Uri,
+              data: JSON.stringify(currentCustomData),
               voiceover: speakerPrompt
             });
           }
@@ -1340,15 +1415,26 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
             if (isTranslated) {
               const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
-              currentCustomData.translatedAudioPath = localAudioPath;
+              if (isDialogue) {
+                currentCustomData.translatedDialogAudioPath = localAudioPath;
+              } else {
+                currentCustomData.translatedAudioPath = localAudioPath;
+              }
               await updateVocabulary(segment.id, { 
                 data: JSON.stringify(currentCustomData),
                 translationSpeechFile: localAudioPath,
                 voiceover: speakerPrompt
               });
             } else {
+              const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+              if (isDialogue) {
+                currentCustomData.dialogAudioPath = localAudioPath;
+              } else {
+                currentCustomData.speechAudioPath = localAudioPath;
+              }
               await updateVocabulary(segment.id, { 
                 audioPath: localAudioPath,
+                data: JSON.stringify(currentCustomData),
                 voiceover: speakerPrompt
               });
             }
@@ -1357,15 +1443,26 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
             // Web Preview persistent fallback: store Cloud audio URL directly
             if (isTranslated) {
               const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
-              currentCustomData.translatedAudioPath = cloudUrl;
+              if (isDialogue) {
+                currentCustomData.translatedDialogAudioPath = cloudUrl;
+              } else {
+                currentCustomData.translatedAudioPath = cloudUrl;
+              }
               await updateVocabulary(segment.id, { 
                 data: JSON.stringify(currentCustomData),
                 translationSpeechFile: cloudUrl,
                 voiceover: speakerPrompt
               });
             } else {
+              const currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+              if (isDialogue) {
+                currentCustomData.dialogAudioPath = cloudUrl;
+              } else {
+                currentCustomData.speechAudioPath = cloudUrl;
+              }
               await updateVocabulary(segment.id, { 
                 audioPath: cloudUrl,
+                data: JSON.stringify(currentCustomData),
                 voiceover: speakerPrompt
               });
             }
@@ -1378,12 +1475,21 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
       if (finalPath) {
         setScriptSegments(prev => prev.map(s => {
           if (s.id === segment.id) {
+            const currentCustomData = s.data ? JSON.parse(s.data) : {};
             if (isTranslated) {
-              const currentCustomData = s.data ? JSON.parse(s.data) : {};
-              currentCustomData.translatedAudioPath = finalPath;
+              if (isDialogue) {
+                currentCustomData.translatedDialogAudioPath = finalPath;
+              } else {
+                currentCustomData.translatedAudioPath = finalPath;
+              }
               return { ...s, data: JSON.stringify(currentCustomData) };
             } else {
-              return { ...s, audioPath: finalPath };
+              if (isDialogue) {
+                currentCustomData.dialogAudioPath = finalPath;
+              } else {
+                currentCustomData.speechAudioPath = finalPath;
+              }
+              return { ...s, audioPath: finalPath, data: JSON.stringify(currentCustomData) };
             }
           }
           return s;
@@ -1422,9 +1528,10 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         if (!segment) continue;
 
         const type = segment.category || 'prose';
-        if (type !== 'prose' && type !== 'dialogue') continue;
+        const isDialogue = type === 'dialogue' || type === 'dialog';
+        if (type !== 'prose' && !isDialogue) continue;
 
-        let scriptText = segment.script || segment.word || '';
+        let scriptText = (isDialogue ? segment.dialog : segment.script) || segment.word || '';
         let translationText = segment.chinese || '';
         let audioPath = segment.audioPath || '';
 
@@ -1528,6 +1635,49 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
   /**
    * Standard segment handlers
    */
+  const handleUpdateField = async (segmentId: number, field: 'script' | 'dialog' | 'prompt' | 'chinese' | 'textToImagePrompt' | 'ltx23Prompt', content: string) => {
+    setScriptSegments(prev => prev.map(s => {
+      if (s.id === segmentId) {
+        const updated = { ...s, [field]: content };
+        if (field === 'chinese') {
+          updated.translation = content;
+        }
+        if (field === 'ltx23Prompt') {
+          updated.imageToVideoPrompt = content;
+          updated.refVideoPrompt = content;
+        }
+        return updated;
+      }
+      return s;
+    }));
+
+    const updates: Partial<Vocabulary> = { [field]: content };
+    if (field === 'chinese') {
+      updates.translation = content;
+    }
+    if (field === 'ltx23Prompt') {
+      updates.imageToVideoPrompt = content;
+      updates.refVideoPrompt = content;
+    }
+    await updateVocabulary(segmentId, updates);
+  };
+
+  const handleSelectSubTab = async (segmentId: number, tab: 'speech' | 'dialog' | 'direction' | 'textToImage' | 'videoPrompt') => {
+    setActiveSubTabs(prev => ({ ...prev, [segmentId]: tab }));
+    
+    const categoryMap = {
+      speech: 'prose',
+      dialog: 'dialogue',
+      direction: 'direction',
+      textToImage: 'textToImage',
+      videoPrompt: 'videoPrompt'
+    };
+    const cat = categoryMap[tab];
+    
+    setScriptSegments(prev => prev.map(s => s.id === segmentId ? { ...s, category: cat } : s));
+    await updateVocabulary(segmentId, { category: cat });
+  };
+
   const handleUpdateContent = async (segmentId: number, content: string) => {
     const seg = scriptSegments.find(s => s.id === segmentId);
     const updates: Partial<Vocabulary> = { script: content };
@@ -1581,6 +1731,9 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
       // Pause
       if (simulatorTimer) clearInterval(simulatorTimer);
       setIsSimulatingKaraoke(false);
+      if (simulatorVideoRef.current) {
+        simulatorVideoRef.current.pause();
+      }
       return;
     }
 
@@ -1591,12 +1744,40 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
       return;
     }
 
+    if (simulatorVideoRef.current) {
+      simulatorVideoRef.current.currentTime = 0;
+      simulatorVideoRef.current.play().catch(e => console.warn("Video play error:", e));
+    }
+
     const totalSeconds = cues[cues.length - 1].endSec + 1;
     let currentSec = 0;
 
     const interval = setInterval(() => {
-      currentSec += 0.1;
+      // Check if video is loaded and playing to drive the clock for ultra-smooth rendering
+      if (simulatorVideoRef.current && !simulatorVideoRef.current.paused) {
+        if (hasProjectVideo) {
+          currentSec = simulatorVideoRef.current.currentTime;
+        } else {
+          currentSec += 0.1;
+        }
+      } else {
+        currentSec += 0.1;
+      }
+
       setSimulatorPosition(currentSec);
+
+      // Seek segment fallback video if needed
+      if (simulatorVideoRef.current && !hasProjectVideo) {
+        const cueIdx = cues.findIndex(c => currentSec >= c.startSec && currentSec <= c.endSec);
+        if (cueIdx !== -1) {
+          const activeCue = cues[cueIdx];
+          const expectedVideoTime = currentSec - activeCue.startSec;
+          const actualVideoTime = simulatorVideoRef.current.currentTime;
+          if (Math.abs(actualVideoTime - expectedVideoTime) > 0.4) {
+            simulatorVideoRef.current.currentTime = expectedVideoTime;
+          }
+        }
+      }
 
       // Find which subtitle cue matches current time-code
       const cueIdx = cues.findIndex(c => currentSec >= c.startSec && currentSec <= c.endSec);
@@ -1619,7 +1800,6 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
           for (let i = 0; i < words.length; i++) {
             const wordWeight = words[i].length / totalChars;
-            const wordDuration = wordWeight * cueDuration;
             if (currentElapsedSecInCue < (elapsedSumPercent + wordWeight) * cueDuration) {
               activeWidx = i;
               break;
@@ -1640,6 +1820,10 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
         setSimulatorPosition(0);
         setSimulatedActiveCueIndex(-1);
         setSimulatedActiveWordIndex(-1);
+        if (simulatorVideoRef.current) {
+          simulatorVideoRef.current.pause();
+          simulatorVideoRef.current.currentTime = 0;
+        }
       }
     }, 100);
 
@@ -1886,19 +2070,27 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
                 <AnimatePresence initial={false}>
                   {scriptSegments.map((segment, index) => {
-                    const isDialogue = segment.category === 'dialogue';
-                    const isDirection = (segment.category || 'prose') === 'direction' || (!isDialogue && segment.script?.startsWith('['));
+                    const getSubTabFromCategory = (category?: string) => {
+                      if (category === 'dialogue' || category === 'dialog') return 'dialog';
+                      if (category === 'direction') return 'direction';
+                      if (category === 'textToImage') return 'textToImage';
+                      if (category === 'videoPrompt') return 'videoPrompt';
+                      return 'speech';
+                    };
+                    const currentSubTab = activeSubTabs[segment.id] || getSubTabFromCategory(segment.category);
+                    const isDialogue = currentSubTab === 'dialog';
+                    const isDirection = currentSubTab === 'direction';
                     const origIdentifier = `${segment.id}_orig`;
                     const transIdentifier = `${segment.id}_trans`;
 
-                    const transCustomData = (() => {
+                    const customData = (() => {
                       try {
                         return segment.data ? JSON.parse(segment.data) : {};
                       } catch (e) {
                         return {};
                       }
                     })();
-                    const translatedAudioPath = transCustomData.translatedAudioPath || "";
+                    const translatedAudioPath = isDialogue ? (customData.translatedDialogAudioPath || "") : (customData.translatedAudioPath || "");
                     const isTranslatedAudioReady = !!(audioPlaybacks[transIdentifier] || translatedAudioPath);
 
                     return (
@@ -2034,109 +2226,423 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
                         {/* Interactive Script Area */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mt-2">
-                          <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                            <div className={cn("space-y-4", segment.chinese ? "md:col-span-6" : "md:col-span-12")}>
-                              {segment.chinese && (
-                                <label className="text-[8px] font-mono tracking-widest text-white/20 uppercase block">Original English Segment</label>
-                              )}
-                              <textarea 
-                                ref={el => textareaRefs.current[segment.id] = el}
-                                value={segment.script || ''}
-                                onChange={(e) => handleUpdateContent(segment.id, e.target.value)}
-                                rows={Math.max(2, (segment.script || '').split('\n').length)}
-                                placeholder={isDialogue ? 'CharacterName: Speak dialogue line here (e.g., Lily: Hello, how are you?)...' : isDirection ? '[Introduce dramatic orange cinematic visual panning onto neon horizons...]' : 'Type narrative prose here...'}
-                                className={cn(
-                                  "w-full bg-transparent resize-none outline-none leading-relaxed text-white/90 font-sans tracking-wide",
-                                  isDirection ? "text-base italic text-brand-primary/80 font-mono" : "text-xl font-light"
-                                )}
-                              />
-
-                              {isDialogue && (
-                                <p className="text-[10px] text-brand-primary/70 font-mono">
-                                  格式 (Format): <strong className="text-white">CharacterName: Dialogue line text</strong> 自动映射对应角色声音。
-                                </p>
-                              )}
-
-                              {/* original audio audio synthesis action */}
-                              {!isDirection && (
-                                <div className="flex items-center gap-3 pt-4 border-t border-white/[0.03] mt-4">
-                                  <button 
-                                    onClick={() => handleGenerateSpeechTTS(segment, false)}
-                                    disabled={activeGenerations[origIdentifier]}
-                                    className={cn(
-                                      "flex items-center gap-2 px-3 py-1.5 rounded-md text-[9px] font-bold tracking-widest uppercase transition-all border",
-                                      segment.audioPath || audioPlaybacks[origIdentifier]
-                                        ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/20" 
-                                        : "bg-white/[0.01] border-white/5 text-white/40 hover:text-white hover:border-white/10"
-                                    )}
-                                  >
-                                    {activeGenerations[origIdentifier] ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Volume2 className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>{segment.audioPath ? 'ORIGINAL AUDIO READY' : 'SYNTHESIZE SPEECH'}</span>
-                                  </button>
-
-                                  {/* Play synthesized sound */}
-                                  {(segment.audioPath || audioPlaybacks[origIdentifier]) && (
-                                    <button 
-                                      onClick={() => playAudioString(origIdentifier, audioPlaybacks[origIdentifier] || segment.audioPath || '')}
-                                      className="p-1.5 rounded-full bg-white/5 hover:bg-white/15 text-white flex items-center justify-center transition-all"
-                                    >
-                                      {currentlyPlayingAudio === origIdentifier ? <Pause className="w-3 h-3 text-brand-primary" /> : <Play className="w-3 h-3 ml-0.5" />}
-                                    </button>
+                          <div className="lg:col-span-8">
+                            
+                            {/* Sub-tabs Selection for Speech / Dialogue / Direction / Image Prompt / Video Prompt */}
+                            <div className="flex border-b border-white/[0.05] mb-5 gap-2">
+                              {[
+                                { id: 'speech', label: 'Speech 旁白' },
+                                { id: 'dialog', label: 'Dialogue 对白' },
+                                { id: 'direction', label: 'Direction 画面' },
+                                { id: 'textToImage', label: 'Image Prompt 绘图' },
+                                { id: 'videoPrompt', label: 'Video Prompt 视频' }
+                              ].map(tab => (
+                                <button
+                                  key={tab.id}
+                                  type="button"
+                                  onClick={() => handleSelectSubTab(segment.id, tab.id as any)}
+                                  className={cn(
+                                    "px-4 py-2 text-xs font-mono uppercase tracking-wider border-b-2 transition-all cursor-pointer",
+                                    currentSubTab === tab.id 
+                                      ? "border-brand-primary text-brand-primary font-bold bg-brand-primary/5" 
+                                      : "border-transparent text-white/40 hover:text-white hover:bg-white/[0.02]"
                                   )}
+                                >
+                                  {tab.label}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+                              
+                              {/* Left Input Section (Speech / Dialogue / Direction content) */}
+                              <div className={cn("space-y-4", segment.chinese ? "md:col-span-6" : "md:col-span-12")}>
+                                
+                                {currentSubTab === 'speech' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
+                                        Narration / Voiceover Text
+                                      </span>
+                                    </div>
+                                    <textarea 
+                                      ref={el => {
+                                        textareaRefs.current[segment.id] = el;
+                                        if (el) {
+                                          el.style.height = 'auto';
+                                          el.style.height = `${el.scrollHeight}px`;
+                                        }
+                                      }}
+                                      value={segment.script || ''}
+                                      onChange={(e) => {
+                                        handleUpdateField(segment.id, 'script', e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = `${e.target.scrollHeight}px`;
+                                      }}
+                                      style={{ overflow: 'hidden' }}
+                                      placeholder="Type speech narrative prose here (旁白解说内容)..."
+                                      className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-white text-lg font-light tracking-wide focus:border-brand-primary transition-all resize-none min-h-[80px]"
+                                    />
+
+                                    {/* Speech Synthesis buttons */}
+                                    <div className="flex items-center gap-3 pt-2">
+                                      <button 
+                                        onClick={() => handleGenerateSpeechTTS(segment, false, segment.script)}
+                                        disabled={activeGenerations[origIdentifier]}
+                                        className={cn(
+                                          "flex items-center gap-2 px-3 py-1.5 rounded-md text-[9px] font-bold tracking-widest uppercase transition-all border",
+                                          segment.audioPath || audioPlaybacks[origIdentifier]
+                                            ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/20" 
+                                            : "bg-white/[0.01] border-white/5 text-white/40 hover:text-white hover:border-white/10"
+                                        )}
+                                      >
+                                        {activeGenerations[origIdentifier] ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Volume2 className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>{segment.audioPath ? 'ORIGINAL SPEECH READY' : 'SYNTHESIZE SPEECH'}</span>
+                                      </button>
+
+                                      {(segment.audioPath || audioPlaybacks[origIdentifier]) && (
+                                        <button 
+                                          onClick={() => playAudioString(origIdentifier, audioPlaybacks[origIdentifier] || segment.audioPath || '')}
+                                          className="p-1.5 rounded-full bg-white/5 hover:bg-white/15 text-white flex items-center justify-center transition-all"
+                                        >
+                                          {currentlyPlayingAudio === origIdentifier ? <Pause className="w-3 h-3 text-brand-primary" /> : <Play className="w-3 h-3 ml-0.5" />}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {currentSubTab === 'dialog' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
+                                        Character Dialogue Text
+                                      </span>
+                                    </div>
+                                    <textarea 
+                                      ref={el => {
+                                        textareaRefs.current[segment.id] = el;
+                                        if (el) {
+                                          el.style.height = 'auto';
+                                          el.style.height = `${el.scrollHeight}px`;
+                                        }
+                                      }}
+                                      value={segment.dialog || ''}
+                                      onChange={(e) => {
+                                        handleUpdateField(segment.id, 'dialog', e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = `${e.target.scrollHeight}px`;
+                                      }}
+                                      style={{ overflow: 'hidden' }}
+                                      placeholder="CharacterName: Dialogue line here (e.g., Lily: Hello, how are you?)..."
+                                      className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-white text-lg font-light tracking-wide focus:border-brand-primary transition-all resize-none min-h-[80px]"
+                                    />
+
+                                    <p className="text-[10px] text-brand-primary/70 font-mono">
+                                      格式 (Format): <strong className="text-white">CharacterName: Dialogue line text</strong> 自动映射对应角色声音。
+                                    </p>
+
+                                    {/* Dialog synthesis buttons */}
+                                    <div className="flex items-center gap-3 pt-2">
+                                      <button 
+                                        onClick={() => handleGenerateSpeechTTS(segment, false, segment.dialog)}
+                                        disabled={activeGenerations[`${segment.id}_dialog`]}
+                                        className={cn(
+                                          "flex items-center gap-2 px-3 py-1.5 rounded-md text-[9px] font-bold tracking-widest uppercase transition-all border",
+                                          segment.audioPath || audioPlaybacks[`${segment.id}_dialog`]
+                                            ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/20" 
+                                            : "bg-white/[0.01] border-white/5 text-white/40 hover:text-white hover:border-white/10"
+                                        )}
+                                      >
+                                        {activeGenerations[`${segment.id}_dialog`] ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Volume2 className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>{segment.audioPath ? 'DIALOG AUDIO READY' : 'SYNTHESIZE DIALOGUE'}</span>
+                                      </button>
+
+                                      {(segment.audioPath || audioPlaybacks[`${segment.id}_dialog`]) && (
+                                        <button 
+                                          onClick={() => playAudioString(`${segment.id}_dialog`, audioPlaybacks[`${segment.id}_dialog`] || segment.audioPath || '')}
+                                          className="p-1.5 rounded-full bg-white/5 hover:bg-white/15 text-white flex items-center justify-center transition-all"
+                                        >
+                                          {currentlyPlayingAudio === `${segment.id}_dialog` ? <Pause className="w-3 h-3 text-brand-primary" /> : <Play className="w-3 h-3 ml-0.5" />}
+                                        </button>
+                                      )}
+
+                                      {/* Align Persona Trigger */}
+                                      <button
+                                        onClick={() => handleDoctorDialogue(segment)}
+                                        disabled={doctoringIds[segment.id]}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white/[0.01] hover:bg-white/5 text-gray-400 hover:text-white border border-white/5 transition-all text-[9.5px] font-black cursor-pointer"
+                                        title="Doctors dialogue via active character Persona Speech and Genre literary harnesses (自动修饰对白口吻)"
+                                      >
+                                        {doctoringIds[segment.id] ? (
+                                          <Loader2 className="w-3 h-3 animate-spin text-orange-400"/>
+                                        ) : (
+                                          <Sparkles className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
+                                        )}
+                                        <span>ALIGN PERSONA (口吻修饰)</span>
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {currentSubTab === 'direction' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
+                                        Cinematic Scene Visual Direction
+                                      </span>
+                                    </div>
+                                    <textarea 
+                                      ref={el => {
+                                        textareaRefs.current[segment.id] = el;
+                                        if (el) {
+                                          el.style.height = 'auto';
+                                          el.style.height = `${el.scrollHeight}px`;
+                                        }
+                                      }}
+                                      value={segment.prompt || ''}
+                                      onChange={(e) => {
+                                        handleUpdateField(segment.id, 'prompt', e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = `${e.target.scrollHeight}px`;
+                                      }}
+                                      style={{ overflow: 'hidden' }}
+                                      placeholder="[Introduce dramatic orange cinematic visual panning onto neon horizons...]"
+                                      className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-brand-primary/80 font-mono italic text-base focus:border-brand-primary transition-all resize-none min-h-[80px]"
+                                    />
+                                    <p className="text-[10px] text-gray-500 font-sans leading-relaxed">
+                                      💡 This visual description will be used as the prompt for cover image and video generation under the "Scene Visual Cover" panel on the right.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {currentSubTab === 'textToImage' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
+                                        Text-to-Image Prompt (文生图 Prompt)
+                                      </span>
+                                      
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          try {
+                                            const textToAnalyze = segment.prompt || segment.script || segment.word || '';
+                                            if (!textToAnalyze) {
+                                              alert("Please write some scene direction or narration text first!");
+                                              return;
+                                            }
+                                            
+                                            setGeneratingPromptIds(prev => ({ ...prev, [segment.id]: true }));
+                                            
+                                            const ai = getGeminiClient();
+                                            if (ai) {
+                                              const aiPrompt = `You are a professional stable diffusion and midjourney prompt engineer. 
+Convert the following cinematic scene description or script into a highly detailed, evocative, visual-only text-to-image prompt.
+Focus on lighting, camera angle, medium (e.g. 35mm film, hyper-realistic, digital art), atmosphere, colors, and subject details.
+Do not write narrative, backstory, or voiceover text. ONLY output the descriptive prompt.
+Keep it under 60 words, clean, separated by commas, with NO intro, markdown, quotes, or explanation.
+Scene text: "${textToAnalyze}"`;
+
+                                              const response = await ai.models.generateContent({
+                                                model: 'gemini-2.5-flash',
+                                                contents: aiPrompt,
+                                              });
+                                              
+                                              const promptRes = response.text?.trim();
+                                              if (promptRes) {
+                                                handleUpdateField(segment.id, 'textToImagePrompt', promptRes);
+                                              }
+                                            }
+                                          } catch (e: any) {
+                                            console.error("Failed to auto-generate image prompt:", e);
+                                            alert(`Failed to generate prompt: ${e?.message || e}`);
+                                          } finally {
+                                            setGeneratingPromptIds(prev => ({ ...prev, [segment.id]: false }));
+                                          }
+                                        }}
+                                        disabled={generatingPromptIds[segment.id]}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#1a1a1e] hover:bg-white/10 text-orange-400 border border-white/5 hover:border-orange-500/20 text-[9.5px] font-mono tracking-wider transition-all uppercase cursor-pointer disabled:opacity-50"
+                                      >
+                                        {generatingPromptIds[segment.id] ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                        )}
+                                        <span>AI Prompt Gen</span>
+                                      </button>
+                                    </div>
+                                    <textarea 
+                                      ref={el => {
+                                        textareaRefs.current[segment.id] = el;
+                                        if (el) {
+                                          el.style.height = 'auto';
+                                          el.style.height = `${el.scrollHeight}px`;
+                                        }
+                                      }}
+                                      value={segment.textToImagePrompt || ''}
+                                      onChange={(e) => {
+                                        handleUpdateField(segment.id, 'textToImagePrompt', e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = `${e.target.scrollHeight}px`;
+                                      }}
+                                      style={{ overflow: 'hidden' }}
+                                      placeholder="[Describe rich camera details, lighting style, color grading, visual elements for text-to-image generator...]"
+                                      className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-[#FFCC00]/90 font-mono italic text-base focus:border-brand-primary transition-all resize-none min-h-[80px]"
+                                    />
+                                    <p className="text-[10px] text-gray-500 font-sans leading-relaxed">
+                                      💡 This Text-to-Image Prompt is stored by scene and will be loaded automatically when generating cover images on the right.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {currentSubTab === 'videoPrompt' && (
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
+                                        Text-to-Video Prompt (视频生成 / RegVid Prompt)
+                                      </span>
+                                      
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          try {
+                                            const textToAnalyze = segment.prompt || segment.script || segment.word || '';
+                                            if (!textToAnalyze) {
+                                              alert("Please write some scene direction or narration text first!");
+                                              return;
+                                            }
+                                            
+                                            setGeneratingPromptIds(prev => ({ ...prev, [segment.id]: true }));
+                                            
+                                            const ai = getGeminiClient();
+                                            if (ai) {
+                                              const aiPrompt = `You are a professional AI video prompt engineer for LTX-2.3 and Sora. 
+Convert the following cinematic scene description or script into a highly evocative, detailed, motion-focused text-to-video prompt.
+Focus on camera movement (e.g. slow pan, crane shot, push in), action, character dynamics, lighting changes, and pacing.
+Do not write narrative, backstory, or voiceover text. ONLY output the descriptive motion-based prompt.
+Keep it under 60 words, clean, separated by commas, with NO intro, markdown, quotes, or explanation.
+Scene text: "${textToAnalyze}"`;
+
+                                              const response = await ai.models.generateContent({
+                                                model: 'gemini-2.5-flash',
+                                                contents: aiPrompt,
+                                              });
+                                              
+                                              const promptRes = response.text?.trim();
+                                              if (promptRes) {
+                                                handleUpdateField(segment.id, 'ltx23Prompt', promptRes);
+                                              }
+                                            }
+                                          } catch (e: any) {
+                                            console.error("Failed to auto-generate video prompt:", e);
+                                            alert(`Failed to generate prompt: ${e?.message || e}`);
+                                          } finally {
+                                            setGeneratingPromptIds(prev => ({ ...prev, [segment.id]: false }));
+                                          }
+                                        }}
+                                        disabled={generatingPromptIds[segment.id]}
+                                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#1a1a1e] hover:bg-white/10 text-orange-400 border border-white/5 hover:border-orange-500/20 text-[9.5px] font-mono tracking-wider transition-all uppercase cursor-pointer disabled:opacity-50"
+                                      >
+                                        {generatingPromptIds[segment.id] ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                                        )}
+                                        <span>AI Video Prompt Gen</span>
+                                      </button>
+                                    </div>
+                                    <textarea 
+                                      ref={el => {
+                                        textareaRefs.current[segment.id] = el;
+                                        if (el) {
+                                          el.style.height = 'auto';
+                                          el.style.height = `${el.scrollHeight}px`;
+                                        }
+                                      }}
+                                      value={segment.ltx23Prompt || ''}
+                                      onChange={(e) => {
+                                        handleUpdateField(segment.id, 'ltx23Prompt', e.target.value);
+                                        e.target.style.height = 'auto';
+                                        e.target.style.height = `${e.target.scrollHeight}px`;
+                                      }}
+                                      style={{ overflow: 'hidden' }}
+                                      placeholder="[Describe camera motion, slow panning, subject action, cinematic lighting dynamics for LTX video generator...]"
+                                      className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-[#00E5FF]/90 font-mono italic text-base focus:border-brand-primary transition-all resize-none min-h-[80px]"
+                                    />
+                                    <p className="text-[10px] text-gray-500 font-sans leading-relaxed">
+                                      💡 This Text-to-Video Prompt is stored by scene and will be loaded automatically when creating or regenerating scene videos using LTX-2.3 (RegVid).
+                                    </p>
+                                  </div>
+                                )}
+
+                              </div>
+
+                              {/* Right Side: Translation Editor (shows when Chinese/target exists) */}
+                              {segment.chinese && (
+                                <div className="md:col-span-6 space-y-4 border-l border-white/[0.04] pl-6">
+                                  <label className="text-[8px] font-mono tracking-widest text-brand-primary/50 uppercase block">
+                                    TRANSLATED SCRIPT ({targetLang.toUpperCase()})
+                                  </label>
+                                  <textarea 
+                                    ref={el => {
+                                      if (el) {
+                                        el.style.height = 'auto';
+                                        el.style.height = `${el.scrollHeight}px`;
+                                      }
+                                    }}
+                                    value={segment.chinese || ''}
+                                    onChange={(e) => {
+                                      handleUpdateField(segment.id, 'chinese', e.target.value);
+                                      e.target.style.height = 'auto';
+                                      e.target.style.height = `${e.target.scrollHeight}px`;
+                                    }}
+                                    style={{ overflow: 'hidden' }}
+                                    className="w-full bg-transparent resize-none outline-none leading-relaxed text-brand-primary/80 font-serif italic text-lg font-light tracking-wide focus:text-brand-primary min-h-[80px]"
+                                    placeholder={`Translation output generated by LLM...`}
+                                  />
+
+                                  {/* Translated Speech synthesis trigger */}
+                                  <div className="flex items-center gap-3 pt-4 border-t border-white/[0.03] mt-4">
+                                    <button 
+                                      onClick={() => handleGenerateSpeechTTS(segment, true, segment.chinese)}
+                                      disabled={activeGenerations[transIdentifier]}
+                                      className={cn(
+                                        "flex items-center gap-2 px-3 py-1.5 rounded-md text-[9px] font-bold tracking-widest uppercase transition-all border",
+                                        isTranslatedAudioReady
+                                          ? "bg-brand-primary/10 border-brand-primary/20 text-brand-primary hover:bg-brand-primary/20" 
+                                          : "bg-white/[0.01] border-white/5 text-white/40 hover:text-white hover:border-white/10"
+                                      )}
+                                    >
+                                      {activeGenerations[transIdentifier] ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Music className="w-3.5 h-3.5" />
+                                      )}
+                                      <span>{isTranslatedAudioReady ? 'TRANSLATED AUDIO READY' : 'BUILD TRANSLATED SPEECH'}</span>
+                                    </button>
+
+                                    {/* Play synthesized translated audio */}
+                                    {isTranslatedAudioReady && (
+                                      <button 
+                                        onClick={() => playAudioString(transIdentifier, audioPlaybacks[transIdentifier] || translatedAudioPath)}
+                                        className="p-1.5 rounded-full bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary flex items-center justify-center transition-all animate-pulse"
+                                      >
+                                        {currentlyPlayingAudio === transIdentifier ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>
-
-                            {/* Side Language Translation Editor (shows when Chinese/target exists) */}
-                            {segment.chinese && (
-                              <div className="md:col-span-6 space-y-4 border-l border-white/[0.04] pl-6">
-                                <label className="text-[8px] font-mono tracking-widest text-brand-primary/50 uppercase block">
-                                  TRANSLATED SCRIPT ({targetLang.toUpperCase()})
-                                </label>
-                                <textarea 
-                                  value={segment.chinese || ''}
-                                  onChange={(e) => handleUpdateChinese(segment.id, e.target.value)}
-                                  rows={Math.max(2, (segment.chinese || '').split('\n').length)}
-                                  className="w-full bg-transparent resize-none outline-none leading-relaxed text-brand-primary/80 font-serif italic text-lg font-light tracking-wide focus:text-brand-primary"
-                                  placeholder={`Translation output generated by LLM...`}
-                                />
-
-                                {/* translated audio synthesis trigger */}
-                                <div className="flex items-center gap-3 pt-4 border-t border-white/[0.03] mt-4">
-                                  <button 
-                                    onClick={() => handleGenerateSpeechTTS(segment, true)}
-                                    disabled={activeGenerations[transIdentifier]}
-                                    className={cn(
-                                      "flex items-center gap-2 px-3 py-1.5 rounded-md text-[9px] font-bold tracking-widest uppercase transition-all border",
-                                      isTranslatedAudioReady
-                                        ? "bg-brand-primary/10 border-brand-primary/20 text-brand-primary hover:bg-brand-primary/20" 
-                                        : "bg-white/[0.01] border-white/5 text-white/40 hover:text-white hover:border-white/10"
-                                    )}
-                                  >
-                                    {activeGenerations[transIdentifier] ? (
-                                      <Loader2 className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <Music className="w-3.5 h-3.5" />
-                                    )}
-                                    <span>{isTranslatedAudioReady ? 'TRANSLATED AUDIO READY' : 'BUILD TRANSLATED SPEECH'}</span>
-                                  </button>
-
-                                  {/* Play synthesized translated audio */}
-                                  {isTranslatedAudioReady && (
-                                    <button 
-                                      onClick={() => playAudioString(transIdentifier, audioPlaybacks[transIdentifier] || translatedAudioPath)}
-                                      className="p-1.5 rounded-full bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary flex items-center justify-center transition-all animate-pulse"
-                                    >
-                                      {currentlyPlayingAudio === transIdentifier ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-0.5" />}
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            )}
                           </div>
 
                           {/* SegmentCover Scene Cover Section */}
@@ -2148,47 +2654,6 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                               onRefresh={() => loadData(id!)} 
                               onOpenVideoGen={() => setVideoGenSegment(segment)}
                             />
-                          </div>
-                        </div>
-
-                        {/* Drag options / Bottom metadata toggle */}
-                        <div className="mt-5 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="flex items-center gap-3">
-                            <span className="text-[9px] font-mono text-white/30 uppercase tracking-widest">Scene Format:</span>
-                            <div className="flex gap-1.5 bg-black/40 p-0.5 rounded border border-white/5">
-                              {[
-                                { val: 'prose', label: 'Speech 旁白' },
-                                { val: 'dialogue', label: 'Dialogue 对白' },
-                                { val: 'direction', label: 'Direction 画面' }
-                              ].map(item => {
-                                const active = (segment.category || 'prose') === item.val;
-                                return (
-                                  <button
-                                    key={item.val}
-                                    type="button"
-                                    onClick={async () => {
-                                      const updates: Partial<Vocabulary> = { category: item.val };
-                                      if (item.val === 'dialogue') {
-                                        updates.dialog = segment.script || segment.word || '';
-                                      }
-                                      await updateVocabulary(segment.id, updates);
-                                      loadData(id!);
-                                    }}
-                                    className={cn(
-                                      "px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider transition-all rounded-sm font-bold",
-                                      active 
-                                        ? "bg-brand-primary/10 text-brand-primary" 
-                                        : "text-white/40 hover:text-white hover:bg-white/5"
-                                    )}
-                                  >
-                                    {item.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <div className="font-mono text-[9px] text-gray-600 uppercase tracking-widest font-black">
-                            {(segment.script || '').length} CHARS
                           </div>
                         </div>
 
@@ -2539,26 +3004,47 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                   </div>
 
                   {/* Active Simulator Screen View */}
-                  <div className="aspect-video bg-[#0A0A0B] border border-white/5 relative flex flex-col items-center justify-center group overflow-hidden">
+                  <div className={cn(
+                    "w-full bg-black border border-white/5 relative flex flex-col items-center justify-center group overflow-hidden mx-auto shadow-2xl",
+                    getAspectRatioClass(project?.aspectRatio)
+                  )} style={{ maxHeight: '380px' }}>
                     
-                    {/* Dark visual cosmic loop simulation */}
-                    <img 
-                      src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&q=80" 
-                      className={cn(
-                        "absolute inset-0 w-full h-full object-cover transition-transform duration-1000 select-none",
-                        isSimulatingKaraoke ? "scale-105 filter grayscale-0 opacity-40 animate-pulse" : "scale-100 filter grayscale opacity-20"
-                      )}
-                      alt="Cosmic Horizon Simulation" 
-                    />
+                    {/* Synchronized Real Video playback / image fallback */}
+                    {resolvedVideoSrc ? (
+                      <video
+                        ref={simulatorVideoRef}
+                        src={resolvedVideoSrc}
+                        className={cn(
+                          "absolute inset-0 w-full h-full object-contain transition-transform duration-1000 select-none bg-black",
+                          isSimulatingKaraoke ? "scale-[1.02]" : "scale-100 opacity-60 filter grayscale-[20%]"
+                        )}
+                        playsInline
+                        muted
+                        loop={!hasProjectVideo}
+                      />
+                    ) : (
+                      /* Dark visual cosmic loop simulation fallback */
+                      <img 
+                        src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&q=80" 
+                        className={cn(
+                          "absolute inset-0 w-full h-full object-cover transition-transform duration-1000 select-none",
+                          isSimulatingKaraoke ? "scale-105 filter grayscale-0 opacity-40 animate-pulse" : "scale-100 filter grayscale opacity-20"
+                        )}
+                        alt="Cosmic Horizon Simulation" 
+                      />
+                    )}
+
+                    {/* Dark gradient shadow overlay to keep controls and subtitles legible */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 pointer-events-none z-0" />
                     
                     {/* Active subtitle overlap display */}
-                    <div className="absolute inset-x-4 bottom-6 text-center select-none z-10 min-h-24 flex items-end justify-center">
+                    <div className="absolute inset-x-4 bottom-4 text-center select-none z-10 min-h-20 flex items-end justify-center">
                       {simulatedActiveCueIndex !== -1 ? (
                         <div 
-                          className="px-6 py-3 rounded text-white font-bold leading-relaxed shadow-xl max-w-sm backdrop-blur-[2px]"
+                          className="px-4 py-2 rounded text-white font-bold leading-relaxed shadow-xl max-w-sm backdrop-blur-[2px]"
                           style={{
                             fontFamily: subtitleStyle.fontName,
-                            fontSize: `${subtitleStyle.fontSize * 0.45}px`, // Scaled for mobile frame simulator
+                            fontSize: `${subtitleStyle.fontSize * 0.4}px`, // Scaled for frame simulator
                             border: subtitleStyle.borderStyle === 3 ? `1px solid ${subtitleStyle.backColor}` : 'none',
                             backgroundColor: subtitleStyle.borderStyle === 3 ? `${subtitleStyle.backColor}D0` : 'transparent',
                             textShadow: subtitleStyle.borderStyle === 1 
@@ -2573,7 +3059,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                               <span 
                                 key={wIdx} 
                                 className={cn(
-                                  "inline-block mr-1.5 transition-colors duration-100 uppercase text-xs tracking-wider",
+                                  "inline-block mr-1.5 transition-colors duration-100 uppercase text-[11px] tracking-wider font-semibold",
                                   isHighlight ? "text-brand-primary" : "text-white"
                                 )}
                                 style={{
@@ -2592,15 +3078,31 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                       )}
                     </div>
 
+                    {/* Source Status Indicator badge */}
+                    <div className="absolute top-3 right-3 bg-black/85 px-2 py-1 border border-white/10 rounded text-[8px] font-mono font-bold tracking-wider uppercase leading-none z-10 flex items-center gap-1.5">
+                      <span className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        hasProjectVideo ? "bg-emerald-400 animate-pulse" : (resolvedVideoSrc ? "bg-amber-400" : "bg-red-400")
+                      )} />
+                      <span className="text-gray-300">
+                        {hasProjectVideo ? "PROJECT MASTER" : (resolvedVideoSrc ? "SCENE FALLBACK" : "NO MEDIA")}
+                      </span>
+                    </div>
+
                     {/* Timeline Position metrics */}
-                    <div className="absolute top-3 left-3 bg-black/80 px-2.5 py-1.5 border border-white/5 text-[9px] font-mono text-gray-500 font-bold uppercase tracking-widest leading-none">
+                    <div className="absolute top-3 left-3 bg-black/85 px-2 py-1 border border-white/10 rounded text-[8px] font-mono text-gray-400 font-bold uppercase tracking-wider leading-none z-10">
                       POS: {simulatorPosition.toFixed(1)}s
+                    </div>
+
+                    {/* Project Aspect Ratio Badge */}
+                    <div className="absolute bottom-3 left-3 bg-black/85 px-2 py-1 border border-white/10 rounded text-[8px] font-mono text-gray-400 font-bold uppercase tracking-wider leading-none z-10">
+                      RATIO: {project?.aspectRatio || "16:9"}
                     </div>
 
                     {/* Centered play-toggle trigger */}
                     <button 
                       onClick={handlePlayKaraokeSimulation}
-                      className="w-12 h-12 rounded-full bg-brand-primary/10 hover:bg-brand-primary text-brand-primary hover:text-black hover:scale-105 shadow-2xl flex items-center justify-center transition-all border border-brand-primary/20 z-20 group"
+                      className="w-12 h-12 rounded-full bg-brand-primary/10 hover:bg-brand-primary text-brand-primary hover:text-black hover:scale-105 shadow-2xl flex items-center justify-center transition-all border border-brand-primary/20 z-20 group absolute"
                     >
                       {isSimulatingKaraoke ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 ml-0.5 fill-current" />}
                     </button>
@@ -2785,7 +3287,7 @@ export function VideoGenModal({
 
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoProgress, setVideoProgress] = useState('');
-  const [ltxPrompt, setLtxPrompt] = useState(segment.ltx23Prompt || segment.script || segment.word || '');
+  const [ltxPrompt, setLtxPrompt] = useState(segment.ltx23Prompt || segment.textToImagePrompt || segment.prompt || segment.script || segment.word || '');
   const [generationMethod, setGenerationMethod] = useState<'text' | 'start_end' | 'image_audio' | 'image_only'>('image_only');
   const [videoDuration, setVideoDuration] = useState<number>(customData.videoDuration || 10.0);
   

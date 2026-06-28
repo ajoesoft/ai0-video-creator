@@ -506,12 +506,24 @@ export function ExportCenter() {
               className="h-28 bg-[#0c0c0e] border border-white/5 overflow-hidden relative group rounded flex-shrink-0 flex items-center justify-center"
             >
                 {resolvedCoverSrc ? (
-                  <img 
-                    id="export-center-cover-image"
-                    src={resolvedCoverSrc} 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
-                    alt="project cover" 
-                  />
+                  coverPath && (coverPath.toLowerCase().endsWith('.mp4') || coverPath.toLowerCase().endsWith('.webm')) ? (
+                    <video 
+                      id="export-center-cover-video"
+                      src={resolvedCoverSrc} 
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                    />
+                  ) : (
+                    <img 
+                      id="export-center-cover-image"
+                      src={resolvedCoverSrc} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                      alt="project cover" 
+                    />
+                  )
                ) : (
                  <img src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400" className="w-full h-full object-cover grayscale opacity-30 group-hover:opacity-60 transition-opacity" alt="thumbnail fallback" />
                )}
