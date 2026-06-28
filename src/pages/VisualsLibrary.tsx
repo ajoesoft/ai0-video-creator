@@ -131,6 +131,7 @@ export function VisualsLibrary() {
   const [detailGenType, setDetailGenType] = useState<'image' | 'audio' | 'video' | null>(null);
   const [detailGenLogs, setDetailGenLogs] = useState<string[]>([]);
   const [detailValidationErr, setDetailValidationErr] = useState<string | null>(null);
+  const [isSavingAsset, setIsSavingAsset] = useState(false);
 
   // Load project context and resources
   useEffect(() => {
@@ -469,7 +470,7 @@ export function VisualsLibrary() {
 
   // Modal validation and preservation
   const handleSaveModalFields = async () => {
-    if (!editingItem) return;
+    if (!editingItem || isSavingAsset) return;
 
     if (!editingItem.title?.trim()) {
       setDetailValidationErr("Please enter an asset title (Title cannot be empty)");
@@ -486,7 +487,29 @@ export function VisualsLibrary() {
       return;
     }
 
+    // Check duplicate title
+    const duplicateTitle = visualItems.find(item => 
+      item.id !== editingItem.id && 
+      item.title?.trim().toLowerCase() === editingItem.title?.trim().toLowerCase()
+    );
+    if (duplicateTitle) {
+      setDetailValidationErr("An asset with the same title already exists in this project.");
+      return;
+    }
+
+    if (editingItem.shortName?.trim()) {
+      const duplicateShortName = visualItems.find(item => 
+        item.id !== editingItem.id && 
+        item.shortName?.trim().toLowerCase() === editingItem.shortName?.trim().toLowerCase()
+      );
+      if (duplicateShortName) {
+        setDetailValidationErr("An asset with the same Short Code Name already exists in this project.");
+        return;
+      }
+    }
+
     try {
+      setIsSavingAsset(true);
       if (editingItem.id) {
         // Edit existing
         await updateVisualLibraryItem(editingItem.id, editingItem);
@@ -501,6 +524,8 @@ export function VisualsLibrary() {
     } catch (err) {
       console.error("Error saving visual asset:", err);
       setDetailValidationErr("Could not save to database. Check database parameters.");
+    } finally {
+      setIsSavingAsset(false);
     }
   };
 
@@ -519,6 +544,32 @@ export function VisualsLibrary() {
   const handleExecuteAssetGeneration = async (mode: 'image' | 'audio' | 'video') => {
     if (!editingItem) return;
     setDetailValidationErr(null);
+
+    if (!editingItem.title?.trim()) {
+      setDetailValidationErr("Please enter an asset title before generating (Title cannot be empty)");
+      return;
+    }
+
+    // Check duplicate title
+    const duplicateTitle = visualItems.find(item => 
+      item.id !== editingItem.id && 
+      item.title?.trim().toLowerCase() === editingItem.title?.trim().toLowerCase()
+    );
+    if (duplicateTitle) {
+      setDetailValidationErr("An asset with the same title already exists in this project.");
+      return;
+    }
+
+    if (editingItem.shortName?.trim()) {
+      const duplicateShortName = visualItems.find(item => 
+        item.id !== editingItem.id && 
+        item.shortName?.trim().toLowerCase() === editingItem.shortName?.trim().toLowerCase()
+      );
+      if (duplicateShortName) {
+        setDetailValidationErr("An asset with the same Short Code Name already exists in this project.");
+        return;
+      }
+    }
 
     // Validate prompt availability for specific mode
     if (mode === 'image' && !editingItem.imagePrompt?.trim()) {
@@ -1951,10 +2002,20 @@ export function VisualsLibrary() {
                       <button
                         type="button"
                         onClick={handleSaveModalFields}
-                        className="px-4.5 py-2 bg-brand-primary text-black hover:bg-white border border-brand-primary hover:border-white rounded text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1.5"
+                        disabled={isSavingAsset || !!detailGenType}
+                        className={cn(
+                          "px-4.5 py-2 rounded text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-1.5 border",
+                          (isSavingAsset || !!detailGenType)
+                            ? "bg-neutral-800 text-gray-500 border-neutral-700 cursor-not-allowed opacity-50"
+                            : "bg-brand-primary text-black hover:bg-white border-brand-primary hover:border-white cursor-pointer"
+                        )}
                       >
-                        <Save className="w-3.5 h-3.5" />
-                        <span>Update DB & Return</span>
+                        {isSavingAsset ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Save className="w-3.5 h-3.5" />
+                        )}
+                        <span>{isSavingAsset ? 'Saving...' : 'Update DB & Return'}</span>
                       </button>
                     </div>
 
