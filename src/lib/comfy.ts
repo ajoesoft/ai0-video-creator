@@ -481,6 +481,7 @@ export class ComfyService {
 
   // Workflows
   async runImageGenerationRust(promptText: string, localPath: string, isTurbo: boolean = false, onProgress?: (msg: string) => void, width?: number, height?: number): Promise<string> {
+    await this.syncConfig();
     try {
       const { getSetting } = await import("./db");
       const mode = await getSetting("model_mode_text_to_image");
@@ -1339,6 +1340,7 @@ export class ComfyService {
     language: string = "中文", 
     onProgress?: (msg: string) => void
   ): Promise<string> {
+    await this.syncConfig();
     try {
       const { getSetting } = await import("./db");
       const mode = await getSetting("model_mode_tts");
@@ -1461,6 +1463,7 @@ export class ComfyService {
     localPath: string,
     onProgress?: (msg: string) => void
   ): Promise<string> {
+    await this.syncConfig();
     onProgress?.("Building LatentSync 1.5 Lip-Sync Workflow...");
     const defaultWorkflow = {
       "40": {
@@ -2075,6 +2078,7 @@ export class ComfyService {
     mode?: 'clone' | 'design',
     voicePrompt?: string
   ): Promise<string> {
+    await this.syncConfig();
     try {
       const { getSetting } = await import("./db");
       const modeSetting = await getSetting("model_mode_tts");

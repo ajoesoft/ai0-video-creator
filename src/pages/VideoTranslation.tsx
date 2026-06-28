@@ -516,6 +516,10 @@ export function VideoTranslation() {
         if (voice) setVolcVoiceId(voice);
         if (appid) setVolcAppId(appid);
         if (ep) setVolcEndpointId(ep);
+
+        const address = await getSetting('comfyui_address') || '127.0.0.1';
+        const port = await getSetting('comfyui_port') || '8188';
+        setComfyAddress(`${address}:${port}`);
       } catch (err) {
         console.warn('Failed to load volc settings:', err);
       }
@@ -3340,7 +3344,17 @@ ${fastenText}`;
                   <input 
                     type="text"
                     value={comfyAddress}
-                    onChange={(e) => setComfyAddress(e.target.value)}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      setComfyAddress(val);
+                      const parts = val.split(':');
+                      if (parts[0]) {
+                        await setSetting('comfyui_address', parts[0].trim());
+                      }
+                      if (parts[1]) {
+                        await setSetting('comfyui_port', parts[1].trim());
+                      }
+                    }}
                     className="w-full bg-black border border-white/10 rounded px-2.5 py-1.5 text-xs font-mono text-gray-300 outline-none focus:border-brand-primary/50"
                     placeholder="127.0.0.1:8188"
                   />
@@ -3403,4 +3417,3 @@ ${fastenText}`;
     </div>
   );
 }
-    

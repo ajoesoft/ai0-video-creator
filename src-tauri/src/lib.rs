@@ -662,7 +662,7 @@ fn get_db_file_path() -> Result<String, String> {
             .map_err(|e| format!("Failed to create app data directory: {}", e))?;
     }
     let db_path = app_dir.join("main.db");
-    info!("## db_path:  {}", db_path.to_str().unwrap());
+    // info!("## db_path:  {}", db_path.to_str().unwrap());
     db_path
         .to_str()
         .map(|s| s.to_string())
