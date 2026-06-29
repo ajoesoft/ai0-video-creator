@@ -106,6 +106,28 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
     heightProp: 'value',
   },
   {
+    id: 'wan_video_generation',
+    name: 'Wan 2.2 图生视频 (Wan 2.2 I2V)',
+    nameEn: 'Wan 2.2 Image-to-Video',
+    key: 'comfy_wf_wan_video_generation',
+    presetFile: 'ai0-video-creator-wan2.2-image-to-video-api.txt',
+    description: '专业的 Wan 2.2 高清图生视频工作流。支持大动作、电影级光影和双阶段 KSampler 降噪。',
+    descriptionEn: 'Professional Wan 2.2 High-Fidelity Image-to-Video workflow. Supports large dynamic motion, cinematic lighting, and dual-stage KSampler denoise.',
+    defaultModelName: 'Wan 2.2 Image to Video',
+    inputPromptNode: '6',
+    inputPromptProp: 'text',
+    inputImageNode: '62',
+    inputImageProp: 'image',
+    inputAudioNode: '',
+    inputAudioProp: '',
+    outputNode: '71',
+    outputProp: 'images',
+    widthNode: '63',
+    widthProp: 'width',
+    heightNode: '63',
+    heightProp: 'height',
+  },
+  {
     id: 'tts',
     name: '声音克隆 & TTS (TTS Voice)',
     nameEn: 'Voice Cloning & TTS',
@@ -121,6 +143,28 @@ export const WORKFLOW_REGISTRY: WorkflowConfig[] = [
     inputAudioNode: '17',
     inputAudioProp: 'audio',
     outputNode: '30',
+    outputProp: 'audio',
+    widthNode: '',
+    widthProp: '',
+    heightNode: '',
+    heightProp: '',
+  },
+  {
+    id: 'voice_design',
+    name: '声音设计 & TTS (Voice Design)',
+    nameEn: 'Voice Design & TTS',
+    key: 'comfy_wf_voice_design',
+    presetFile: 'ai0-video-creator-voxcpm2-voice-design-api.txt',
+    description: '利用给定的音色自然语言描述（如年龄、性别、音色特点）定制化生成声音的 TTS 文本转语音工作流。',
+    descriptionEn: 'Synthesizes speech from text utilizing natural language descriptions (age, gender, tone) to design unique custom voices.',
+    defaultModelName: 'VoxCPM2',
+    inputPromptNode: '1',
+    inputPromptProp: 'text',
+    inputImageNode: '',
+    inputImageProp: '',
+    inputAudioNode: '',
+    inputAudioProp: '',
+    outputNode: '2',
     outputProp: 'audio',
     widthNode: '',
     widthProp: '',
@@ -701,7 +745,7 @@ export function ModelManagement() {
   const handleToggleWorkflowMode = async (wfId: string) => {
     const current = workflowModes[wfId] || 'local';
     const next = current === 'local' ? 'cloud' : 'local';
-    const updated = { ...workflowModes, [wfId]: next };
+    const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, [wfId]: next as 'local' | 'cloud' };
     setWorkflowModes(updated);
     await setSetting(`model_mode_${wfId}`, next);
     
@@ -1145,7 +1189,7 @@ export function ModelManagement() {
                     <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, text_to_image: 'local' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, text_to_image: 'local' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_text_to_image', 'local');
                         }}
@@ -1158,7 +1202,7 @@ export function ModelManagement() {
                       </button>
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, text_to_image: 'cloud' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, text_to_image: 'cloud' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_text_to_image', 'cloud');
                         }}
@@ -1203,7 +1247,7 @@ export function ModelManagement() {
                     <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, video_generation: 'local' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, video_generation: 'local' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_video_generation', 'local');
                         }}
@@ -1216,7 +1260,7 @@ export function ModelManagement() {
                       </button>
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, video_generation: 'cloud' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, video_generation: 'cloud' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_video_generation', 'cloud');
                         }}
@@ -1261,7 +1305,7 @@ export function ModelManagement() {
                     <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, tts: 'local' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, tts: 'local' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_tts', 'local');
                         }}
@@ -1274,7 +1318,7 @@ export function ModelManagement() {
                       </button>
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, tts: 'cloud' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, tts: 'cloud' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_tts', 'cloud');
                         }}
@@ -1319,7 +1363,7 @@ export function ModelManagement() {
                     <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, lipsync: 'local' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, lipsync: 'local' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_lipsync', 'local');
                         }}
@@ -1332,7 +1376,7 @@ export function ModelManagement() {
                       </button>
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, lipsync: 'cloud' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, lipsync: 'cloud' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_lipsync', 'cloud');
                         }}
@@ -1377,7 +1421,7 @@ export function ModelManagement() {
                     <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, asr: 'local' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, asr: 'local' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_asr', 'local');
                         }}
@@ -1390,7 +1434,7 @@ export function ModelManagement() {
                       </button>
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, asr: 'cloud' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, asr: 'cloud' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_asr', 'cloud');
                         }}
@@ -1435,7 +1479,7 @@ export function ModelManagement() {
                     <div className="flex gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, translation: 'local' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, translation: 'local' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_translation', 'local');
                         }}
@@ -1448,7 +1492,7 @@ export function ModelManagement() {
                       </button>
                       <button 
                         onClick={() => {
-                          const updated = { ...workflowModes, translation: 'cloud' };
+                          const updated: Record<string, 'local' | 'cloud'> = { ...workflowModes, translation: 'cloud' };
                           setWorkflowModes(updated);
                           setSetting('model_mode_translation', 'cloud');
                         }}
@@ -2137,7 +2181,7 @@ export function ModelManagement() {
                         className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-brand-primary hover:bg-brand-primary/95 text-black font-bold text-xs transition-all tracking-wider shadow-lg shadow-brand-primary/10 hover:shadow-brand-primary/20 self-end sm:self-auto"
                       >
                         <Save className="w-4 h-4" />
-                        Save Settings
+                        保存配置并注入数据库 Save Settings
                       </button>
                     </div>
                   </div>

@@ -332,6 +332,11 @@ class QueueWorkerManager {
       });
       console.log(`[QueueWorker] Task completed successfully: #${task.id}`);
 
+      // Handle recurrence
+      if (params.recurringIntervalSeconds && params.recurringIntervalSeconds > 0) {
+        this.handleRecurrentReschedule(task, params);
+      }
+
     } catch (err: any) {
       console.error(`[QueueWorker] Failed to run task #${task.id}:`, err);
       // Mark as FAILED with error message
@@ -340,6 +345,15 @@ class QueueWorkerManager {
         progress: 0,
         error: err?.message || err?.toString() || "Unknown pipeline generation abort."
       });
+
+      // Parse parameters to check for recurrence on failure
+      let params: Record<string, any> = {};
+      try {
+        params = JSON.parse(task.params);
+      } catch (e) {}
+      if (params.recurringIntervalSeconds && params.recurringIntervalSeconds > 0) {
+        this.handleRecurrentReschedule(task, params);
+      }
     } finally {
       this.isRunning = false;
       this.currentTask = null;
@@ -365,6 +379,34 @@ class QueueWorkerManager {
       error: "Task cancelled/aborted by supervisor."
     });
     this.refreshAndNotify();
+  }
+
+  /**
+   * Helper to schedule the next run of a recurrent task
+   */
+  private handleRecurrentReschedule(task: BackgroundTask, params: Record<string, any>) {
+    console.log(`[QueueWorker] Task #${task.id} has recurrence every ${params.recurringIntervalSeconds}s. Spawning next run...`);
+    const nextScheduledAt = Date.now() + (params.recurringIntervalSeconds * 1000);
+    
+    let cleanName = task.name;
+    if (cleanName.includes(" (Recurring Run)")) {
+      cleanName = cleanName.split(" (Recurring Run)")[0];
+    }
+
+    setTimeout(async () => {
+      try {
+        await this.enqueue({
+          projectId: task.projectId,
+          name: `${cleanName} (Recurring Run)`,
+          type: task.type,
+          params: params,
+          scheduledAt: nextScheduledAt,
+          priority: task.priority
+        });
+      } catch (enqueueErr) {
+        console.error("[QueueWorker] Failed to enqueue recurring run task:", enqueueErr);
+      }
+    }, 1000);
   }
 }
 

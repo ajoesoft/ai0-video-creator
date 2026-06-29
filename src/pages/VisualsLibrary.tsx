@@ -281,6 +281,15 @@ export function VisualsLibrary() {
       videoPrompt: "subtle comical head tilt, slow expressive eye contact, background soft focal shift, whimsical animation physics"
     },
     {
+      name: "Pixar Handcrafted Clay (Pixar Clay)",
+      trigger: "@PixarClay",
+      type: "IP",
+      title: "Handcrafted Warm Clay Stop-Motion Preset",
+      description: "Tactile, cozy stop-motion clay texture with soft matte finish, cute round proportions, and diffused miniature diorama lighting.",
+      imagePrompt: "claymation cute animation style, handcrafted cozy clay texture, soft matte finish, cute round proportions, miniature diorama set, volumetric soft lighting, depth of field, stop-motion aesthetic, masterfully detailed miniature sculpt",
+      videoPrompt: "stop-motion claymation character movement, subtle playful clay deformation, tactile cozy stop-motion frame jitter"
+    },
+    {
       name: "Ghibli Hand-Drawn Watercolor (Ghibli Watercolor)",
       trigger: "@Ghibli",
       type: "环境",
@@ -306,6 +315,24 @@ export function VisualsLibrary() {
       description: "Graceful flat mineral strokes, dynamic ink wash borders, and vintage organic mulberry paper papercraft textures for classical visual excellence.",
       imagePrompt: "traditional Ukiyo-e woodblock print aesthetic, elegant ink wash outlines, flat organic colors, vintage textured mulberry paper, flowing silk robes, iconic wave and pine leaf motifs, classic Edo-period flat illustration style",
       videoPrompt: "flat horizontal 2D camera pan, stylized ink ripples flowing softly, subtle paper texture jitter animating organic lines"
+    },
+    {
+      name: "Classical Oil Painting (Oil Painting)",
+      trigger: "@OilPainting",
+      type: "IP",
+      title: "Chiaroscuro Masterpiece Oil Canvas Preset",
+      description: "Textured brush strokes, thick impasto application, rich deep pigments, and Rembrandt-style dramatic lighting for timeless painterly aesthetics.",
+      imagePrompt: "classical oil painting aesthetic, textured brush strokes, thick impasto paint layers, rich deep color palette, Rembrandt dramatic chiaroscuro lighting, masterwork gallery level detail, fine linen canvas texture, museum masterpiece",
+      videoPrompt: "slow moving camera panning across a fine-art oil canvas, artistic organic brush stroke movement, dramatic soft light cast"
+    },
+    {
+      name: "Unreal Engine 5 Photorealism (Unreal Realism)",
+      trigger: "@UnrealEngine",
+      type: "环境",
+      title: "Hyper-Realistic Global Illumination Cinemascape",
+      description: "Next-gen raytraced soft lighting, volumetric fog, and hyper-detailed textures for stunning photorealism.",
+      imagePrompt: "photorealistic ultra-detailed render, Unreal Engine 5 aesthetic, global illumination, hyper-detailed skin pores and fabric weave, ray-traced shadows, cinematic depth of field, gorgeous cinematography, 8k resolution, sub-surface scattering, ray-traced lighting",
+      videoPrompt: "epic cinematic tracking shot, hyper-realistic physics engine movement, crisp focus pulling, atmospheric dust particles drifting"
     }
   ];
 

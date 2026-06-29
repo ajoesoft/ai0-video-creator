@@ -1,4 +1,6 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
+use std::path::Path;
+use std::fs;
 
 pub fn get_migrations() -> Vec<Migration> {
     vec![
@@ -235,7 +237,9 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
             audio_duration REAL DEFAULT 0.0,
             srt_original TEXT,
             text_original TEXT,
-            detected_language TEXT
+            detected_language TEXT,
+            source_language TEXT DEFAULT 'zh',
+            target_languages TEXT DEFAULT 'en'
         );",
         [],
     )?;
@@ -320,7 +324,8 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             status INTEGER DEFAULT 1,
-            chinese TEXT
+            chinese TEXT,
+            translations TEXT
         );",
         [],
     )?;
@@ -408,6 +413,8 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         "ALTER TABLE video_projects ADD COLUMN srt_original TEXT",
         "ALTER TABLE video_projects ADD COLUMN text_original TEXT",
         "ALTER TABLE video_projects ADD COLUMN detected_language TEXT",
+        "ALTER TABLE video_projects ADD COLUMN source_language TEXT DEFAULT 'zh'",
+        "ALTER TABLE video_projects ADD COLUMN target_languages TEXT DEFAULT 'en'",
     ];
     for q in alter_queries {
         let _ = conn.execute(q, []);
@@ -422,6 +429,7 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         "ALTER TABLE vocabulary ADD COLUMN voiceover TEXT",
         "ALTER TABLE vocabulary ADD COLUMN translation_speech_file TEXT",
         "ALTER TABLE vocabulary ADD COLUMN dialog TEXT",
+        "ALTER TABLE vocabulary ADD COLUMN translations TEXT",
     ];
     for q in alter_vocabulary {
         let _ = conn.execute(q, []);

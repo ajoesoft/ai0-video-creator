@@ -8,6 +8,8 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
+    base: "./", // 生产打包相对路径，dev不生效
+    build: { outDir: "../dist" },
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -30,7 +32,7 @@ export default defineConfig(({ mode }) => {
         : undefined,
       watch: {
         // 3. tell Vite to ignore watching `src-tauri`
-        ignored: ["**/src-tauri/**","**/data/**"],
+        ignored: ["**/src-tauri/**", "**/data/**"],
       },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.

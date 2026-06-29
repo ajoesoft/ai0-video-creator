@@ -9,8 +9,8 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 let cachedWorkspacePath = '';
-let cachedVideoPort = '4000';
-let cachedVideoAddress = '127.0.0.1';
+let cachedVideoPort = '';
+let cachedVideoAddress = '';
 
 // Pre-fetch workspace path and video server settings asynchronously on load if in browser
 if (typeof window !== 'undefined') {
@@ -203,6 +203,45 @@ export function safeConvertFileSrc(filePath: string): string {
   }
 
   if (isTauri) {
+    const isVideo = absolutePath.endsWith('.mp4') || absolutePath.endsWith('.webm') || absolutePath.endsWith('.mov') || absolutePath.endsWith('.avi');
+    if (isVideo) {
+      try {
+        const port = cachedVideoPort || (typeof window !== 'undefined' ? (localStorage.getItem('video_server_port') || '4000') : '4000');
+        const address = cachedVideoAddress || (typeof window !== 'undefined' ? (localStorage.getItem('video_server_address') || '127.0.0.1') : '127.0.0.1');
+        const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+        const httpVideoUrl = `http://${address}:${port}/${encodedSubpath}`;
+        console.log('[safeConvertFileSrc] Resolved video via Axum HTTP server (Range requests):', httpVideoUrl);
+        return httpVideoUrl;
+      } catch (e) {
+        console.warn('[safeConvertFileSrc] Failed to construct Axum HTTP url for video, falling back:', e);
+      }
+    }
+
+    try {
+      // Prioritize standard Tauri asset protocol using convertFileSrc with absolute physical path to solve WebKitWebProcess high memory consumption
+      const isAbsolute = (absolutePath.includes(':/') || absolutePath.includes(':\\')) || 
+                         (absolutePath.startsWith('/') && 
+                          !absolutePath.startsWith('/workspace/') && 
+                          !absolutePath.startsWith('/data/workflow/workspace/'));
+      const wsPathToUse = wsPath || '';
+      let fullPhysicalPath = absolutePath;
+      if (!isAbsolute && wsPathToUse) {
+        fullPhysicalPath = `${wsPathToUse.endsWith('/') ? wsPathToUse : wsPathToUse + '/'}${subpath}`;
+      }
+
+      // Convert to native OS slashes for convertFileSrc to work correctly on Windows and avoid memory issues
+      const isWindows = fullPhysicalPath.includes(':') || (typeof window !== 'undefined' && window.navigator.userAgent.includes('Windows'));
+      const nativePath = isWindows ? fullPhysicalPath.replace(/\//g, '\\') : fullPhysicalPath;
+
+      const assetUrl = convertFileSrc(nativePath);
+      if (assetUrl) {
+        console.log('[safeConvertFileSrc] Resolved via convertFileSrc (Asset Protocol):', assetUrl);
+        return assetUrl;
+      }
+    } catch (e) {
+      console.warn('[safeConvertFileSrc] Failed to resolve via convertFileSrc, falling back to Axum HTTP:', e);
+    }
+
     try {
       const port = cachedVideoPort || (typeof window !== 'undefined' ? (localStorage.getItem('video_server_port') || '4000') : '4000');
       const address = cachedVideoAddress || (typeof window !== 'undefined' ? (localStorage.getItem('video_server_address') || '127.0.0.1') : '127.0.0.1');
@@ -383,6 +422,51 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       // Now subpath is pure relative, e.g. "10fb29a8-9eb9-4281-a777-3cc6b6aed7a2/video/s11.mp4"
 
       if (isTauri) {
+        const isVideo = mediaType === 'video' || cleanPath.endsWith('.mp4') || cleanPath.endsWith('.webm') || cleanPath.endsWith('.mov') || cleanPath.endsWith('.avi');
+        if (isVideo) {
+          try {
+            const videoPort = await getSetting('video_server_port') || '4000';
+            const videoAddress = await getSetting('video_server_address') || '127.0.0.1';
+            const encodedSubpath = subpath.split('/').map(seg => encodeURIComponent(decodeURIComponent(seg))).join('/');
+            const httpVideoUrl = `http://${videoAddress}:${videoPort}/${encodedSubpath}`;
+            console.log(`[useMediaUrl] Resolved video via Axum HTTP server (Range requests):`, httpVideoUrl);
+            if (active) {
+              setUrl(httpVideoUrl);
+            }
+            return;
+          } catch (err) {
+            console.warn(`[useMediaUrl] Axum video server URL resolution failed, falling back to convertFileSrc:`, err);
+          }
+        }
+
+        try {
+          // Prioritize Tauri native asset protocol using convertFileSrc with absolute physical path to avoid memory leak and high VRAM usage
+          const isAbsolute = (cleanPath.includes(':/') || cleanPath.includes(':\\')) || 
+                             (cleanPath.startsWith('/') && 
+                              !cleanPath.startsWith('/workspace/') && 
+                              !cleanPath.startsWith('/data/workflow/workspace/'));
+          const wsPathToUse = wsPath || '';
+          let fullPhysicalPath = cleanPath;
+          if (!isAbsolute && wsPathToUse) {
+            fullPhysicalPath = `${wsPathToUse.endsWith('/') ? wsPathToUse : wsPathToUse + '/'}${subpath}`;
+          }
+
+          // Normalize to native path format to ensure convertFileSrc works on Windows
+          const isWindows = fullPhysicalPath.includes(':') || (typeof window !== 'undefined' && window.navigator.userAgent.includes('Windows'));
+          const nativePath = isWindows ? fullPhysicalPath.replace(/\//g, '\\') : fullPhysicalPath;
+
+          const assetUrl = convertFileSrc(nativePath);
+          if (assetUrl) {
+            console.log(`[useMediaUrl] Resolved ${mediaType} via convertFileSrc (Asset Protocol):`, assetUrl);
+            if (active) {
+              setUrl(assetUrl);
+            }
+            return;
+          }
+        } catch (e) {
+          console.warn('[useMediaUrl] Failed to resolve via convertFileSrc, falling back to Axum HTTP:', e);
+        }
+
         try {
           const videoPort = await getSetting('video_server_port') || '4000';
           const videoAddress = await getSetting('video_server_address') || '127.0.0.1';
@@ -510,6 +594,34 @@ export function useLocalImageBase64(path: string | undefined | null): string {
 
         const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
         if (isTauri) {
+          try {
+            // Prioritize standard Tauri asset protocol using convertFileSrc with absolute physical path to solve WebKitWebProcess memory bloat
+            const isAbsolute = (cleanPath.includes(':/') || cleanPath.includes(':\\')) || 
+                               (cleanPath.startsWith('/') && 
+                                !cleanPath.startsWith('/workspace/') && 
+                                !cleanPath.startsWith('/data/workflow/workspace/'));
+            const wsPathToUse = wsPath || '';
+            let fullPhysicalPath = cleanPath;
+            if (!isAbsolute && wsPathToUse) {
+              fullPhysicalPath = `${wsPathToUse.endsWith('/') ? wsPathToUse : wsPathToUse + '/'}${subpath}`;
+            }
+
+            // Normalize to native path format to ensure convertFileSrc works on Windows
+            const isWindows = fullPhysicalPath.includes(':') || (typeof window !== 'undefined' && window.navigator.userAgent.includes('Windows'));
+            const nativePath = isWindows ? fullPhysicalPath.replace(/\//g, '\\') : fullPhysicalPath;
+
+            const assetUrl = convertFileSrc(nativePath);
+            if (assetUrl) {
+              console.log('[useLocalImageBase64] Resolved image via convertFileSrc (Asset Protocol):', assetUrl);
+              if (active) {
+                setSrc(assetUrl);
+              }
+              return;
+            }
+          } catch (e) {
+            console.warn('[useLocalImageBase64] Failed to resolve via convertFileSrc, falling back to Axum HTTP:', e);
+          }
+
           try {
             const videoPort = await getSetting('video_server_port') || '4000';
             const videoAddress = await getSetting('video_server_address') || '127.0.0.1';

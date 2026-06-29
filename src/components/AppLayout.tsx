@@ -17,7 +17,8 @@ import {
   Bot, 
   Sliders 
 } from 'lucide-react';
-import { getSetting, setSetting } from '../lib/db';
+import { getSetting, setSetting, fetchProjectById, fetchSystemPrompts } from '../lib/db';
+import { DEFAULT_SYSTEM_PROMPTS, SystemPrompt } from '../pages/GlobalSettings';
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
@@ -67,6 +68,109 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Update dynamic system prompt based on route and active project configuration
+  useEffect(() => {
+    async function updateSystemPrompt() {
+      const match = location.pathname.match(/\/project\/([^\/]+)\/([^\/]+)/);
+      if (!match) {
+        // Fallback to default overall prompt if not inside a project route
+        setSystemPrompt('You are a professional video translation and editing assistant. Help the user configure settings, translate text, write scripts, or answer questions about audio, voice cloning, and model execution.');
+        return;
+      }
+
+      const projectId = match[1];
+      const section = match[2];
+
+      // Map route sections to classifications
+      let classification: 'details' | 'script' | 'visuals' | 'audio' | null = null;
+      if (section === 'details') classification = 'details';
+      else if (section === 'script') classification = 'script';
+      else if (section === 'visuals') classification = 'visuals';
+      else if (section === 'audio') classification = 'audio';
+
+      if (!classification) {
+        setSystemPrompt('You are a professional video translation and editing assistant. Help the user configure settings, translate text, write scripts, or answer questions about audio, voice cloning, and model execution.');
+        return;
+      }
+
+      try {
+        // Load custom prompts from database or defaults
+        let prompts = await fetchSystemPrompts();
+        if (!prompts || prompts.length === 0) {
+          prompts = DEFAULT_SYSTEM_PROMPTS;
+        }
+
+        const matchingPromptObj = prompts.find(p => p.classification === classification);
+        let basePrompt = matchingPromptObj?.prompt || DEFAULT_SYSTEM_PROMPTS.find(p => p.classification === classification)?.prompt || '';
+
+        // Fetch project details to enrich prompt with style & sceneType
+        const project = await fetchProjectById(projectId);
+
+        if (project) {
+          const projectName = project.name || 'Untitled Project';
+          const projectType = project.sceneType || 'Unknown';
+          const projectStyle = project.visualStyle || 'Cinematic';
+
+          if (classification === 'details') {
+            setSystemPrompt(
+              `${basePrompt}\n\n` +
+              `[Active Project Context / 当前项目上下文]\n` +
+              `- Project Name: ${projectName}\n` +
+              `- Scene Type (场景类型/类型): ${projectType}\n` +
+              `- Visual Style (视觉风格/风格): ${projectStyle}\n\n` +
+              `Constraint Directive (行为约束):\n` +
+              `1. The user is currently in the "Project Details" view, focusing on project configuration and cover image generation (生成封面图片/cover image).\n` +
+              `2. Act as a master design director and style consultant.\n` +
+              `3. Tailor all advice, themes, and generated prompt ideas to match the specified project type (${projectType}) and style (${projectStyle}).\n` +
+              `4. Help the user synthesize consistent style guidelines, select fitting color schemes, and write prompt descriptions for the project's cover image.`
+            );
+          } else if (classification === 'script') {
+            setSystemPrompt(
+              `${basePrompt}\n\n` +
+              `[Active Project Context / 当前项目上下文]\n` +
+              `- Project Name: ${projectName}\n` +
+              `- Scene Type (场景类型/类型): ${projectType}\n\n` +
+              `Constraint Directive (行为约束):\n` +
+              `1. The user is currently in the "Script Synthesis" view, synthesizing speech, dialogue, direction, image, and video scripts (生成 speech, dialog, direction, image, video).\n` +
+              `2. Act as an elite screenwriter and screenplay maestro.\n` +
+              `3. Guide the user in drafting precise character dialogues (dialog), voiceover narration lines (speech), director's cues (camera angles, movements, and directions), and rich visual prompts (image and video scene descriptions).\n` +
+              `4. Ensure dialogues and camera cues form a cohesive dramatic narrative that suits the '${projectType}' layout.`
+            );
+          } else if (classification === 'visuals') {
+            setSystemPrompt(
+              `${basePrompt}\n\n` +
+              `[Active Project Context / 当前项目上下文]\n` +
+              `- Project Name: ${projectName}\n\n` +
+              `Constraint Directive (行为约束):\n` +
+              `1. The user is currently in the "Visual Database" view, managing consistent characters (IPs) and environments (生成 IP 角色与环境等).\n` +
+              `2. Act as a lead character designer and worldbuilding sculptor.\n` +
+              `3. Assist the user in defining and managing characters (IP roles), props, clothing, environment presets, and locations.\n` +
+              `4. Focus on maintaining strict physical details, lighting rules, mood settings, and prompt syntax to keep character likeness and environmental style consistent across consecutive generations.`
+            );
+          } else if (classification === 'audio') {
+            setSystemPrompt(
+              `${basePrompt}\n\n` +
+              `[Active Project Context / 当前项目上下文]\n` +
+              `- Project Name: ${projectName}\n` +
+              `- Scene Type (场景类型/类型): ${projectType}\n\n` +
+              `Constraint Directive (行为约束):\n` +
+              `1. The user is currently in the "Audio Design" view, creating and optimizing voice timbres and acoustic environments (生成音频设计，适应角色的音频声色).\n` +
+              `2. Act as an expert sound designer and voice casting director.\n` +
+              `3. Help the user choose or clone high-fidelity voices, customize speaking speed, emotional pitch, and vocal quality matching specific roles.\n` +
+              `4. Ensure characters receive consistent, natural-sounding voiceovers that sync smoothly with their screenplay tone.`
+            );
+          }
+        } else {
+          setSystemPrompt(basePrompt);
+        }
+      } catch (err) {
+        console.error("Error updating system prompt based on route:", err);
+      }
+    }
+
+    updateSystemPrompt();
+  }, [location.pathname]);
+
   // Fetch Ollama connection info and active models
   const openChatAndLoad = async () => {
     setIsChatOpen(true);
@@ -86,7 +190,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const fetchModelsForChat = async (addr: string, port: string, activeModel: string) => {
+   const fetchModelsForChat = async (addr: string, port: string, activeModel: string) => {
     setIsFetchingModels(true);
     setErrorMsg(null);
     try {
@@ -104,7 +208,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               setSelectedModel(activeModel);
             } else {
               setSelectedModel(names[0]);
+              await setSetting('model_ollama_active_model', names[0]);
             }
+          } else {
+            setOllamaModels([activeModel]);
           }
         } else {
           setOllamaModels([activeModel]);

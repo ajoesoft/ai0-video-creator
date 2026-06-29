@@ -221,7 +221,7 @@ export function findOutputNodes(workflow: any): OutputNodesMapping {
 }
 
 export async function resolveWorkflow(
-  category: 'text_to_image' | 'video_generation' | 'tts' | 'lipsync' | 'asr' | 'translation',
+  category: 'text_to_image' | 'video_generation' | 'tts' | 'lipsync' | 'asr' | 'translation' | 'wan_video_generation' | 'voice_design',
   inputs: {
     prompt?: string;
     image?: string;
@@ -316,14 +316,44 @@ export class ComfyService {
     return this.config.serverAddress;
   }
 
-  private async fetch(url: string, options: any = {}) {
-    // If we are in Tauri, use the Tauri fetch to bypass CORS
+  private async fetch(url: string, options: any = {}): Promise<Response> {
+    // If we are in Tauri, use the Tauri backend proxy to completely bypass WebKit network process memory leaks
     if ((window as any).__TAURI_INTERNALS__) {
       try {
-        const response = await tauriFetch(url, options);
-        return response;
-      } catch (e) {
-        console.warn("Tauri fetch failed, falling back to standard fetch", e);
+        const urlObj = new URL(url);
+        const endpoint = urlObj.pathname + urlObj.search;
+        const method = options.method || "GET";
+        let bodyJson: any = null;
+        
+        // Handle JSON body
+        if (options.body && typeof options.body === "string") {
+          try {
+            bodyJson = JSON.parse(options.body);
+          } catch (e) {
+            // Not JSON
+          }
+        }
+
+        // Call our native Rust proxy command
+        const resData: any = await invoke("comfy_api_request_rust", {
+          serverAddress: this.config.serverAddress,
+          method: method,
+          endpoint: endpoint,
+          body: bodyJson
+        });
+
+        // Mock a standard Response object so existing callers work transparently without code changes
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          json: async () => resData,
+          text: async () => typeof resData === "string" ? resData : (resData.text !== undefined ? resData.text : JSON.stringify(resData)),
+          blob: async () => new Blob([JSON.stringify(resData)]),
+          headers: new Headers()
+        } as Response;
+      } catch (e: any) {
+        console.warn("Tauri comfy_api_request_rust failed, falling back to standard fetch", e);
       }
     }
     
@@ -377,6 +407,28 @@ export class ComfyService {
 
   async uploadFile(file: File): Promise<string> {
     await this.syncConfig();
+
+    if ((window as any).__TAURI_INTERNALS__) {
+      try {
+        // Read file as base64 and upload via Rust to prevent WebKitWebProcess memory bloating
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (e) => reject(e);
+          reader.readAsDataURL(file);
+        });
+
+        const uploadedName: string = await invoke("upload_file_to_comfy_rust", {
+          serverAddress: this.config.serverAddress,
+          localPath: base64Data, // Rust backend accepts "data:..." base64 URI
+          filename: file.name
+        });
+        return uploadedName;
+      } catch (err: any) {
+        console.error("Tauri native uploadFile failed, falling back to standard fetch", err);
+      }
+    }
+
     const formData = new FormData();
     formData.append("image", file);
     const response = await this.fetch(`http://${this.config.serverAddress}/upload/image`, {
@@ -1977,6 +2029,20 @@ export class ComfyService {
 
     onProgress?.(`Uploading asset to ComfyUI: ${defaultName}...`);
 
+    if ((window as any).__TAURI_INTERNALS__) {
+      try {
+        console.log(`[comfy.ts] ensureUploaded: using native Rust uploader for: ${ensuredLocalPath}`);
+        const uploadedName: string = await invoke("upload_file_to_comfy_rust", {
+          serverAddress: this.config.serverAddress,
+          localPath: ensuredLocalPath,
+          filename: defaultName
+        });
+        return uploadedName;
+      } catch (err: any) {
+        console.error(`Tauri native upload failed, trying JS fallback for ${ensuredLocalPath}:`, err);
+      }
+    }
+
     try {
       let file: File | null = null;
 
@@ -2105,9 +2171,32 @@ export class ComfyService {
 
     let workflow: any;
     if (mode === 'design') {
-      onProgress?.("Building VoxCPM2 Voice Design Workflow...");
-      const defaultWorkflow = this.getVoxCPMVoiceDesignWorkflow(text, voicePrompt || "");
-      workflow = await resolveWorkflow('tts', { prompt: text }, defaultWorkflow);
+      onProgress?.("Loading VoxCPM2 Voice Design Preset workflow...");
+      let defaultWorkflow: any;
+      try {
+        const response = await this.fetch('/comfyui-workflow/ai0-video-creator-voxcpm2-voice-design-api.txt');
+        if (response.ok) {
+          defaultWorkflow = await response.json();
+          console.log("[comfy.ts] Successfully loaded VoxCPM2 Voice Design workflow from preset file.");
+        }
+      } catch (e) {
+        console.warn("[comfy.ts] Failed to load VoxCPM2 Voice Design preset file, using fallback:", e);
+      }
+
+      if (!defaultWorkflow) {
+        defaultWorkflow = this.getVoxCPMVoiceDesignWorkflow(text, voicePrompt || "");
+      }
+
+      workflow = await resolveWorkflow('voice_design', { prompt: text }, defaultWorkflow);
+
+      // Explicitly configure Node "1" (VoxCPM2_TTS) if present
+      if (workflow["1"] && workflow["1"].inputs) {
+        workflow["1"].inputs.text = text;
+        workflow["1"].inputs.voice_description = voicePrompt || workflow["1"].inputs.voice_description || "An old man with a gravelly, slow voice";
+        if (workflow["1"].inputs.seed !== undefined) {
+          workflow["1"].inputs.seed = Math.floor(Math.random() * 9000000) + 1000000;
+        }
+      }
     } else {
       onProgress?.("Building VoxCPM2 Voice Clone Workflow...");
       let uploadedRefAudio = referenceAudio;
@@ -2514,6 +2603,157 @@ export class ComfyService {
       seed: params.seed
     });
     const promptId = await this.submitPrompt(workflow);
+    const result = await this.waitForCompletion(promptId, onProgress);
+    return this.parseVideoCombineOutputs(result);
+  }
+
+  // Wan 2.2 Image-to-Video Workflow runner
+  async runWan22ImageToVideo(params: {
+    image: string;
+    prompt: string;
+    negativePrompt?: string;
+    width?: number;
+    height?: number;
+    seed?: number;
+    length?: number;
+    frameRate?: number;
+  }, onProgress?: (msg: string) => void): Promise<string[]> {
+    onProgress?.("Uploading image to ComfyUI...");
+    let uploadedImage = params.image;
+    if (params.image) {
+      const ext = params.image.endsWith('.jpg') || params.image.endsWith('.jpeg') ? 'jpg' : 'png';
+      uploadedImage = await this.ensureUploaded(params.image, `image_${Date.now()}.${ext}`, onProgress);
+    }
+
+    onProgress?.("Loading Wan 2.2 Image to Video workflow...");
+    let workflow: any;
+    try {
+      // Try to fetch the preset file dynamically from the local Vite dev server
+      const response = await this.fetch('/comfyui-workflow/ai0-video-creator-wan2.2-image-to-video-api.txt');
+      if (response.ok) {
+        workflow = await response.json();
+        console.log("[comfy.ts] Successfully loaded Wan 2.2 workflow from preset file.");
+      }
+    } catch (e) {
+      console.warn("[comfy.ts] Failed to load Wan 2.2 preset file, using fallback:", e);
+    }
+
+    // Fallback to embedded workflow JSON if fetch fails or is not available
+    if (!workflow) {
+      workflow = {
+        "6": { "inputs": { "text": params.prompt, "clip": [ "38", 0 ] }, "class_type": "CLIPTextEncode", "_meta": { "title": "CLIP Text Encode (Positive Prompt)" } },
+        "7": { "inputs": { "text": params.negativePrompt || "画面模糊，运镜抖动，快速推拉镜头，人物面部扭曲，表情僵硬，五官错乱，画面卡顿，残影重影，构图杂乱，光线过亮，画质压缩，低清晰度，多余人物，肢体残缺，姿态放松，无情绪，塑料质感，\n二次元画风，插画感\n", "clip": [ "38", 0 ] }, "class_type": "CLIPTextEncode", "_meta": { "title": "CLIP Text Encode (Negative Prompt)" } },
+        "8": { "inputs": { "samples": [ "58", 0 ], "vae": [ "39", 0 ] }, "class_type": "VAEDecode", "_meta": { "title": "VAE Decode" } },
+        "38": { "inputs": { "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors", "type": "wan", "device": "default" }, "class_type": "CLIPLoader", "_meta": { "title": "Load CLIP" } },
+        "39": { "inputs": { "vae_name": "wan_2.1_vae.safetensors" }, "class_type": "VAELoader", "_meta": { "title": "Load VAE" } },
+        "54": { "inputs": { "shift": 8.000000000000002, "model": [ "68", 0 ] }, "class_type": "ModelSamplingSD3", "_meta": { "title": "ModelSamplingSD3" } },
+        "55": { "inputs": { "shift": 8, "model": [ "69", 0 ] }, "class_type": "ModelSamplingSD3", "_meta": { "title": "ModelSamplingSD3" } },
+        "57": {
+          "inputs": {
+            "add_noise": "enable",
+            "noise_seed": params.seed || Math.floor(Math.random() * 10000000000),
+            "steps": 20,
+            "cfg": 3.5,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "start_at_step": 0,
+            "end_at_step": 10,
+            "return_with_leftover_noise": "enable",
+            "model": [ "54", 0 ],
+            "positive": [ "63", 0 ],
+            "negative": [ "63", 1 ],
+            "latent_image": [ "63", 2 ]
+          },
+          "class_type": "KSamplerAdvanced",
+          "_meta": { "title": "KSampler (Advanced)" }
+        },
+        "58": {
+          "inputs": {
+            "add_noise": "disable",
+            "noise_seed": 0,
+            "steps": 20,
+            "cfg": 3.5,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "start_at_step": 10,
+            "end_at_step": 10000,
+            "return_with_leftover_noise": "disable",
+            "model": [ "55", 0 ],
+            "positive": [ "63", 0 ],
+            "negative": [ "63", 1 ],
+            "latent_image": [ "57", 0 ]
+          },
+          "class_type": "KSamplerAdvanced",
+          "_meta": { "title": "KSampler (Advanced)" }
+        },
+        "62": { "inputs": { "image": extractComfyFilename(uploadedImage) }, "class_type": "LoadImage", "_meta": { "title": "Load Image" } },
+        "63": {
+          "inputs": {
+            "width": params.width || 640,
+            "height": params.height || 1136,
+            "length": params.length || 81,
+            "batch_size": 1,
+            "positive": [ "6", 0 ],
+            "negative": [ "7", 0 ],
+            "vae": [ "39", 0 ],
+            "start_image": [ "62", 0 ]
+          },
+          "class_type": "WanImageToVideo",
+          "_meta": { "title": "WanImageToVideo" }
+        },
+        "68": { "inputs": { "gguf_name": "wan2.2_i2v_high_noise_14B_Q4_K_M.gguf" }, "class_type": "LoaderGGUF", "_meta": { "title": "GGUF Loader" } },
+        "69": { "inputs": { "gguf_name": "wan2.2_i2v_low_noise_14B_Q4_K_M.gguf" }, "class_type": "LoaderGGUF", "_meta": { "title": "GGUF Loader" } },
+        "71": {
+          "inputs": {
+            "frame_rate": params.frameRate || 16,
+            "loop_count": 0,
+            "filename_prefix": "Wan2.2/ComfyUI",
+            "format": "video/h264-mp4",
+            "pix_fmt": "yuv420p",
+            "crf": 17,
+            "save_metadata": true,
+            "trim_to_audio": false,
+            "pingpong": false,
+            "save_output": true,
+            "images": [ "8", 0 ]
+          },
+          "class_type": "VHS_VideoCombine",
+          "_meta": { "title": "Video Combine 🎥🅥🅗🅢" }
+        }
+      };
+    }
+
+    onProgress?.("Configuring Wan 2.2 workflow inputs...");
+    const finalWorkflow = await resolveWorkflow('wan_video_generation', {
+      prompt: params.prompt,
+      image: uploadedImage,
+      width: params.width,
+      height: params.height
+    }, workflow);
+
+    if (finalWorkflow["6"] && finalWorkflow["6"].inputs) {
+      finalWorkflow["6"].inputs.text = params.prompt;
+    }
+    if (finalWorkflow["7"] && finalWorkflow["7"].inputs && params.negativePrompt) {
+      finalWorkflow["7"].inputs.text = params.negativePrompt;
+    }
+    if (finalWorkflow["62"] && finalWorkflow["62"].inputs) {
+      finalWorkflow["62"].inputs.image = extractComfyFilename(uploadedImage);
+    }
+    if (finalWorkflow["63"] && finalWorkflow["63"].inputs) {
+      if (params.width) finalWorkflow["63"].inputs.width = params.width;
+      if (params.height) finalWorkflow["63"].inputs.height = params.height;
+      if (params.length) finalWorkflow["63"].inputs.length = params.length;
+    }
+    if (finalWorkflow["57"] && finalWorkflow["57"].inputs) {
+      finalWorkflow["57"].inputs.noise_seed = params.seed || Math.floor(Math.random() * 10000000000);
+    }
+    if (finalWorkflow["71"] && finalWorkflow["71"].inputs && params.frameRate) {
+      finalWorkflow["71"].inputs.frame_rate = params.frameRate;
+    }
+
+    onProgress?.("Submitting Wan 2.2 prompt to ComfyUI...");
+    const promptId = await this.submitPrompt(finalWorkflow);
     const result = await this.waitForCompletion(promptId, onProgress);
     return this.parseVideoCombineOutputs(result);
   }

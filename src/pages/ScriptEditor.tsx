@@ -34,6 +34,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { cn, getAssetUrl, useLocalImageBase64, useMediaUrl } from '@/src/lib/utils';
+import { useTranslation } from '../contexts/LanguageContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   fetchProjectById, 
@@ -71,6 +72,41 @@ import {
 } from '../lib/subtitles';
 
 const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+
+const LANGUAGE_MAP: Record<string, string> = {
+  zh: "Chinese (Simplified)",
+  en: "English",
+  ja: "Japanese",
+  ko: "Korean",
+  fr: "French",
+  es: "Spanish",
+  de: "German",
+  ru: "Russian",
+};
+
+function getLanguageCode(langName: string): string {
+  const normalized = langName.toLowerCase();
+  if (
+    normalized.includes("chinese (simplified)") ||
+    normalized.includes("简体") ||
+    normalized.includes("zh-cn")
+  )
+    return "zh";
+  if (
+    normalized.includes("chinese (traditional)") ||
+    normalized.includes("繁体") ||
+    normalized.includes("zh-tw")
+  )
+    return "zh-tw";
+  if (normalized.includes("japanese") || normalized.includes("日")) return "ja";
+  if (normalized.includes("korean") || normalized.includes("韩")) return "ko";
+  if (normalized.includes("french") || normalized.includes("法")) return "fr";
+  if (normalized.includes("spanish") || normalized.includes("西")) return "es";
+  if (normalized.includes("german") || normalized.includes("德")) return "de";
+  if (normalized.includes("russian") || normalized.includes("俄")) return "ru";
+  if (normalized.includes("english") || normalized.includes("英")) return "en";
+  return normalized.substring(0, 2);
+}
 
 interface SegmentCoverProps {
   segment: Vocabulary;
@@ -387,10 +423,18 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
     onRefresh();
   };
 
+  // Compute aspect ratio based on project.aspectRatio or width/height
+  let displayAspectRatio = '16/9';
+  if (project?.aspectRatio) {
+    displayAspectRatio = project.aspectRatio.replace(':', '/');
+  } else if (project?.width && project?.height) {
+    displayAspectRatio = `${project.width}/${project.height}`;
+  }
+
   return (
     <div className="flex flex-col gap-3 h-full justify-center">
       <div 
-        style={{ aspectRatio: project?.width && project?.height ? `${project.width}/${project.height}` : '16/9' }}
+        style={{ aspectRatio: displayAspectRatio }}
         className="w-full h-auto max-h-[260px] bg-[#0a0a0c] border border-white/5 overflow-hidden relative rounded group/cover flex items-center justify-center mx-auto"
       >
         {isGenerating && (
@@ -773,10 +817,48 @@ export function ScriptEditor() {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (!targetLang || scriptSegments.length === 0) return;
+    const code = getLanguageCode(targetLang);
+    setScriptSegments(prev => {
+      let modified = false;
+      const next = prev.map(s => {
+        let currentTranslation = "";
+        if (s.translations) {
+          try {
+            const parsed = JSON.parse(s.translations);
+            if (parsed[code] !== undefined) {
+              currentTranslation = parsed[code];
+            }
+          } catch (e) {}
+        }
+        
+        const expectedChinese = currentTranslation || "";
+        if (s.chinese !== expectedChinese || s.translation !== expectedChinese) {
+          modified = true;
+          return {
+            ...s,
+            chinese: expectedChinese,
+            translation: expectedChinese
+          };
+        }
+        return s;
+      });
+      return modified ? next : prev;
+    });
+  }, [targetLang]);
+
   const loadData = async (projectId: string) => {
     const proj = await fetchProjectById(projectId);
     setProject(proj);
     if (proj) {
+      const projectTargetLanguages = proj.targetLanguages
+        ? proj.targetLanguages.split(',').map((c: any) => c.trim()).filter(Boolean)
+        : ['en'];
+      const firstTargetCode = projectTargetLanguages[0] || 'en';
+      const firstTargetName = LANGUAGE_MAP[firstTargetCode] || firstTargetCode;
+      setTargetLang(firstTargetName);
+
       const vocab = await fetchVocabularyByProject(projectId);
       const sorted = [...vocab].sort((a, b) => a.id - b.id);
       setScriptSegments(sorted);
@@ -1023,9 +1105,28 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
       if (translation) {
         // Save the translated text inside 'chinese' as it's the DB column for alternate-language transcripts
-        await updateVocabulary(segment.id, { chinese: translation, translation: translation });
+        let transMap: Record<string, string> = {};
+        if (segment.translations) {
+          try {
+            transMap = JSON.parse(segment.translations);
+          } catch (e) {}
+        }
+        const code = getLanguageCode(targetLang);
+        transMap[code] = translation;
+        const translationsJson = JSON.stringify(transMap);
+
+        await updateVocabulary(segment.id, { 
+          chinese: translation, 
+          translation: translation,
+          translations: translationsJson
+        });
         setScriptSegments(prev => prev.map(s => 
-          s.id === segment.id ? { ...s, chinese: translation, translation: translation } : s
+          s.id === segment.id ? { 
+            ...s, 
+            chinese: translation, 
+            translation: translation,
+            translations: translationsJson
+          } : s
         ));
       }
     } catch (e) {
@@ -1146,9 +1247,28 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
           }
 
           if (translation) {
-            await updateVocabulary(segment.id, { chinese: translation, translation: translation });
+            let transMap: Record<string, string> = {};
+            if (segment.translations) {
+              try {
+                transMap = JSON.parse(segment.translations);
+              } catch (e) {}
+            }
+            const code = getLanguageCode(targetLang);
+            transMap[code] = translation;
+            const translationsJson = JSON.stringify(transMap);
+
+            await updateVocabulary(segment.id, { 
+              chinese: translation, 
+              translation: translation,
+              translations: translationsJson
+            });
             setScriptSegments(prev => prev.map(s => 
-              s.id === segment.id ? { ...s, chinese: translation, translation: translation } : s
+              s.id === segment.id ? { 
+                ...s, 
+                chinese: translation, 
+                translation: translation,
+                translations: translationsJson
+              } : s
             ));
           }
           setTranslatingIds(prev => ({ ...prev, [segment.id]: false }));
@@ -1636,11 +1756,26 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
    * Standard segment handlers
    */
   const handleUpdateField = async (segmentId: number, field: 'script' | 'dialog' | 'prompt' | 'chinese' | 'textToImagePrompt' | 'ltx23Prompt', content: string) => {
+    let updatedTranslationsJson: string | null = null;
+
     setScriptSegments(prev => prev.map(s => {
       if (s.id === segmentId) {
         const updated = { ...s, [field]: content };
         if (field === 'chinese') {
           updated.translation = content;
+
+          let transMap: Record<string, string> = {};
+          if (s.translations) {
+            try {
+              transMap = JSON.parse(s.translations);
+            } catch (e) {
+              console.error("Failed to parse translations JSON during update", e);
+            }
+          }
+          const code = getLanguageCode(targetLang);
+          transMap[code] = content;
+          updatedTranslationsJson = JSON.stringify(transMap);
+          updated.translations = updatedTranslationsJson;
         }
         if (field === 'ltx23Prompt') {
           updated.imageToVideoPrompt = content;
@@ -1654,6 +1789,9 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     const updates: Partial<Vocabulary> = { [field]: content };
     if (field === 'chinese') {
       updates.translation = content;
+      if (updatedTranslationsJson !== null) {
+        updates.translations = updatedTranslationsJson;
+      }
     }
     if (field === 'ltx23Prompt') {
       updates.imageToVideoPrompt = content;
@@ -2043,10 +2181,10 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="h-full grid grid-cols-1 lg:grid-cols-12 gap-10 overflow-hidden"
+              className="h-full grid grid-cols-1 lg:grid-cols-12 gap-8 overflow-hidden"
             >
               {/* Left Column: List of Narrative cards */}
-              <div className="lg:col-span-8 overflow-auto pr-3 custom-scrollbar space-y-6 pb-12">
+              <div className="lg:col-span-9 overflow-auto pr-3 custom-scrollbar space-y-6 pb-12">
                 
                 <div className="flex items-center justify-between pb-2 bg-[#0A0A0B] sticky top-0 z-10">
                   <span className="mono-text text-[11px] font-black uppercase tracking-[0.2em] text-white/50">PROSE SCENE SEQUENCE</span>
@@ -2174,7 +2312,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                   <span>ASR TRANSCRIPTION</span>
                                 </button>
                                 <input 
-                                  ref={el => fileInputRefs.current[segment.id] = el}
+                                  ref={el => { fileInputRefs.current[segment.id] = el; }}
                                   type="file" 
                                   accept="audio/*" 
                                   onChange={(e) => {
@@ -2226,7 +2364,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
 
                         {/* Interactive Script Area */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start mt-2">
-                          <div className="lg:col-span-8">
+                          <div className="lg:col-span-9">
                             
                             {/* Sub-tabs Selection for Speech / Dialogue / Direction / Image Prompt / Video Prompt */}
                             <div className="flex border-b border-white/[0.05] mb-5 gap-2">
@@ -2646,7 +2784,7 @@ Scene text: "${textToAnalyze}"`;
                           </div>
 
                           {/* SegmentCover Scene Cover Section */}
-                          <div className="lg:col-span-4 border-t lg:border-t-0 lg:border-l border-white/[0.04] pt-6 lg:pt-0 lg:pl-6">
+                          <div className="lg:col-span-3 border-t lg:border-t-0 lg:border-l border-white/[0.04] pt-6 lg:pt-0 lg:pl-6">
                             <span className="text-[8px] font-mono tracking-widest text-white/30 uppercase block mb-3">SCENE VISUAL COVER</span>
                             <SegmentCover 
                               segment={segment} 
@@ -2665,7 +2803,7 @@ Scene text: "${textToAnalyze}"`;
               </div>
 
               {/* Right Column: Creative Intelligence Controls */}
-              <div className="lg:col-span-4 space-y-8">
+              <div className="lg:col-span-3 overflow-auto custom-scrollbar pr-1 space-y-8 max-h-full pb-12">
                 
                 {/* Batch LLM Translation Engine */}
                 <div className="desktop-card p-8 bg-[#111114] border-blue-900/10">
@@ -2681,16 +2819,30 @@ Scene text: "${textToAnalyze}"`;
                         onChange={(e) => setTargetLang(e.target.value)}
                         className="desktop-input w-full font-sans text-xs bg-[#1a1a1e] text-white py-2 px-3 border border-white/10 rounded cursor-pointer focus:outline-none focus:border-brand-primary"
                       >
-                        <option value="English" className="bg-[#111114] text-white">English</option>
-                        <option value="Chinese (Simplified)" className="bg-[#111114] text-white">Chinese (Simplified)</option>
-                        <option value="Chinese (Traditional)" className="bg-[#111114] text-white">Chinese (Traditional)</option>
-                        <option value="Spanish (Latin American)" className="bg-[#111114] text-white">Spanish (Latin American)</option>
-                        <option value="Spanish (Castilian)" className="bg-[#111114] text-white">Spanish (Castilian)</option>
-                        <option value="Japanese" className="bg-[#111114] text-white">Japanese</option>
-                        <option value="French" className="bg-[#111114] text-white">French</option>
-                        <option value="German" className="bg-[#111114] text-white">German</option>
-                        <option value="Italian" className="bg-[#111114] text-white">Italian</option>
-                        <option value="Korean" className="bg-[#111114] text-white">Korean</option>
+                        {project?.targetLanguages
+                          ? project.targetLanguages.split(',').map((code: string) => {
+                              const trimmed = code.trim();
+                              const label = LANGUAGE_MAP[trimmed] || trimmed;
+                              return (
+                                <option key={trimmed} value={label} className="bg-[#111114] text-white">
+                                  {label} ({trimmed})
+                                </option>
+                              );
+                            })
+                          : (
+                            <>
+                              <option value="English" className="bg-[#111114] text-white">English</option>
+                              <option value="Chinese (Simplified)" className="bg-[#111114] text-white">Chinese (Simplified)</option>
+                              <option value="Chinese (Traditional)" className="bg-[#111114] text-white">Chinese (Traditional)</option>
+                              <option value="Spanish (Latin American)" className="bg-[#111114] text-white">Spanish (Latin American)</option>
+                              <option value="Spanish (Castilian)" className="bg-[#111114] text-white">Spanish (Castilian)</option>
+                              <option value="Japanese" className="bg-[#111114] text-white">Japanese</option>
+                              <option value="French" className="bg-[#111114] text-white">French</option>
+                              <option value="German" className="bg-[#111114] text-white">German</option>
+                              <option value="Italian" className="bg-[#111114] text-white">Italian</option>
+                              <option value="Korean" className="bg-[#111114] text-white">Korean</option>
+                            </>
+                          )}
                       </select>
                     </div>
 
@@ -3285,10 +3437,12 @@ export function VideoGenModal({
     customData = {};
   }
 
+  const { language } = useTranslation();
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [videoProgress, setVideoProgress] = useState('');
   const [ltxPrompt, setLtxPrompt] = useState(segment.ltx23Prompt || segment.textToImagePrompt || segment.prompt || segment.script || segment.word || '');
   const [generationMethod, setGenerationMethod] = useState<'text' | 'start_end' | 'image_audio' | 'image_only'>('image_only');
+  const [videoModel, setVideoModel] = useState<'ltx' | 'wan'>('ltx');
   const [videoDuration, setVideoDuration] = useState<number>(customData.videoDuration || 10.0);
   
   // Model select for reference images
@@ -3300,6 +3454,14 @@ export function VideoGenModal({
   // Frame choices (local path string)
   const [startFramePath, setStartFramePath] = useState<string>('');
   const [endFramePath, setEndFramePath] = useState<string>('');
+
+  // Compute aspect ratio based on project.aspectRatio or width/height
+  let displayAspectRatio = '16/9';
+  if (project?.aspectRatio) {
+    displayAspectRatio = project.aspectRatio.replace(':', '/');
+  } else if (project?.width && project?.height) {
+    displayAspectRatio = `${project.width}/${project.height}`;
+  }
 
   // Audio choice
   const [audioSource, setAudioSource] = useState<'none' | 'scene_audio' | 'translated_audio' | 'custom'>('none');
@@ -3596,32 +3758,53 @@ export function VideoGenModal({
         audioPathToSend = customAudioPath;
       }
 
-      let optionNum = 3; 
-      if (generationMethod === 'text') {
-        optionNum = 1;
-      } else if (generationMethod === 'start_end') {
-        optionNum = 5;
-      } else if (generationMethod === 'image_audio') {
-        optionNum = 3; 
-      }
-
+      let results;
       const resolvedLtxPrompt = await applyPromptHarnessRules(ltxPrompt, project?.id || '');
 
-      console.log(`invoking LTX all-in-one run... method=${generationMethod} opt=${optionNum}`);
-      const results = await comfy.runVideoGenerationAllInOne({
-        option: optionNum,
-        prompt: resolvedLtxPrompt,
-        image1: (generationMethod !== 'text') ? startFramePath : undefined,
-        image2: (generationMethod === 'start_end') ? endFramePath : undefined,
-        audio: audioPathToSend,
-        duration: videoDuration,
-        fps: 24,
-        width: project?.width,
-        height: project?.height,
-        seed: Math.floor(Math.random() * 100000)
-      }, (progMsg) => {
-        setVideoProgress(progMsg);
-      });
+      if (videoModel === 'wan') {
+        if (!startFramePath) {
+          throw new Error(language === 'zh' ? 'Wan 2.2 图生视频需要先选择或生成一张参考图 (Start Frame)！' : 'Wan 2.2 Image-to-Video requires selecting or generating a reference image (Start Frame) first!');
+        }
+        setVideoProgress(language === 'zh' ? '正在准备 Wan 2.2 运行工作流...' : 'Preparing Wan 2.2 execution workflow...');
+        console.log(`invoking Wan 2.2 image-to-video run...`);
+        results = await comfy.runWan22ImageToVideo({
+          image: startFramePath,
+          prompt: resolvedLtxPrompt,
+          width: project?.width,
+          height: project?.height,
+          seed: Math.floor(Math.random() * 100000),
+          length: Math.max(16, Math.min(160, Math.round(videoDuration * 16))) || 81,
+          frameRate: 16
+        }, (progMsg) => {
+          setVideoProgress(progMsg);
+        });
+      } else {
+        setVideoProgress('Preparing LTX-2.3 execution workflow...');
+        let optionNum = 3; 
+        if (generationMethod === 'text') {
+          optionNum = 1;
+        } else if (generationMethod === 'start_end') {
+          optionNum = 5;
+        } else if (generationMethod === 'image_audio') {
+          optionNum = 3; 
+        }
+
+        console.log(`invoking LTX all-in-one run... method=${generationMethod} opt=${optionNum}`);
+        results = await comfy.runVideoGenerationAllInOne({
+          option: optionNum,
+          prompt: resolvedLtxPrompt,
+          image1: (generationMethod !== 'text') ? startFramePath : undefined,
+          image2: (generationMethod === 'start_end') ? endFramePath : undefined,
+          audio: audioPathToSend,
+          duration: videoDuration,
+          fps: 24,
+          width: project?.width,
+          height: project?.height,
+          seed: Math.floor(Math.random() * 100000)
+        }, (progMsg) => {
+          setVideoProgress(progMsg);
+        });
+      }
 
       if (results && results.length > 0) {
         let finalVideoPath = results[0];
@@ -3664,14 +3847,14 @@ export function VideoGenModal({
           refVideoPrompt: ltxPrompt
         });
         onRefresh();
-        alert('Scene Video successfully created with LTX-2.3!');
+        alert(videoModel === 'wan' ? 'Scene Video successfully created with Wan 2.2!' : 'Scene Video successfully created with LTX-2.3!');
         onClose();
       } else {
         throw new Error("No output paths received from ComfyUI generator.");
       }
     } catch (err: any) {
       console.error(err);
-      alert(`LTX-2.3 generation failed: ${err?.message || err}`);
+      alert(videoModel === 'wan' ? `Wan 2.2 generation failed: ${err?.message || err}` : `LTX-2.3 generation failed: ${err?.message || err}`);
     } finally {
       setIsGeneratingVideo(false);
       setVideoProgress('');
@@ -3725,7 +3908,7 @@ export function VideoGenModal({
                 Scene Video Constructor
               </h3>
               <p className="text-[9px] text-white/30 tracking-wide font-mono mt-0.5">
-                POWERED BY LTX-2.3 SPATIAL ADAPTIVE MODEL
+                POWERED BY {videoModel === 'wan' ? 'WAN 2.2 HIGH-FIDELITY MODEL' : 'LTX-2.3 SPATIAL ADAPTIVE MODEL'}
               </p>
             </div>
           </div>
@@ -3767,7 +3950,7 @@ export function VideoGenModal({
                   onChange={(e) => setLtxPrompt(e.target.value)}
                   rows={4}
                   className="w-full bg-black/40 border border-white/5 rounded p-3 text-xs text-white/90 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 leading-relaxed outline-none transition-all"
-                  placeholder="Describe your scene in detail. For LTX-2.3 dynamic backgrounds, focus on ambient light, texture, movement speed, and camera focus shifts..."
+                  placeholder={videoModel === 'wan' ? "Describe your scene for Wan 2.2 Image-to-Video. Focus on detailed motions, camera zoom/pan directions, weather, and realistic physics details..." : "Describe your scene in detail. For LTX-2.3 dynamic backgrounds, focus on ambient light, texture, movement speed, and camera focus shifts..."}
                 />
               </div>
 
@@ -3835,6 +4018,27 @@ export function VideoGenModal({
                 />
               </div>
 
+              {/* Video Model Selection */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
+                  Video Model Engine (视频生成模型)
+                </label>
+                <select
+                  value={videoModel}
+                  onChange={(e) => {
+                    const selected = e.target.value as 'ltx' | 'wan';
+                    setVideoModel(selected);
+                    if (selected === 'wan') {
+                      setGenerationMethod('image_only');
+                    }
+                  }}
+                  className="w-full bg-[#1a1a1e] border border-white/5 rounded p-2.5 text-xs text-blue-400 font-bold focus:border-blue-500 outline-none cursor-pointer"
+                >
+                  <option value="ltx" className="bg-[#111114] text-white">LTX-2.3 (Multi-in-One)</option>
+                  <option value="wan" className="bg-[#111114] text-white">Wan 2.2 (Image-to-Video)</option>
+                </select>
+              </div>
+
               {/* Video Generation Strategy selection */}
               <div className="space-y-1.5">
                 <label className="text-[10px] mono-text opacity-40 uppercase font-bold tracking-wider block">
@@ -3843,13 +4047,26 @@ export function VideoGenModal({
                 <select
                   value={generationMethod}
                   onChange={(e) => setGenerationMethod(e.target.value as any)}
-                  className="w-full bg-[#1a1a1e] border border-white/5 rounded p-2.5 text-xs text-white focus:border-blue-500 outline-none cursor-pointer"
+                  disabled={videoModel === 'wan'}
+                  className={cn(
+                    "w-full bg-[#1a1a1e] border border-white/5 rounded p-2.5 text-xs text-white focus:border-blue-500 outline-none cursor-pointer",
+                    videoModel === 'wan' && "opacity-60 cursor-not-allowed"
+                  )}
                 >
-                  <option value="text" className="bg-[#111114] text-white">文生视频 (Text-to-Video)</option>
                   <option value="image_only" className="bg-[#111114] text-white">图生视频 (Image-to-Video)</option>
-                  <option value="image_audio" className="bg-[#111114] text-white">图和音频生成视频 (Image + Audio)</option>
-                  <option value="start_end" className="bg-[#111114] text-white">首尾帧生图 / 生成视频 (Start & End Frames)</option>
+                  {videoModel !== 'wan' && (
+                    <>
+                      <option value="text" className="bg-[#111114] text-white">文生视频 (Text-to-Video)</option>
+                      <option value="image_audio" className="bg-[#111114] text-white">图和音频生成视频 (Image + Audio)</option>
+                      <option value="start_end" className="bg-[#111114] text-white">首尾帧生图 / 生成视频 (Start & End Frames)</option>
+                    </>
+                  )}
                 </select>
+                {videoModel === 'wan' && (
+                  <p className="text-[10px] text-blue-400/70 font-mono mt-1">
+                    * Wan 2.2 is optimized for high-quality Image-to-Video workflows.
+                  </p>
+                )}
               </div>
 
               {/* Video Duration */}
@@ -3932,9 +4149,10 @@ export function VideoGenModal({
                       <div 
                         key={idx}
                         className={cn(
-                          "aspect-video border rounded overflow-hidden relative group cursor-pointer transition-all",
+                          "border rounded overflow-hidden relative group cursor-pointer transition-all",
                           isStart ? "border-blue-500 scale-95 shadow-md" : isEnd ? "border-purple-500 scale-95 shadow-md" : "border-white/5 hover:border-white/25"
                         )}
+                        style={{ aspectRatio: displayAspectRatio }}
                         onClick={() => {
                           if (generationMethod === 'start_end') {
                             if (!startFramePath) setStartFramePath(path);
@@ -4043,7 +4261,7 @@ export function VideoGenModal({
             <div className="p-4 bg-zinc-950 border border-white/5 rounded font-mono text-[9px] leading-relaxed text-[#00FF55] space-y-2 select-text">
               <div className="flex items-center gap-2 animate-pulse font-bold text-[10px]">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>LTX-2.3 PIPELINE RUNNING...</span>
+                <span>{videoModel === 'wan' ? 'WAN 2.2 PIPELINE RUNNING...' : 'LTX-2.3 PIPELINE RUNNING...'}</span>
               </div>
               <p className="opacity-85">{videoProgress || 'Connecting to ComfyUI scheduler...'}</p>
             </div>
@@ -4063,7 +4281,7 @@ export function VideoGenModal({
                 className="py-2.5 px-6 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs uppercase tracking-wider rounded transition-all border border-blue-500/20 hover:shadow-[0_0_15px_rgba(59,130,246,0.3)] flex items-center gap-2"
               >
                 <FileVideo className="w-4 h-4" />
-                <span>Render Video with LTX-2.3</span>
+                <span>Render Video with {videoModel === 'wan' ? 'Wan 2.2' : 'LTX-2.3'}</span>
               </button>
             </div>
           )}

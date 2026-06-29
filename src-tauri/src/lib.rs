@@ -1435,6 +1435,123 @@ fn get_stream_response(
     http_response.map_err(Into::into)
 }
 
+#[tauri::command]
+async fn comfy_api_request_rust(
+    server_address: String,
+    method: String,
+    endpoint: String,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to build reqwest client: {}", e))?;
+
+    let url = format!("http://{}{}", server_address, endpoint);
+
+    let req_builder = match method.to_uppercase().as_str() {
+        "POST" => {
+            let mut req = client.post(&url);
+            if let Some(b) = body {
+                req = req.json(&b);
+            }
+            req
+        }
+        _ => client.get(&url),
+    };
+
+    let res = req_builder.send()
+        .await
+        .map_err(|e| format!("Failed to send request to ComfyUI at {}: {}", url, e))?;
+
+    let status = res.status();
+    let text = res.text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("ComfyUI returned error HTTP {}: {}", status, text));
+    }
+
+    if text.trim().is_empty() {
+        return Ok(serde_json::json!({ "status": "ok" }));
+    }
+
+    // Try parsing as JSON, fallback to returning string in a JSON wrapper
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(json) => Ok(json),
+        Err(_) => Ok(serde_json::json!({ "text": text })),
+    }
+}
+
+#[tauri::command]
+async fn upload_file_to_comfy_rust(
+    server_address: String,
+    local_path: String,
+    filename: String,
+) -> Result<String, String> {
+    println!("==== Rust Upload File to ComfyUI Started ====");
+    println!("- Server: http://{}", server_address);
+    println!("- Local Path: {}", local_path);
+    println!("- Destination Filename: {}", filename);
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("Failed to build reqwest client: {}", e))?;
+
+    let bytes = if local_path.starts_with("data:") {
+        // Parse base64
+        let comma_idx = local_path.find(',').ok_or_else(|| "Invalid data URI".to_string())?;
+        let b64_str = &local_path[comma_idx + 1..];
+        use base64::{prelude::BASE64_STANDARD, Engine};
+        BASE64_STANDARD.decode(b64_str)
+            .map_err(|e| format!("Failed to decode base64: {}", e))?
+    } else {
+        // Read file from disk
+        let path = Path::new(&local_path);
+        if !path.exists() {
+            return Err(format!("File does not exist: {}", local_path));
+        }
+        std::fs::read(path)
+            .map_err(|e| format!("Failed to read file from disk: {}", e))?
+    };
+
+    let upload_url = format!("http://{}/upload/image", server_address);
+    
+    // Create multipart form
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(filename.clone())
+        .mime_str("application/octet-stream")
+        .map_err(|e| format!("Failed to set part details: {}", e))?;
+
+    let form = reqwest::multipart::Form::new()
+        .part("image", part)
+        .text("overwrite", "true");
+
+    let res = client.post(&upload_url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to send multipart request to ComfyUI at {}: {}", upload_url, e))?;
+    let status = res.status();
+    if !status.is_success() {
+        let err_text = res.text().await.unwrap_or_default();
+        return Err(format!("ComfyUI upload returned HTTP {}: {}",status, err_text));
+    }
+
+    let json: serde_json::Value = res.json()
+        .await
+        .map_err(|e| format!("Failed to parse upload response: {}", e))?;
+
+    let uploaded_name = json["name"]
+        .as_str()
+        .ok_or_else(|| "No file name in upload response".to_string())?;
+
+    println!("- Successfully uploaded as: {}", uploaded_name);
+    Ok(uploaded_name.to_string())
+}
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1509,7 +1626,9 @@ pub fn run() {
             run_ffmpeg_cmd,
             get_ollama_version,
             get_fallback_cover_svg_base64,
-            get_comfyui_details
+            get_comfyui_details,
+            upload_file_to_comfy_rust,
+            comfy_api_request_rust
         ])
         .run(tauri::generate_context!())
         .expect("error while running  application");

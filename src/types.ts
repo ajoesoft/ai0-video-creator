@@ -43,6 +43,8 @@ export interface VideoProject {
   srtOriginal?: string | null;
   textOriginal?: string | null;
   detectedLanguage?: string | null;
+  sourceLanguage?: string;
+  targetLanguages?: string;
 }
 
 export interface SceneConfig {
@@ -104,6 +106,7 @@ export interface Vocabulary {
   voiceover?: string;
   translationSpeechFile?: string;
   dialog?: string;
+  translations?: string; // JSON string of { [lang]: translation_text }
 }
 
 export interface VisualLibraryItem {
@@ -217,3 +220,11 @@ export interface BackgroundTask {
   completedAt?: number;
   priority: number;
 }
+
+export interface SystemPrompt {
+  uuid: string;
+  name: string;
+  classification: 'details' | 'script' | 'visuals' | 'audio';
+  prompt: string;
+}
+

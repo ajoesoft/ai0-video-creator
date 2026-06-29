@@ -686,7 +686,7 @@ Personality: Wise elder, storyteller, deep, intellectual, and tranquil.`
                               {/* Word Headers */}
                               <div className="flex flex-wrap items-center gap-3">
                                  <span className="mono-text text-[10px] uppercase font-bold text-white/55 font-mono px-2 py-0.5 bg-white/5 rounded border border-white/10">
-                                    Segment #{index + 1}
+                                    {word.word || `Segment #${index + 1}`}
                                  </span>
                                  {hasGeneratedAudio ? (
                                     <span className="text-[8px] uppercase tracking-[0.15em] px-2.5 py-0.5 bg-green-500/10 text-green-400 font-bold border border-green-500/15 rounded-full">

@@ -658,7 +658,7 @@ export function ExportCenter() {
                         src={resolvedTimelineVideoUrl || getAssetUrl(timelineVideo)} 
                         className="w-full h-full object-cover opacity-80" 
                         controls
-                        referrerPolicy="no-referrer"
+                        
                       />
                       <div className="absolute top-2 left-2 bg-black/85 px-2 py-0.5 rounded text-[8px] font-mono text-brand-primary border border-brand-primary/20 uppercase tracking-widest font-bold">
                         Timeline Output

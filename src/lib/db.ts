@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { remove, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
-import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType } from "../types";
+import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType, SystemPrompt } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { PromptHarnessEngine } from "./harness/engine";
 
@@ -156,6 +156,61 @@ export async function runDatabaseMigrations(database: Database): Promise<void> {
     `);
   } catch (errTasksTable) {
     console.error("Failed to create background_tasks table:", errTasksTable);
+  }
+
+  // Auto-create system_prompts table if missing
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS system_prompts (
+        uuid TEXT PRIMARY KEY,
+        name TEXT,
+        classification TEXT,
+        prompt TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
+      );
+    `);
+
+    // Check if table is empty, and seed DEFAULT_SYSTEM_PROMPTS if so
+    const existingPrompts = await database.select<any[]>("SELECT uuid FROM system_prompts LIMIT 1");
+    if (!existingPrompts || existingPrompts.length === 0) {
+      console.log("[Migration] Seeding initial default system prompts into database...");
+      const defaults = [
+        {
+          uuid: "prompt-uuid-details-default",
+          name: "Cover & Style Director (封面及风格导演)",
+          classification: "details",
+          prompt: "You are an expert design director and style consultant. Focus on analyzing the project's creative direction, visual theme, and storytelling tone. Guide the user in drafting consistent style guidelines, select fitting color schemes, and brainstorm evocative ideas for the project's cover image."
+        },
+        {
+          uuid: "prompt-uuid-script-default",
+          name: "Screenplay & Dialogue Maestro (编剧与对白大师)",
+          classification: "script",
+          prompt: "You are an elite screenwriter and script supervisor. Assist the user in drafting precise dialogues, voiceover lines, director's cues (camera angles, movements), and visual prompt descriptions for scene synthesis. Ensure the speech rhythm, dialogue style, and stage directions form a cohesive dramatic narrative."
+        },
+        {
+          uuid: "prompt-uuid-visuals-default",
+          name: "IP Character & Environment Sculptor (IP角色与环境塑造师)",
+          classification: "visuals",
+          prompt: "You are a lead character designer and worldbuilding artist. Help the user define consistent characters (IPs), props, and environmental parameters. Maintain detailed physical descriptions, clothing, mood settings, and lighting prompts to keep visual likeness intact across generations."
+        },
+        {
+          uuid: "prompt-uuid-audio-default",
+          name: "Voice Casting & Sound Designer (声色与声效设计师)",
+          classification: "audio",
+          prompt: "You are a professional audio designer and voice casting director. Assist the user in configuring distinct voiceover timbres, speech rates, emotional intonations, and character-specific acoustic profiles. Focus on optimizing vocal performance and matching roles to their ideal vocal qualities."
+        }
+      ];
+
+      for (const p of defaults) {
+        await database.execute(
+          "INSERT INTO system_prompts (uuid, name, classification, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+          [p.uuid, p.name, p.classification, p.prompt, Date.now(), Date.now()]
+        );
+      }
+    }
+  } catch (errPromptsTable) {
+    console.error("Failed to create/seed system_prompts table:", errPromptsTable);
   }
 
   // Safe check and auto-creation / migration for video_translation_projects with v2 schema check to clear foreign key constraints
@@ -896,6 +951,120 @@ export async function seedSystemHarnessesForProject(projectId: string, visualSty
         type: "Style"
       }
     );
+  } else if (visualStyle === 'Pixar' || visualStyle === '皮克斯动画') {
+    itemsToCreate.push(
+      {
+        title: "皮克斯3D动画",
+        sceneId: "style_pixar",
+        shortName: "@Style",
+        imagePrompt: "high-end 3D Disney Pixar animation render, cute stylized character, extremely expressive eyes, realistic hair groom, sub-surface scattering skin, cinematic colorful keyframe, smooth 3D render",
+        videoPrompt: "smooth cinematic 3D character animation, playful expressions, classic Pixar storytelling camera pan",
+        type: "Style"
+      },
+      {
+        title: "高光灵动光影",
+        sceneId: "style_pixar_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "dynamic stylized keyframe key light, beautiful rim light highlights, volumetric warm lighting, colorful accents",
+        videoPrompt: "vibrant dynamic keyframe studio illumination, colorful bouncing ambient light",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'PixarClay' || visualStyle === '皮克斯粘土') {
+    itemsToCreate.push(
+      {
+        title: "皮克斯粘土动画",
+        sceneId: "style_clay",
+        shortName: "@Style",
+        imagePrompt: "claymation cute animation style, handcrafted cozy clay texture, soft matte finish, cute round proportions, miniature diorama set, stop-motion aesthetic",
+        videoPrompt: "stop-motion claymation character movement, subtle playful clay deformation, tactile cozy animations",
+        type: "Style"
+      },
+      {
+        title: "温润柔和粘土光影",
+        sceneId: "style_clay_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "ultra-soft warm studio dome light, soft diffused ambient occlusion, pastel color mood, gentle shadows",
+        videoPrompt: "diffused soft warm lighting, calm and inviting stop-motion studio atmosphere",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'Cyberpunk' || visualStyle === '赛博朋克') {
+    itemsToCreate.push(
+      {
+        title: "赛博朋克霓虹",
+        sceneId: "style_cyberpunk",
+        shortName: "@Style",
+        imagePrompt: "futuristic cyberpunk cityscape portrait, glowing neon signs, vibrant pink and cyan highlights, wet rainy pavement reflections, detailed cybernetic enhancements, high-tech dark atmosphere",
+        videoPrompt: "cinematic neon lighting reflection, rain trickling down, high-speed camera sweep with lens flares",
+        type: "Style"
+      },
+      {
+        title: "冷暖高对比光影",
+        sceneId: "style_cyberpunk_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "dramatic futuristic pink and cyan fluorescent backlighting, high contrast neon glow, sharp volumetric dark shadows",
+        videoPrompt: "pulsing neon light flares, alternating blue and magenta rim highlights",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'OilPainting' || visualStyle === '写实油画') {
+    itemsToCreate.push(
+      {
+        title: "经典写实油画",
+        sceneId: "style_oil",
+        shortName: "@Style",
+        imagePrompt: "classical oil painting aesthetic, textured brush strokes, impasto technique, rich deep color palette, masterwork gallery level detail, fine canvas texture",
+        videoPrompt: "slow moving camera panning across a fine-art oil canvas, artistic organic motion",
+        type: "Style"
+      },
+      {
+        title: "古典戏曲光影",
+        sceneId: "style_oil_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "Rembrandt dramatic chiaroscuro lighting, deep golden side illumination, moody soft background shadows, warm amber highlights",
+        videoPrompt: "dramatic warm candlelit ambiance, slow fading shadows on classic canvas paint",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'UkiyoE' || visualStyle === '传统浮世绘') {
+    itemsToCreate.push(
+      {
+        title: "传统写意浮世绘",
+        sceneId: "style_ukiyoe",
+        shortName: "@Style",
+        imagePrompt: "classic Japanese Ukiyo-e woodblock print style, handpainted mineral pigments, elegant dark ink outlines, flat solid color planes, vintage mulberry paper texture, flowing woodblock artwork",
+        videoPrompt: "stylized woodblock flat illustration camera panning, gentle organic paper ripples, retro hand-drawn frames",
+        type: "Style"
+      },
+      {
+        title: "古雅温润和风光影",
+        sceneId: "style_ukiyoe_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "soft ambient antique warm paper illumination, muted vintage color wash, nostalgic flat shading highlights",
+        videoPrompt: "flickering soft warm parchment glow, vintage animated inkwash shadow layers",
+        type: "Style"
+      }
+    );
+  } else if (visualStyle === 'UnrealEngine' || visualStyle === '虚幻写实') {
+    itemsToCreate.push(
+      {
+        title: "虚幻引擎超写实",
+        sceneId: "style_unreal",
+        shortName: "@Style",
+        imagePrompt: "photorealistic ultra-detailed render, Unreal Engine 5 aesthetic, global illumination, hyper-detailed skin pores and fabric weave, ray-traced shadows, gorgeous cinematography",
+        videoPrompt: "epic cinematic tracking shot, hyper-realistic physics engine movement, crisp focus pulling, atmospheric details",
+        type: "Style"
+      },
+      {
+        title: "实时追踪全局光影",
+        sceneId: "style_unreal_lighting",
+        shortName: "@Lighting",
+        imagePrompt: "next-gen raytraced soft direct lighting, volumetric fog atmosphere, real-time dynamic shadows, high-end CGI look",
+        videoPrompt: "ray-traced dynamic sunset rays, atmospheric smoke particles moving slowly",
+        type: "Style"
+      }
+    );
   } else {
     itemsToCreate.push(
       {
@@ -1026,7 +1195,9 @@ export async function createProject(
   width?: number,
   height?: number,
   aspectRatio?: string,
-  visualStyle?: string
+  visualStyle?: string,
+  sourceLanguage: string = 'zh',
+  targetLanguages: string = 'en'
 ): Promise<any> {
   const id = explicitId || crypto.randomUUID();
   const now = Date.now();
@@ -1036,8 +1207,8 @@ export async function createProject(
     const database = await getDb();
     if (database) {
       await database.execute(
-        "INSERT INTO video_projects (project_uuid, project_name, project_status, create_time, update_time, project_prompt, scene_type, project_path, width, height, aspect_ratio, visual_style) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, name, status, now, now, prompt || null, sceneType, actualProjectPath, width || 1920, height || 1080, aspectRatio || '16:9', visualStyle || 'Cinematic']
+        "INSERT INTO video_projects (project_uuid, project_name, project_status, create_time, update_time, project_prompt, scene_type, project_path, width, height, aspect_ratio, visual_style, source_language, target_languages) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, name, status, now, now, prompt || null, sceneType, actualProjectPath, width || 1920, height || 1080, aspectRatio || '16:9', visualStyle || 'Cinematic', sourceLanguage, targetLanguages]
       );
       await seedSystemHarnessesForProject(id, visualStyle || 'Cinematic');
       return { 
@@ -1052,7 +1223,9 @@ export async function createProject(
         width: width || 1920,
         height: height || 1080,
         aspectRatio: aspectRatio || '16:9',
-        visualStyle: visualStyle || 'Cinematic'
+        visualStyle: visualStyle || 'Cinematic',
+        sourceLanguage,
+        targetLanguages
       };
     }
   }
@@ -1070,7 +1243,9 @@ export async function createProject(
     width: width || 1920,
     height: height || 1080,
     aspectRatio: aspectRatio || '16:9',
-    visualStyle: visualStyle || 'Cinematic'
+    visualStyle: visualStyle || 'Cinematic',
+    sourceLanguage,
+    targetLanguages
   };
   const projects = await getLocalStorageProjects();
   projects.push(newProject);
@@ -1109,6 +1284,8 @@ export async function fetchProjectById(id: string): Promise<VideoProject | null>
           srtOriginal: p.srt_original || null,
           textOriginal: p.text_original || null,
           detectedLanguage: p.detected_language || null,
+          sourceLanguage: p.source_language || 'zh',
+          targetLanguages: p.target_languages || 'en',
         };
       }
       return null;
@@ -1149,7 +1326,9 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
           audio_duration = ?,
           srt_original = ?,
           text_original = ?,
-          detected_language = ?
+          detected_language = ?,
+          source_language = ?,
+          target_languages = ?
          WHERE project_uuid = ?`,
         [
           updated.name,
@@ -1169,6 +1348,8 @@ export async function updateProject(id: string, updates: Partial<VideoProject>):
           updated.srtOriginal || null,
           updated.textOriginal || null,
           updated.detectedLanguage || null,
+          updated.sourceLanguage || 'zh',
+          updated.targetLanguages || 'en',
           id
         ]
       );
@@ -1235,7 +1416,8 @@ export async function fetchVocabularyByProject(projectUuid: string): Promise<Voc
         translation: v.translation,
         voiceover: v.voiceover,
         translationSpeechFile: v.translation_speech_file,
-        dialog: v.dialog
+        dialog: v.dialog,
+        translations: v.translations
       }));
     }
   }
@@ -1257,15 +1439,15 @@ export async function createVocabulary(vocabulary: Partial<Vocabulary>): Promise
           ltx23_prompt, t2v_prompt, qwen_image_prompt, category, script, 
           created_at, updated_at, status, chinese,
           text_to_image_prompt, image_to_video_prompt, ref_image_prompt, ref_video_prompt,
-          translation, voiceover, translation_speech_file, dialog
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          translation, voiceover, translation_speech_file, dialog, translations
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           vocabulary.projectUuid, vocabulary.word || "", vocabulary.audioPath || null, vocabulary.indexChar || null, vocabulary.example || null, vocabulary.imagePath || null,
           vocabulary.phoneticSymbols || null, vocabulary.chineseDefinition || null, vocabulary.data || null, vocabulary.prompt || null, vocabulary.videoPath || null,
           vocabulary.ltx23Prompt || null, vocabulary.t2vPrompt || null, vocabulary.qwenImagePrompt || null, vocabulary.category || null, vocabulary.script || null,
           now, now, vocabulary.status || 1, vocabulary.chinese || null,
           vocabulary.textToImagePrompt || null, vocabulary.imageToVideoPrompt || null, vocabulary.refImagePrompt || null, vocabulary.refVideoPrompt || null,
-          vocabulary.translation || null, vocabulary.voiceover || null, vocabulary.translationSpeechFile || null, vocabulary.dialog || null
+          vocabulary.translation || null, vocabulary.voiceover || null, vocabulary.translationSpeechFile || null, vocabulary.dialog || null, vocabulary.translations || null
         ]
       );
       return true;
@@ -1305,6 +1487,7 @@ export async function createVocabulary(vocabulary: Partial<Vocabulary>): Promise
     voiceover: vocabulary.voiceover || '',
     translationSpeechFile: vocabulary.translationSpeechFile || '',
     dialog: vocabulary.dialog || '',
+    translations: vocabulary.translations || '',
   };
   allVocab.push(newVocab);
   saveLocalStorageVocabulary(allVocab);
@@ -2482,4 +2665,132 @@ export async function saveVideoTranslationTimeline(
     }
   }
 }
+
+// System Prompts DB Operations
+export async function fetchSystemPrompts(): Promise<SystemPrompt[]> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const rows = await database.select<any[]>("SELECT * FROM system_prompts ORDER BY created_at ASC");
+        if (rows && rows.length > 0) {
+          return rows.map(r => ({
+            uuid: r.uuid,
+            name: r.name,
+            classification: r.classification as any,
+            prompt: r.prompt
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to fetch system prompts from SQLite system_prompts table:", err);
+      }
+    }
+  }
+
+  // Fallback to localStorage setting if SQLite is not available
+  const stored = localStorage.getItem('system_prompts');
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      console.error("Failed to parse fallback system prompts:", e);
+    }
+  }
+
+  return [];
+}
+
+export async function saveSystemPrompt(prompt: SystemPrompt): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute(
+          `INSERT INTO system_prompts (uuid, name, classification, prompt, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(uuid) DO UPDATE SET
+             name = EXCLUDED.name,
+             classification = EXCLUDED.classification,
+             prompt = EXCLUDED.prompt,
+             updated_at = EXCLUDED.updated_at`,
+          [prompt.uuid, prompt.name, prompt.classification, prompt.prompt, now, now]
+        );
+        // Sync with app_settings key for double redundancy / layout reading
+        const all = await fetchSystemPrompts();
+        await setSetting('system_prompts', JSON.stringify(all));
+        return;
+      } catch (err) {
+        console.error("Failed to save system prompt in SQLite:", err);
+      }
+    }
+  }
+
+  // Fallback
+  const stored = localStorage.getItem('system_prompts');
+  let prompts: SystemPrompt[] = stored ? JSON.parse(stored) : [];
+  const idx = prompts.findIndex(p => p.uuid === prompt.uuid);
+  if (idx > -1) {
+    prompts[idx] = prompt;
+  } else {
+    prompts.push(prompt);
+  }
+  localStorage.setItem('system_prompts', JSON.stringify(prompts));
+  await setSetting('system_prompts', JSON.stringify(prompts));
+}
+
+export async function saveAllSystemPrompts(prompts: SystemPrompt[]): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM system_prompts");
+        for (const prompt of prompts) {
+          await database.execute(
+            `INSERT INTO system_prompts (uuid, name, classification, prompt, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [prompt.uuid, prompt.name, prompt.classification, prompt.prompt, now, now]
+          );
+        }
+        // Redundant app_settings sync
+        await setSetting('system_prompts', JSON.stringify(prompts));
+        return;
+      } catch (err) {
+        console.error("Failed to batch save system prompts in SQLite:", err);
+      }
+    }
+  }
+
+  // Fallback
+  localStorage.setItem('system_prompts', JSON.stringify(prompts));
+  await setSetting('system_prompts', JSON.stringify(prompts));
+}
+
+export async function deleteSystemPrompt(uuid: string): Promise<void> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM system_prompts WHERE uuid = ?", [uuid]);
+        // Redundant app_settings sync
+        const all = await fetchSystemPrompts();
+        await setSetting('system_prompts', JSON.stringify(all));
+        return;
+      } catch (err) {
+        console.error("Failed to delete system prompt from SQLite:", err);
+      }
+    }
+  }
+
+  // Fallback
+  const stored = localStorage.getItem('system_prompts');
+  if (stored) {
+    let prompts: SystemPrompt[] = JSON.parse(stored);
+    prompts = prompts.filter(p => p.uuid !== uuid);
+    localStorage.setItem('system_prompts', JSON.stringify(prompts));
+    await setSetting('system_prompts', JSON.stringify(prompts));
+  }
+}
+
 

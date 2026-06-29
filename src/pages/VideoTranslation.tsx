@@ -384,6 +384,7 @@ interface TranslationProject {
   srtTranslated: string;
   textOriginal?: string;
   textTranslated?: string;
+  detectedLanguage?: string;  
   dialogues: SubtitleDialogueLine[];
   translatedDialogues: SubtitleDialogueLine[];
   synthesizedAudioUrl: string | null;
@@ -1318,7 +1319,7 @@ export function VideoTranslation() {
             actProj.audioDuration,
             actProj.srtOriginal,
             actProj.textOriginal,
-            actProj.detected_language || ''
+            actProj.detectedLanguage || ''
           );
         } catch (dbErr) {
           console.error("Failed to save active project to video_translation_projects:", dbErr);

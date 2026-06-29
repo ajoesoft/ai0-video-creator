@@ -47,6 +47,60 @@ export function QueueManager() {
   const [scheduleDelaySeconds, setScheduleDelaySeconds] = useState<number>(60);
   const [customDateTime, setCustomDateTime] = useState<string>('');
 
+  // Extended Execution Timing & Recurrence states
+  const [executionMode, setExecutionMode] = useState<'instant' | 'delayed' | 'recurrent'>('instant');
+  const [recurringInterval, setRecurringInterval] = useState<number>(60); // In seconds
+  const [delayedRecurrentFirstRun, setDelayedRecurrentFirstRun] = useState<boolean>(false);
+  const [formHighlighted, setFormHighlighted] = useState<boolean>(false);
+
+  const handleQuickDispatch = (proj: VideoProject, type: TaskType) => {
+    setProjectId(proj.id);
+    setActiveFormTab(type);
+    
+    const prName = proj.name || 'Project';
+    const styleStr = proj.visualStyle || 'Cinematic';
+    
+    switch (type) {
+      case TaskType.T2I:
+        setTaskName(`${prName} - T2I Gen`);
+        setT2iPrompt(language === 'zh' 
+          ? `针对项目《${prName}》的高精插画分镜，风格：${styleStr}，超细腻细节。`
+          : `High fidelity storyboard illustration for project "${prName}", style: ${styleStr}, intricate details.`);
+        break;
+      case TaskType.T2V:
+        setTaskName(`${prName} - T2V Video`);
+        setT2vPrompt(language === 'zh'
+          ? `项目《${prName}》的动态空镜环绕，风格：${styleStr}，电影级光影。`
+          : `Cinematic camera pan shot for project "${prName}", style: ${styleStr}, ultra-realistic rendering.`);
+        break;
+      case TaskType.I2V:
+        setTaskName(`${prName} - I2V Anim`);
+        setI2vPrompt(language === 'zh'
+          ? `让项目《${prName}》的背景云雾或水流产生平滑微动，电影级品质。`
+          : `Make the background atmosphere or natural elements move smoothly, cinema quality.`);
+        break;
+      case TaskType.LIPSYNC:
+        setTaskName(`${prName} - LipSync Alignment`);
+        break;
+      case TaskType.TTS:
+        setTaskName(`${prName} - Voice Synthesis`);
+        setTtsText(language === 'zh'
+          ? `欢迎合成项目《${prName}》的主角画外音段落，用于高精算力队列渲染。`
+          : `Welcome to voice clone synthesis for project "${prName}", optimized for high-performance pipeline render.`);
+        break;
+    }
+    
+    // Highlight form effect
+    setFormHighlighted(true);
+    setTimeout(() => setFormHighlighted(false), 2000);
+
+    // Scroll smoothly to form
+    const target = document.getElementById('task-formulate-card');
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
+
   // Form parameter states
   const [t2iPrompt, setT2iPrompt] = useState<string>('在赛博朋克废墟边缘，一个身穿 @盔甲_IP 的少女在雨中俯瞰城市。');
   const [t2iEngine, setT2iEngine] = useState<string>('z-image-turbo');
@@ -110,7 +164,7 @@ export function QueueManager() {
 
     // Calculate Scheduled Time
     let finalScheduledAt: number | undefined;
-    if (isScheduled) {
+    if (executionMode === 'delayed' || (executionMode === 'recurrent' && delayedRecurrentFirstRun)) {
       if (customDateTime) {
         finalScheduledAt = new Date(customDateTime).getTime();
       } else {
@@ -167,6 +221,10 @@ export function QueueManager() {
         break;
     }
 
+    if (executionMode === 'recurrent') {
+      finalParams.recurringIntervalSeconds = recurringInterval;
+    }
+
     try {
       await queueWorker.enqueue({
         projectId: projectId || 'global',
@@ -179,7 +237,8 @@ export function QueueManager() {
 
       // Show temporary HUD toast or feedback
       setTaskName('');
-      setIsScheduled(false);
+      setExecutionMode('instant');
+      setDelayedRecurrentFirstRun(false);
     } catch (err) {
       console.error("Queue Form Dispatch Failure:", err);
     }
@@ -302,12 +361,106 @@ export function QueueManager() {
 
       </div>
 
+      {/* PROJECT PIPELINE HUB (项目流水线算力中心) */}
+      <div className="bg-white/[0.02] border border-white/5 rounded-md p-6 space-y-4">
+        <div className="flex items-center justify-between border-b border-white/5 pb-3">
+          <div className="space-y-0.5">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
+              <Compass className="w-4 h-4 text-brand-primary animate-spin-slow" />
+              <span>{language === 'zh' ? '项目算力分发中心 (Project Pipeline Dispatch Hub)' : 'Project Pipeline Dispatch Hub'}</span>
+            </h3>
+            <p className="text-[10px] text-white/40">
+              {language === 'zh' 
+                ? '在下方列出项目，并按子管道算力架构（T2I, T2V, I2V 等）分别点击，将任务快速配置并加载进后台队列。' 
+                : 'Select any active project below and load its specific sub-pipeline architecture instantly into the form.'}
+            </p>
+          </div>
+          <span className="text-[9px] font-mono text-brand-primary/80 bg-brand-primary/10 border border-brand-primary/20 px-2 py-0.5 rounded uppercase font-bold">
+            {projects.length} {projects.length === 1 ? 'Project' : 'Projects'}
+          </span>
+        </div>
+
+        {projects.length === 0 ? (
+          <div className="py-8 text-center text-xs font-mono text-white/30 border border-dashed border-white/5 rounded">
+            {language === 'zh' ? '暂无可用的项目。请前往项目管理器创建项目。' : 'No projects available. Please go to Project Manager to create one.'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {projects.map((proj) => {
+              return (
+                <div 
+                  key={proj.id} 
+                  className={cn(
+                    "p-4 bg-black/40 border rounded-md transition-all duration-300 hover:border-brand-primary/40 hover:bg-black/60 flex flex-col justify-between space-y-4",
+                    projectId === proj.id ? "border-brand-primary/30 bg-brand-primary/[0.02]" : "border-white/5"
+                  )}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-start justify-between">
+                      <h4 className="text-xs font-bold text-white truncate max-w-[180px]" title={proj.name}>
+                        {proj.name}
+                      </h4>
+                      <span className="text-[8px] font-mono px-1.5 py-0.5 bg-white/5 border border-white/10 rounded uppercase text-white/60">
+                        {proj.sceneType || 'Standard'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[9px] font-mono text-white/40">
+                      <span>Style: <strong className="text-white/60">{proj.visualStyle || 'Cinematic'}</strong></span>
+                      <span>•</span>
+                      <span>Aspect: <strong className="text-white/60">{proj.aspectRatio || '16:9'}</strong></span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-white/5">
+                    <p className="text-[8px] uppercase tracking-wider font-mono font-bold text-white/30">
+                      {language === 'zh' ? '选择子管道类型调度:' : 'Select Sub-Pipeline Architecture:'}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { type: TaskType.T2I, label: 'T2I (图生)' },
+                        { type: TaskType.T2V, label: 'T2V (视生)' },
+                        { type: TaskType.I2V, label: 'I2V (动生)' },
+                        { type: TaskType.LIPSYNC, label: 'LipSync (口型)' },
+                        { type: TaskType.TTS, label: 'TTS (配音)' },
+                      ].map((sub) => (
+                        <button
+                          key={sub.type}
+                          type="button"
+                          onClick={() => handleQuickDispatch(proj, sub.type)}
+                          className={cn(
+                            "px-2 py-1 rounded text-[8px] font-mono font-bold transition-all border",
+                            projectId === proj.id && activeFormTab === sub.type
+                              ? "bg-brand-primary border-brand-primary text-black font-extrabold shadow"
+                              : "bg-white/5 border-white/5 text-white/60 hover:border-brand-primary/40 hover:text-white hover:bg-brand-primary/5"
+                          )}
+                        >
+                          {sub.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         {/* Left Column: Formulate Task Creation Panel (5 cols) */}
         <div className="lg:col-span-5 space-y-6">
           
-          <form onSubmit={handleCreateTaskSubmit} className="bg-white/[0.02] border border-white/5 rounded-md p-6 space-y-6 relative">
+          <form 
+            id="task-formulate-card"
+            onSubmit={handleCreateTaskSubmit} 
+            className={cn(
+              "bg-white/[0.02] border rounded-md p-6 space-y-6 relative transition-all duration-500",
+              formHighlighted 
+                ? "border-brand-primary/80 ring-2 ring-brand-primary/20 shadow-lg shadow-brand-primary/10 scale-[1.01]" 
+                : "border-white/5"
+            )}
+          >
             <div className="absolute -top-3.5 left-4 px-2.5 py-1 bg-brand-primary text-black font-mono text-[9px] font-bold uppercase tracking-widest rounded-sm shadow-md">
               Formulate Task Playbook
             </div>
@@ -361,22 +514,38 @@ export function QueueManager() {
                 />
               </div>
 
-              {/* Timing triggers scheduler (Delayed / instant toggle) */}
+              {/* Timing triggers scheduler (Delayed / recurrent / instant options) */}
               <div className="p-4 bg-black/40 border border-white/5 rounded-md space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-brand-primary" />
-                    <span className="text-xs font-bold text-white font-mono">{gt('scheduleTriggerTitle')}</span>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-mono text-white/50 uppercase block tracking-wider font-semibold">
+                    {language === 'zh' ? '定时与执行模式 (Timing & Execution Mode)' : 'Timing & Execution Mode'}
+                  </label>
+                  <div className="grid grid-cols-3 gap-1 bg-black/60 p-1 border border-white/5 rounded">
+                    {[
+                      { mode: 'instant', label: language === 'zh' ? '立即单次' : 'Instant' },
+                      { mode: 'delayed', label: language === 'zh' ? '单次定时' : 'Scheduled' },
+                      { mode: 'recurrent', label: language === 'zh' ? '定时循环' : 'Recurrent' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.mode}
+                        type="button"
+                        onClick={() => {
+                          setExecutionMode(opt.mode as any);
+                        }}
+                        className={cn(
+                          "py-1 rounded text-[9px] font-mono font-bold uppercase transition-all",
+                          executionMode === opt.mode
+                            ? "bg-brand-primary text-black font-extrabold"
+                            : "text-white/45 hover:text-white hover:bg-white/5"
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
-                  <input 
-                    type="checkbox"
-                    checked={isScheduled} 
-                    onChange={(e) => setIsScheduled(e.target.checked)}
-                    className="w-4 h-4 text-brand-primary bg-black border-white/10 rounded focus:ring-brand-primary"
-                  />
                 </div>
 
-                {isScheduled && (
+                {executionMode === 'delayed' && (
                   <motion.div 
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
@@ -389,7 +558,7 @@ export function QueueManager() {
                           type="number"
                           value={scheduleDelaySeconds}
                           onChange={(e) => setScheduleDelaySeconds(Number(e.target.value))}
-                          className="w-full bg-black border border-white/10 font-mono text-xs text-white p-2"
+                          className="w-full bg-black border border-white/10 font-mono text-xs text-white p-2 animate-fadeIn"
                         />
                       </div>
                       <div className="space-y-1">
@@ -398,11 +567,81 @@ export function QueueManager() {
                           type="datetime-local"
                           value={customDateTime}
                           onChange={(e) => setCustomDateTime(e.target.value)}
-                          className="w-full bg-black border border-white/10 font-mono text-[9px] text-white p-1.5 focus:outline-none"
+                          className="w-full bg-black border border-white/10 font-mono text-[9px] text-white p-1.5 focus:outline-none animate-fadeIn"
                         />
                       </div>
                     </div>
                     <span className="text-[8px] text-[#f43f5e] block uppercase font-bold leading-tight">{gt('scheduleWarning')}</span>
+                  </motion.div>
+                )}
+
+                {executionMode === 'recurrent' && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="space-y-3 font-mono text-[10px] text-white/60 border-t border-white/5 pt-3 animate-fadeIn"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[8px] text-white/40 block">
+                          {language === 'zh' ? '循环执行时间间隔' : 'Recurrent Interval'}
+                        </label>
+                        <select
+                          value={recurringInterval}
+                          onChange={(e) => setRecurringInterval(Number(e.target.value))}
+                          className="w-full bg-black border border-white/10 text-xs text-white p-2 font-mono"
+                        >
+                          <option value="15" className="text-black bg-white">{language === 'zh' ? '每 15 秒 (测试模式)' : 'Every 15 sec (Test Mode)'}</option>
+                          <option value="30" className="text-black bg-white">{language === 'zh' ? '每 30 秒' : 'Every 30 sec'}</option>
+                          <option value="60" className="text-black bg-white">{language === 'zh' ? '每 1 分钟' : 'Every 1 min'}</option>
+                          <option value="300" className="text-black bg-white">{language === 'zh' ? '每 5 分钟' : 'Every 5 min'}</option>
+                          <option value="600" className="text-black bg-white">{language === 'zh' ? '每 10 分钟' : 'Every 10 min'}</option>
+                          <option value="1800" className="text-black bg-white">{language === 'zh' ? '每 30 分钟' : 'Every 30 min'}</option>
+                          <option value="3600" className="text-black bg-white">{language === 'zh' ? '每 1 小时' : 'Every 1 hour'}</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1 flex flex-col justify-end pb-1.5">
+                        <label className="flex items-center gap-2 cursor-pointer text-white/80">
+                          <input
+                            type="checkbox"
+                            checked={delayedRecurrentFirstRun}
+                            onChange={(e) => setDelayedRecurrentFirstRun(e.target.checked)}
+                            className="w-3.5 h-3.5 text-brand-primary bg-black border-white/10 rounded focus:ring-brand-primary"
+                          />
+                          <span>{language === 'zh' ? '首次延时启动' : 'Delay First Run'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {delayedRecurrentFirstRun && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-white/5 pt-2"
+                      >
+                        <div className="space-y-1">
+                          <label className="text-[8px] text-white/40 block">{gt('scheduleDelayLabel')}</label>
+                          <input
+                            type="number"
+                            value={scheduleDelaySeconds}
+                            onChange={(e) => setScheduleDelaySeconds(Number(e.target.value))}
+                            className="w-full bg-black border border-white/10 font-mono text-xs text-white p-2"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[8px] text-white/40 block">{gt('scheduleSpecificTime')}</label>
+                          <input
+                            type="datetime-local"
+                            value={customDateTime}
+                            onChange={(e) => setCustomDateTime(e.target.value)}
+                            className="w-full bg-black border border-white/10 font-mono text-[9px] text-white p-1.5 focus:outline-none"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                    <span className="text-[8px] text-brand-primary block uppercase font-bold leading-tight">
+                      {language === 'zh' ? '※ 启动后系统将自动周期往复执行该流水线任务。' : '※ The loop runs periodically and repeats automatically.'}
+                    </span>
                   </motion.div>
                 )}
               </div>
