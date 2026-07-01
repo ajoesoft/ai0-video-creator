@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Clock, Calendar, Hash, FileVideo, 
   Image as ImageIcon, MessageSquare, Info, 
-  Edit2, Check, X, Wand2, Music, Layers, BookOpen, Languages, Loader2
+  Edit2, Check, X, Wand2, Music, Layers, BookOpen, Languages, Loader2, User
 } from 'lucide-react';
 import { fetchProjectById, updateProject, getSetting, applyPromptHarnessRules, fetchPromptHarnessByProject } from '../lib/db';
 import { VideoProject, ProjectStatus, SceneType } from '../types';
@@ -22,8 +22,23 @@ export function ProjectDetail() {
   const navigate = useNavigate();
   const [project, setProject] = useState<VideoProject | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Extract cover path from project coverImagePath (could be standard or JSON-metadata serialized)
+  let actualCoverPath = project?.coverImagePath || '';
+  if (actualCoverPath.startsWith('JSON:')) {
+    try {
+      const parsed = JSON.parse(actualCoverPath.replace('JSON:', ''));
+      if (parsed.selectedAvatar) {
+        actualCoverPath = parsed.selectedAvatar;
+      } else if (parsed.avatars && parsed.avatars.length > 0) {
+        actualCoverPath = parsed.avatars[0];
+      }
+    } catch (e) {
+      console.warn('Failed to parse project cover JSON:', e);
+    }
+  }
+
   // Load local cover image with useLocalImageBase64
-  const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
+  const localCoverBase64 = useLocalImageBase64(actualCoverPath);
   const [coverImageBase64, setCoverImageBase64] = useState<string>('');
 
   useEffect(() => {
@@ -212,6 +227,22 @@ export function ProjectDetail() {
       color: 'text-orange-400', 
       desc: 'Lip-alignment, voice cloning, and subtitle localized workshop.' 
     }
+  ] : project?.sceneType === SceneType.DIGITAL_HUMAN ? [
+    { 
+      title: 'Digital Human Workspace', 
+      icon: User, 
+      path: 'digital-human', 
+      color: 'text-green-400', 
+      desc: 'LTX 2.3 digital human workflow, TTS dialogues, character avatars, consistent image gen, background music & singing videos.' 
+    }
+  ] : project?.sceneType === SceneType.REVERSE_PROMPT ? [
+    { 
+      title: 'Llama Image Parse Workspace', 
+      icon: User, 
+      path: 'reverse-prompt', 
+      color: 'text-indigo-400', 
+      desc: 'Connect to llama-mtmd-cli, parse uploaded images into professional SD/Midjourney prompt descriptions by categories (Ghibli, Scenery, Film, Animation etc.).' 
+    }
   ] : [
     { title: 'AI Script', icon: Wand2, path: 'script', color: 'text-purple-400', desc: 'Narrative synthesis & dialogue' },
     { title: 'Visuals', icon: Layers, path: 'visuals', color: 'text-blue-400', desc: 'Scene composition & assets' },
@@ -328,10 +359,10 @@ export function ProjectDetail() {
                 style={{ aspectRatio: project?.width && project?.height ? `${project.width}/${project.height}` : '16/10' }}
                 className="w-full h-auto max-h-[480px] rounded-3xl bg-black border border-white/5 overflow-hidden group relative shadow-2xl flex items-center justify-center mx-auto"
               >
-                {isPlayingVideo && (project?.coverImagePath || synthesizedVideoPath) ? (
+                {isPlayingVideo && (actualCoverPath || synthesizedVideoPath) ? (
                   <div className="relative w-full h-full">
                     <video
-                      src={project?.coverImagePath && (project.coverImagePath.endsWith('.mp4') || project.coverImagePath.endsWith('.webm')) ? getAssetUrl(project.coverImagePath) : getAssetUrl(synthesizedVideoPath || `compiled_output_${id}.mp4`)}
+                      src={actualCoverPath && (actualCoverPath.endsWith('.mp4') || actualCoverPath.endsWith('.webm')) ? getAssetUrl(actualCoverPath) : getAssetUrl(synthesizedVideoPath || `compiled_output_${id}.mp4`)}
                       controls
                       autoPlay
                       playsInline
@@ -346,11 +377,11 @@ export function ProjectDetail() {
                   </div>
                 ) : (
                   <>
-                    {project?.coverImagePath ? (
-                      project.coverImagePath.endsWith('.mp4') || project.coverImagePath.endsWith('.webm') ? (
+                    {actualCoverPath ? (
+                      actualCoverPath.endsWith('.mp4') || actualCoverPath.endsWith('.webm') ? (
                         <video 
                           id="project-detail-cover-video"
-                          src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (localCoverBase64 || getAssetUrl(project.coverImagePath))} 
+                          src={actualCoverPath.startsWith('http') ? actualCoverPath : (localCoverBase64 || getAssetUrl(actualCoverPath))} 
                           muted
                           loop
                           autoPlay
@@ -360,7 +391,7 @@ export function ProjectDetail() {
                       ) : (
                         <img 
                           id="project-detail-cover-image"
-                          src={project.coverImagePath.startsWith('http') ? project.coverImagePath : (localCoverBase64 || getAssetUrl(project.coverImagePath))} 
+                          src={actualCoverPath.startsWith('http') ? actualCoverPath : (localCoverBase64 || getAssetUrl(actualCoverPath))} 
                           alt={project.name} 
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
                         />
@@ -376,7 +407,7 @@ export function ProjectDetail() {
                     
                     {/* Hover overlay edit trigger / play button */}
                     <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col gap-3 items-center justify-center">
-                      {(project.coverImagePath && (project.coverImagePath.endsWith('.mp4') || project.coverImagePath.endsWith('.webm'))) || synthesizedVideoPath ? (
+                      {(actualCoverPath && (actualCoverPath.endsWith('.mp4') || actualCoverPath.endsWith('.webm'))) || synthesizedVideoPath ? (
                         <button 
                           onClick={() => setIsPlayingVideo(true)}
                           className="bg-brand-primary text-black font-semibold text-xs px-5 py-2.5 rounded-full shadow-lg flex items-center gap-2 hover:scale-105 active:scale-95 transition-all cursor-pointer"

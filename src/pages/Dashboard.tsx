@@ -15,6 +15,8 @@ import {
   Edit,
   Trash2,
   Languages,
+  User,
+  Image as ImageIcon
 } from "lucide-react";
 import { cn, useLocalImageBase64 } from "@/src/lib/utils";
 import { ProjectStatus, VideoProject, SceneType } from "@/src/types";
@@ -249,6 +251,18 @@ export function Dashboard() {
       label: "Video Translation",
       icon: Languages,
       desc: "LipSync, Voice cloner, localized subtitles",
+    },
+    {
+      type: SceneType.DIGITAL_HUMAN,
+      label: "Digital Human (数字人)",
+      icon: User,
+      desc: "LTX 2.3 digital human workflow, TTS dialogues, consistent characters & singing videos",
+    },
+    {
+      type: SceneType.REVERSE_PROMPT,
+      label: "Image Reverse (图生提示词)",
+      icon: ImageIcon,
+      desc: "Use ComfyUI QwenVL-API workflow, reverse-engineer images into optimized prompts by categories like Ghibli, scenery, or film.",
     },
   ];
 
@@ -777,6 +791,8 @@ function ProjectCard({
     [SceneType.DIALOGUE]: Users,
     [SceneType.WORD]: Type,
     [SceneType.VIDEO_TRANSLATION]: Languages,
+    [SceneType.DIGITAL_HUMAN]: User,
+    [SceneType.REVERSE_PROMPT]: ImageIcon,
   };
 
   const SceneIcon =

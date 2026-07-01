@@ -1,3 +1,4 @@
+import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AppLayout } from './components/AppLayout';
 import { Dashboard } from './pages/Dashboard';
@@ -11,8 +12,10 @@ import { ExportCenter } from './pages/ExportCenter';
 import { GlobalSettings } from './pages/GlobalSettings';
 import { ModelManagement } from './pages/ModelManagement';
 import { VideoTranslation } from './pages/VideoTranslation';
-import { LanguageProvider } from './contexts/LanguageContext';
 import { QueueManager } from './pages/QueueManager';
+import { DigitalHuman } from './pages/DigitalHuman';
+import { ReversePrompt } from './pages/ReversePrompt';
+import { LanguageProvider } from './contexts/LanguageContext';
 
 export default function App() {
   return (
@@ -23,9 +26,9 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/translation" element={<VideoTranslation />} />
             <Route path="/models" element={<ModelManagement />} />
-            <Route path="/settings" element={<GlobalSettings />} />
             <Route path="/queue" element={<QueueManager />} />
-
+            <Route path="/settings" element={<GlobalSettings />} />
+            
             <Route path="/project/:id">
               <Route index element={<Navigate to="details" replace />} />
               <Route path="details" element={<ProjectDetail />} />
@@ -36,6 +39,8 @@ export default function App() {
               <Route path="timeline" element={<TimelineEditor />} />
               <Route path="translation" element={<VideoTranslation />} />
               <Route path="export" element={<ExportCenter />} />
+              <Route path="digital-human" element={<DigitalHuman />} />
+              <Route path="reverse-prompt" element={<ReversePrompt />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -40,6 +40,87 @@ export async function getDbPath(): Promise<string> {
 }
 
 export async function runDatabaseMigrations(database: Database): Promise<void> {
+  // Migrate the check constraint on video_projects if present
+  try {
+    const result = await database.select<any[]>(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='video_projects'"
+    );
+    if (result.length > 0) {
+      const createSql = result[0].sql || "";
+      if (createSql.includes("CHECK") && createSql.includes("scene_type") && !createSql.includes("digital_human")) {
+        console.log("[Migration] Rebuilding video_projects table to remove/loosen scene_type CHECK constraint...");
+        
+        // 1. Get existing columns dynamically so we don't drop anything custom or throw mismatch errors
+        const colsResult = await database.select<any[]>("PRAGMA table_info(video_projects)");
+        const existingCols = colsResult.map(c => c.name);
+        
+        // 2. Turn off foreign keys temporarily
+        await database.execute("PRAGMA foreign_keys = OFF;");
+        
+        // 3. Create the new table with identical columns but NO constraint, or an updated CHECK constraint
+        // Note: Removing the CHECK constraint entirely on scene_type is the safest and most robust path.
+        await database.execute(`
+          CREATE TABLE IF NOT EXISTS video_projects_new (
+            project_uuid TEXT PRIMARY KEY NOT NULL,
+            project_name TEXT NOT NULL,
+            project_status INTEGER NOT NULL DEFAULT 0,
+            create_time INTEGER NOT NULL,
+            update_time INTEGER NOT NULL,
+            project_prompt TEXT,
+            cover_image_path TEXT,
+            scene_type TEXT DEFAULT 'short_video',
+            scene_config_id INTEGER,
+            template_id INTEGER,
+            project_path TEXT,
+            width INTEGER DEFAULT 1920,
+            height INTEGER DEFAULT 1080,
+            aspect_ratio TEXT DEFAULT '16:9',
+            visual_style TEXT DEFAULT 'Cinematic',
+            video_url TEXT,
+            audio_url TEXT,
+            audio_duration REAL DEFAULT 0.0,
+            srt_original TEXT,
+            text_original TEXT,
+            detected_language TEXT,
+            source_language TEXT DEFAULT 'zh',
+            target_languages TEXT DEFAULT 'en'
+          );
+        `);
+        
+        // 4. Copy existing data for whatever columns actually exist
+        const targetCols = [
+          'project_uuid', 'project_name', 'project_status', 'create_time', 'update_time', 
+          'project_prompt', 'cover_image_path', 'scene_type', 'scene_config_id', 'template_id', 
+          'project_path', 'width', 'height', 'aspect_ratio', 'visual_style', 
+          'video_url', 'audio_url', 'audio_duration', 'srt_original', 'text_original', 
+          'detected_language', 'source_language', 'target_languages'
+        ];
+        
+        const colsToSelect = targetCols.filter(col => existingCols.includes(col));
+        const selectStr = colsToSelect.join(', ');
+        const insertStr = colsToSelect.join(', ');
+        
+        await database.execute(`
+          INSERT INTO video_projects_new (${insertStr})
+          SELECT ${selectStr} FROM video_projects;
+        `);
+        
+        // 5. Drop old table
+        await database.execute("DROP TABLE video_projects;");
+        
+        // 6. Rename new table to original
+        await database.execute("ALTER TABLE video_projects_new RENAME TO video_projects;");
+        
+        // 7. Turn foreign keys back on
+        await database.execute("PRAGMA foreign_keys = ON;");
+        
+        console.log("[Migration] Rebuilt video_projects table successfully!");
+      }
+    }
+  } catch (err) {
+    console.error("[Migration] Failed to migrate video_projects CHECK constraint:", err);
+  }
+
   // Database migrations have been successfully migrated to the Rust backend and run automatically on startup.
   return;
   // Auto-alter video_projects to support width, height, aspect_ratio, visual_style

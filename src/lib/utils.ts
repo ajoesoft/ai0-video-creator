@@ -510,6 +510,12 @@ export function useLocalImageBase64(path: string | undefined | null): string {
       return;
     }
 
+    // Fast path: if already a base64 data URL, blob URL, or remote HTTP URL, use it directly
+    if (path.startsWith('data:') || path.startsWith('blob:') || path.startsWith('http://') || path.startsWith('https://')) {
+      setSrc(path);
+      return;
+    }
+
     // Decode and normalize
     let cleanPath = decodeURIComponent(path);
     cleanPath = cleanPath.replace(/\\/g, '/');

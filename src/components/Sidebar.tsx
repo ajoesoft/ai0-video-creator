@@ -7,12 +7,14 @@ import {
   GanttChart, 
   Video, 
   Settings,
-  Database,  
+  Database,
+  Plus,
   PanelLeft,
   ChevronRight,
-  Languages
+  Languages,
+  User
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn } from '@/src/lib/utils';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from '../contexts/LanguageContext';
 
@@ -53,15 +55,21 @@ export function Sidebar() {
   const mainNav: NavItem[] = [
     { label: t('dashboard'), icon: LayoutDashboard, path: '/' },
     { label: t('models'), icon: Database, path: '/models' },
-    { label: 'Queue', icon: GanttChart, path: '/queue' },
+    { label: '后台队列 Queue', icon: GanttChart, path: '/queue' },
   ];
 
   const projectNav: NavItem[] = isProjectView ? (
     sceneType === 'video_translation' ? [
-      { label: 'Details', icon: Settings, path: `/project/${projectId}/details` },
-      { label: t('videoTranslation') || 'Translation Workspace', icon: Languages, path: `/project/${projectId}/translation` },
+      { label: 'Project Detail', icon: Settings, path: `/project/${projectId}/details` },
+      { label: t('videoTranslation') || '视频翻译 Workspace', icon: Languages, path: `/project/${projectId}/translation` },
+    ] : sceneType === 'digital_human' ? [
+      { label: 'Project Details', icon: Settings, path: `/project/${projectId}/details` },
+      { label: '数字人工坊 Digital Human', icon: User, path: `/project/${projectId}/digital-human` },
+    ] : sceneType === 'reverse_prompt' ? [
+      { label: 'Project Details', icon: Settings, path: `/project/${projectId}/details` },
+      { label: 'Image Reverse (图生提示词)', icon: ImageIcon, path: `/project/${projectId}/reverse-prompt` },
     ] : [
-      { label: 'Details', icon: Settings, path: `/project/${projectId}/details` },
+      { label: 'Project Details', icon: Settings, path: `/project/${projectId}/details` },
       { label: t('scripting'), icon: FileText, path: `/project/${projectId}/script` },
       { label: t('visuals'), icon: ImageIcon, path: `/project/${projectId}/visuals` },
       { label: t('audio'), icon: Mic2, path: `/project/${projectId}/audio` },
@@ -80,10 +88,11 @@ export function Sidebar() {
       <div className={cn("p-6 flex items-center justify-between mb-4", isCollapsed ? "flex-col gap-4" : "flex-row")}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-brand-primary rounded-sm flex items-center justify-center font-bold text-black shadow-lg shadow-brand-primary/10 shrink-0">
-            AVC
+            T
           </div>
           {!isCollapsed && (
-            <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">AI0 Video Creator</span>
+            <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">
+            AI0 Video Creator</span>
           )}
         </div>
         <button 

@@ -1,0 +1,70 @@
+{
+  "4": {
+    "inputs": {
+      "text_0": "In a well-lit indoor studio, an adult male cameraman with short dark hair and wearing black headphones operates a large ARRI camera mounted on a tripod; he stands facing left. The scene is framed from eye-level at medium distance, showing the cameraman’s right profile as his body faces forward while holding controls for a smooth circular orbit movement indicated by red arrows around an OConnor 2575 dolly track system in front of him. In the background, inside what appears to be a cozy living room set with bookshelves and curtains, two adult actors are positioned: one woman sits on a couch wearing glasses and a yellow sweater while holding books open at her lap; she faces right toward an upright man who stands near floor lamps gesturing as if speaking. The camera’s viewfinder insets depict the scene transitioning from Frame 1 (start) to Frame 2 (end), illustrating how the orbit movement shifts perspective around these subjects without changing their positions or actions, with a bright warm light illuminating the room and casting soft shadows on the floor beneath them.\n\nCamera viewpoint: eye-level\nComposition framing: medium-distance shot capturing both actors in background scene alongside cameraman foreground; focal emphasis is split between camera operator’s action and subject interaction.",
+      "text": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "ShowText|pysssss",
+    "_meta": {
+      "title": "Show Text 🐍"
+    }
+  },
+  "6": {
+    "inputs": {
+      "model_name": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+      "preset_prompt": "🖼️ Detailed Description",
+      "custom_prompt": "",
+      "max_tokens": 512,
+      "keep_model_loaded": true,
+      "seed": 3082453094,
+      "image": [
+        "58",
+        0
+      ]
+    },
+    "class_type": "AILab_QwenVL_GGUF",
+    "_meta": {
+      "title": "QwenVL (GGUF)"
+    }
+  },
+  "56": {
+    "inputs": {
+      "qwen_vl_response": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "QwenVLToBinary",
+    "_meta": {
+      "title": "🔌 QwenVL To Binary (For N8N)"
+    }
+  },
+  "57": {
+    "inputs": {
+      "root_dir": "output",
+      "file": "prompt-image.txt",
+      "append": "overwrite",
+      "insert": true,
+      "text": [
+        "6",
+        0
+      ]
+    },
+    "class_type": "SaveText|pysssss",
+    "_meta": {
+      "title": "Save Text 🐍"
+    }
+  },
+  "58": {
+    "inputs": {
+      "image": "Gemini_Generated_Image_cp6bxzcp6bxzcp6b.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  }
+}

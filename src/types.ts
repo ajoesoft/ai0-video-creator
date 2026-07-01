@@ -18,6 +18,8 @@ export enum SceneType {
   DIALOGUE = 'dialogue',
   WORD = 'word',
   VIDEO_TRANSLATION = 'video_translation',
+  DIGITAL_HUMAN = 'digital_human',
+  REVERSE_PROMPT = 'reverse_prompt',
 }
 
 export interface VideoProject {

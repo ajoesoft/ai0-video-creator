@@ -729,7 +729,7 @@ export function VisualsLibrary() {
             <div className="flex items-center gap-2 text-xs md:text-sm text-white/40">
               <Link id="nav-p" to="/" className="hover:text-white transition-colors">Projects</Link>
               <span>/</span>
-              <Link id="nav-pname" to={`/project/${id}`} className="hover:text-white transition-colors max-w-[120px] truncate block">{project?.projectName || 'Project Workspace'}</Link>
+              <Link id="nav-pname" to={`/project/${id}`} className="hover:text-white transition-colors max-w-[120px] truncate block">{project?.name || 'Project Workspace'}</Link>
               <span>/</span>
               <span className="text-white/80 font-medium">Visual Assets Gallery</span>
             </div>

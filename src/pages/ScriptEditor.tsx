@@ -582,7 +582,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
                     className="text-[9px] font-bold text-brand-primary uppercase tracking-widest hover:text-white flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded border border-white/5 transition-colors"
                   >
                     <Sparkles className="w-2.5 h-2.5 text-brand-primary animate-pulse" />
-                    <span>{isHarnessResolving ? 'Resolving...' : 'Inject Harness (@一致性)'}</span>
+                    <span>{isHarnessResolving ? 'Resolving...' : 'Inject Harness (@name)'}</span>
                   </button>
                 </div>
                 <textarea
@@ -613,7 +613,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
                     ) : (
                       <>
                         <FileVideo className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-                        <span>获取上一视频最后一帧 (Use Last Frame of Previous Video)</span>
+                        <span>Get the last frame of the last video(Use Last Frame of Previous Video)</span>
                       </>
                     )}
                   </button>
@@ -1146,14 +1146,14 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     if (!segment.id) return;
     const textToDoctor = segment.dialog || segment.script || '';
     if (!textToDoctor || textToDoctor.trim() === '') {
-      alert("Dialogue content is empty! (对白内容不能为空)");
+      alert("Dialogue content is empty!");
       return;
     }
 
     // Check dialogue format
     const charMatch = textToDoctor.match(/^([^:]+):/);
     if (!charMatch) {
-      alert("Dialogue must start with 'CharacterName:' format to trigger Persona alignment. (对白需以 '角色名:' 格式开始，例如 'Lily: Hello')");
+      alert("Dialogue must start with 'CharacterName:' format to trigger Persona alignment. (Example 'Lily: Hello')");
       return;
     }
 
@@ -2256,7 +2256,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                             <button 
                               onClick={() => handleOpenSceneNameModal(segment)}
                               className="text-[10px] font-bold text-gray-400 hover:text-brand-primary flex items-center gap-1 cursor-pointer bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded border border-white/5 hover:border-brand-primary/20 transition-all uppercase font-mono tracking-wider"
-                              title="Click to edit scene name 点击修改场景名称"
+                              title="Click to edit scene name"
                             >
                               <Edit2 className="w-2.5 h-2.5 text-white/40" />
                               <span>{segment.word || `Scene ${index + 1}`}</span>
@@ -2272,7 +2272,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     await handleMoveSegment(index, index - 1);
                                   }}
                                   className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-brand-primary transition-all cursor-pointer"
-                                  title="Move Up 向上移动"
+                                  title="Move Up"
                                 >
                                   <ChevronUp className="w-3.5 h-3.5" />
                                 </button>
@@ -2285,7 +2285,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     await handleMoveSegment(index, index + 1);
                                   }}
                                   className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-brand-primary transition-all cursor-pointer"
-                                  title="Move Down 向下移动"
+                                  title="Move Down"
                                 >
                                   <ChevronDown className="w-3.5 h-3.5" />
                                 </button>
@@ -2346,7 +2346,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     ) : (
                                       <Sparkles className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
                                     )}
-                                    <span>ALIGN PERSONA (口吻修饰)</span>
+                                    <span>ALIGN PERSONA</span>
                                   </button>
                                 )}
                               </>
@@ -2369,11 +2369,11 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                             {/* Sub-tabs Selection for Speech / Dialogue / Direction / Image Prompt / Video Prompt */}
                             <div className="flex border-b border-white/[0.05] mb-5 gap-2">
                               {[
-                                { id: 'speech', label: 'Speech 旁白' },
-                                { id: 'dialog', label: 'Dialogue 对白' },
-                                { id: 'direction', label: 'Direction 画面' },
-                                { id: 'textToImage', label: 'Image Prompt 绘图' },
-                                { id: 'videoPrompt', label: 'Video Prompt 视频' }
+                                { id: 'speech', label: 'Speech' },
+                                { id: 'dialog', label: 'Dialogue' },
+                                { id: 'direction', label: 'Direction' },
+                                { id: 'textToImage', label: 'Image Prompt' },
+                                { id: 'videoPrompt', label: 'Video Prompt' }
                               ].map(tab => (
                                 <button
                                   key={tab.id}
@@ -2418,7 +2418,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                         e.target.style.height = `${e.target.scrollHeight}px`;
                                       }}
                                       style={{ overflow: 'hidden' }}
-                                      placeholder="Type speech narrative prose here (旁白解说内容)..."
+                                      placeholder="Type speech narrative prose here..."
                                       className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-white text-lg font-light tracking-wide focus:border-brand-primary transition-all resize-none min-h-[80px]"
                                     />
 
@@ -2481,7 +2481,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     />
 
                                     <p className="text-[10px] text-brand-primary/70 font-mono">
-                                      格式 (Format): <strong className="text-white">CharacterName: Dialogue line text</strong> 自动映射对应角色声音。
+                                      (Format): <strong className="text-white">CharacterName: Dialogue line text</strong>Mapping character voice automaticlly.
                                     </p>
 
                                     {/* Dialog synthesis buttons */}
@@ -2525,7 +2525,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                         ) : (
                                           <Sparkles className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
                                         )}
-                                        <span>ALIGN PERSONA (口吻修饰)</span>
+                                        <span>ALIGN PERSONA</span>
                                       </button>
                                     </div>
                                   </div>
@@ -2566,7 +2566,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                   <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                       <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
-                                        Text-to-Image Prompt (文生图 Prompt)
+                                        Text-to-Image Prompt
                                       </span>
                                       
                                       <button
@@ -2646,7 +2646,7 @@ Scene text: "${textToAnalyze}"`;
                                   <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                       <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
-                                        Text-to-Video Prompt (视频生成 / RegVid Prompt)
+                                        Text-to-Video Prompt 
                                       </span>
                                       
                                       <button
@@ -3381,7 +3381,7 @@ Scene text: "${textToAnalyze}"`;
                   />
                 </div>
                 <p className="text-[10px] text-gray-400/60 leading-relaxed italic">
-                  场景名称用于区分故事板中的不同镜头，修改后会立即同步至项目数据库。
+                  The scene name is used to distinguish different shots in the storyboard, and changes will be instantly synchronized to the project database.
                 </p>
               </div>
               <div className="p-4 bg-black/40 border-t border-white/5 flex justify-end gap-3">
@@ -3389,13 +3389,13 @@ Scene text: "${textToAnalyze}"`;
                   onClick={() => setEditingSceneSegment(null)}
                   className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all"
                 >
-                  取消 Cancel
+                  Cancel
                 </button>
                 <button 
                   onClick={handleSaveSceneName}
                   className="px-5 py-2 bg-[#FF5D22] hover:bg-[#FF5D22]/90 text-black text-xs font-black uppercase tracking-wider rounded-lg shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
                 >
-                  保存修改 Save
+                  Save
                 </button>
               </div>
             </motion.div>
@@ -4247,7 +4247,7 @@ export function VideoGenModal({
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Generate Scene Reference Image (可以生成多个)</span>
+                    <span>Generate Scene Reference Image (Multiple outputs can be generated.)</span>
                   </>
                 )}
               </button>
