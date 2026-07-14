@@ -226,7 +226,21 @@ export interface BackgroundTask {
 export interface SystemPrompt {
   uuid: string;
   name: string;
-  classification: 'details' | 'script' | 'visuals' | 'audio';
+  classification: 'details' | 'script' | 'visuals' | 'audio' | 'composition' | 'lighting' | 'color' | 'quality' | 'style' | 'atmosphere';
   prompt: string;
+}
+
+export interface DbVoicePreset {
+  id: string;
+  name_zh: string;
+  name_en: string;
+  desc_zh: string;
+  desc_en: string;
+  gender: 'male' | 'female' | 'cyber';
+  pitch: number;
+  speed: number;
+  emotion: string;
+  refAudioName?: string;
+  uploadedAudioBase64?: string;
 }
 

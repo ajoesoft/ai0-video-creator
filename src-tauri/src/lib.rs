@@ -1492,7 +1492,7 @@ async fn upload_file_to_comfy_rust(
 ) -> Result<String, String> {
     println!("==== Rust Upload File to ComfyUI Started ====");
     println!("- Server: http://{}", server_address);
-    println!("- Local Path: {}", local_path);
+    // println!("- Local Path: {}", local_path);
     println!("- Destination Filename: {}", filename);
 
     let client = reqwest::Client::builder()

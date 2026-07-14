@@ -532,7 +532,7 @@ export class ComfyService {
   }
 
   // Workflows
-  async runImageGenerationRust(promptText: string, localPath: string, isTurbo: boolean = false, onProgress?: (msg: string) => void, width?: number, height?: number): Promise<string> {
+  async runImageGenerationRust(promptText: string, localPath: string, isTurbo: boolean = false, onProgress?: (msg: string) => void, width?: number, height?: number, seed?: number): Promise<string> {
     await this.syncConfig();
     try {
       const { getSetting } = await import("./db");
@@ -561,6 +561,17 @@ export class ComfyService {
     onProgress?.("Building workflow...");
     const defaultWorkflow = isTurbo ? this.getTurboImageWorkflow(promptText) : this.getStandardImageWorkflow(promptText);
     let workflow = await resolveWorkflow('text_to_image', { prompt: promptText }, defaultWorkflow);
+    
+    // Inject seed if provided
+    if (seed !== undefined) {
+      if (workflow["238:230"] && workflow["238:230"].inputs) {
+        workflow["238:230"].inputs.seed = seed;
+      }
+      if (workflow["57:3"] && workflow["57:3"].inputs) {
+        workflow["57:3"].inputs.seed = seed;
+      }
+    }
+
     if (width && height) {
       workflow = this.applyDimensionsToWorkflow(workflow, width, height);
     }

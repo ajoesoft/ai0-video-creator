@@ -29,7 +29,7 @@ import { ComfyService } from '../lib/comfy';
 export interface SystemPrompt {
   uuid: string;
   name: string;
-  classification: 'details' | 'script' | 'visuals' | 'audio';
+  classification: 'details' | 'script' | 'visuals' | 'audio' | 'composition' | 'lighting' | 'color' | 'quality' | 'style' | 'atmosphere';
   prompt: string;
 }
 
@@ -57,6 +57,138 @@ export const DEFAULT_SYSTEM_PROMPTS: SystemPrompt[] = [
     name: "Voice Casting & Sound Designer (声色与声效设计师)",
     classification: "audio",
     prompt: "You are a professional audio designer and voice casting director. Assist the user in configuring distinct voiceover timbres, speech rates, emotional intonations, and character-specific acoustic profiles. Focus on optimizing vocal performance and matching roles to their ideal vocal qualities."
+  },
+  // Composition Type (构图类型)
+  {
+    uuid: "std-prompt-comp-wide",
+    name: "Cinematic Wide Shot (电影级宽画幅构图)",
+    classification: "composition",
+    prompt: "Cinematic wide shot, stunning landscape framing, deep depth of field, clear horizontal line, panoramic scale, epic sense of scale, balanced rule of thirds"
+  },
+  {
+    uuid: "std-prompt-comp-symmetric",
+    name: "Symmetric Cinematic (对称式电影构图)",
+    classification: "composition",
+    prompt: "Symmetric cinematic composition, perfect balance, center-focused framing, dramatic alignment, clean architectural guidelines, formal artistic structure"
+  },
+  {
+    uuid: "std-prompt-comp-thirds",
+    name: "Rule of Thirds Portrait (三分法黄金人物构图)",
+    classification: "composition",
+    prompt: "Rule of thirds portrait framing, subject aligned on vertical grid line, dynamic negative space, cinematic balance, comfortable visual negative space"
+  },
+  {
+    uuid: "std-prompt-comp-closeup",
+    name: "Extreme Close-Up Detail (局部极度特写)",
+    classification: "composition",
+    prompt: "Extreme close-up shot, macro detail focus, shallow depth of field, high-fidelity texture, intense emotional expression, dramatic focal point"
+  },
+  // Lighting Type (光影类型)
+  {
+    uuid: "std-prompt-light-volumetric",
+    name: "Volumetric God Rays (体积光/丁达尔圣光)",
+    classification: "lighting",
+    prompt: "Volumetric lighting, dramatic god rays, Tyndall effect, visible light beams cutting through atmosphere, smoky dust particles, high contrast shadows"
+  },
+  {
+    uuid: "std-prompt-light-rembrandt",
+    name: "Rembrandt Classic (古典伦勃朗肖像光)",
+    classification: "lighting",
+    prompt: "Rembrandt lighting style, classic 45-degree key light, dramatic triangle shadow on cheek, soft ambient fill, painterly contrast, moody chiaroscuro"
+  },
+  {
+    uuid: "std-prompt-light-backlight",
+    name: "Cinematic Backlight (电影感轮廓逆光)",
+    classification: "lighting",
+    prompt: "Cinematic backlighting, golden rim light, glowing hair strands, beautiful halo effect, rich background separation, high contrast silhouette, lens flare"
+  },
+  {
+    uuid: "std-prompt-light-neon",
+    name: "Cyberpunk Neon Glow (赛博朋克霓虹夜光)",
+    classification: "lighting",
+    prompt: "Cyberpunk neon glow, vivid pink and cyan dual lighting, wet pavement reflections, high contrast nocturnal shadows, futuristic moody illumination"
+  },
+  // Color Type (色彩类型)
+  {
+    uuid: "std-prompt-color-tealorange",
+    name: "Teal and Orange Blockbuster (好莱坞经典青橙色调)",
+    classification: "color",
+    prompt: "Hollywood Teal and Orange color grading, high contrast cinematic film palette, warm skin tones, cool shadows, atmospheric depth, blockbuster aesthetic"
+  },
+  {
+    uuid: "std-prompt-color-vintage",
+    name: "Vintage Kodachrome (复古柯达彩色胶片)",
+    classification: "color",
+    prompt: "Vintage Kodachrome color profile, warm nostalgic tones, subtle chromatic aberration, classic 35mm film grain, analog color saturation, retro aesthetic"
+  },
+  {
+    uuid: "std-prompt-color-moodydark",
+    name: "Moody Low Saturation (低饱和度冷郁氛围)",
+    classification: "color",
+    prompt: "Moody low saturation color grading, desaturated cool tones, deep dark shadows, gloomy atmospheric mist, muted colors, somber cinematic style"
+  },
+  {
+    uuid: "std-prompt-color-pastel",
+    name: "Vibrant Pastel Fantasy (高饱和幻想马卡龙色)",
+    classification: "color",
+    prompt: "Vibrant pastel colors, high saturation fantasy palette, soft whimsical tones, dreamy watercolor shades, bright and cheerful atmospheric grading"
+  },
+  // Quality (画质)
+  {
+    uuid: "std-prompt-qual-8k",
+    name: "8K UHD Masterpiece (8K超清杰作)",
+    classification: "quality",
+    prompt: "8k resolution, UHD masterpiece, razor-sharp details, high-fidelity textures, micro-detail rendering, photorealistic skin pores and surface fabrics, award-winning cinematic fidelity"
+  },
+  {
+    uuid: "std-prompt-qual-ue5",
+    name: "Unreal Engine 5 Render (虚幻5实时渲染级)",
+    classification: "quality",
+    prompt: "Unreal Engine 5 render style, hyperrealistic 3D graphics, ray-traced global illumination, Nanite micro-polygon details, sub-surface scattering, ultra high-end digital art"
+  },
+  // Style (画风)
+  {
+    uuid: "std-prompt-style-realism",
+    name: "Cinematic Realism (写实院线电影风)",
+    classification: "style",
+    prompt: "Cinematic photorealism, shot on 35mm Panavision camera, anamorphic lens, real-life lighting, raw documentary texture, high visual credibility"
+  },
+  {
+    uuid: "std-prompt-style-anime",
+    name: "Makoto Shinkai Anime (新海诚动漫插画风)",
+    classification: "style",
+    prompt: "Makoto Shinkai anime style, beautiful hand-drawn illustration, vibrant blue skies, fluffy clouds, highly detailed background, romantic anime lighting, soft dream-like colors"
+  },
+  {
+    uuid: "std-prompt-style-pixar",
+    name: "3D Disney Pixar (迪士尼皮克斯3D动画风)",
+    classification: "style",
+    prompt: "3D stylized character design, Disney Pixar animation style, adorable features, rich clay-like smooth textures, vibrant expressive lighting, cheerful color palette"
+  },
+  {
+    uuid: "std-prompt-style-watercolor",
+    name: "Traditional Ink Watercolor (国风水墨写意风)",
+    classification: "style",
+    prompt: "Traditional Chinese ink wash and watercolor painting, soft sweeping brushstrokes, minimalist composition, dynamic splash ink effect, elegant negative space, ethereal aesthetic"
+  },
+  // Atmosphere (氛围)
+  {
+    uuid: "std-prompt-atmos-eerie",
+    name: "Eerie Suspense Horror (惊悚诡异悬疑)",
+    classification: "atmosphere",
+    prompt: "Eerie suspenseful atmosphere, mysterious creeping fog, dim flickering light source, cold unsettling air, tense thriller mood, lingering shadows"
+  },
+  {
+    uuid: "std-prompt-atmos-epic",
+    name: "Epic Grand Scale (史诗宏大震撼)",
+    classification: "atmosphere",
+    prompt: "Epic grand atmosphere, awe-inspiring scale, majestic sweeping view, cinematic orchestration, heroic storytelling perspective, breath-taking dramatic depth"
+  },
+  {
+    uuid: "std-prompt-atmos-cozy",
+    name: "Cozy Warm Healing (治愈温馨安详)",
+    classification: "atmosphere",
+    prompt: "Cozy warm healing atmosphere, soft gentle sunlight, tranquil peaceful environment, comforting glowing ambiance, slow-living relaxation, serene emotional tone"
   }
 ];
 
@@ -579,6 +711,12 @@ export function GlobalSettings() {
                                 <option value="script" className="bg-[#121214]">script (剧本合成/语音角色)</option>
                                 <option value="visuals" className="bg-[#121214]">visuals (视觉数据库/IP及环境)</option>
                                 <option value="audio" className="bg-[#121214]">audio (配音及声色声效)</option>
+                                <option value="composition" className="bg-[#121214]">composition (构图类型)</option>
+                                <option value="lighting" className="bg-[#121214]">lighting (光影类型)</option>
+                                <option value="color" className="bg-[#121214]">color (色彩类型)</option>
+                                <option value="quality" className="bg-[#121214]">quality (画质)</option>
+                                <option value="style" className="bg-[#121214]">style (画风)</option>
+                                <option value="atmosphere" className="bg-[#121214]">atmosphere (氛围)</option>
                               </select>
                             </div>
 

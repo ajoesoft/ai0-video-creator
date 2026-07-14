@@ -104,3 +104,35 @@ export async function synthesizeSpeechGemini(text: string, voiceName: string = '
     throw e;
   }
 }
+
+/**
+ * Uses Gemini (gemini-3.5-flash) to optimize and fuse the decorated prompt into an incredible, detailed 
+ * artist-grade text-to-image prompt.
+ */
+export async function optimizePromptWithGemini(decoratedPrompt: string): Promise<string> {
+  const ai = getGeminiClient();
+  try {
+    const prompt = `You are an expert AI prompt engineer specializing in Stable Diffusion, Midjourney, and high-fidelity diffusion models. 
+Your task is to take the following decorated prompt containing character information, visual styles, lighting setups, scenes, and audio vocal descriptions, and fuse/rewrite it into a single highly detailed, cohesive, professional-grade English prompt for image generation.
+
+Requirements:
+1. Re-phrase all instructions into a unified, descriptive scene description in English.
+2. Ensure the visual style, character traits, lighting, and voice personality traits seamlessly work together.
+3. Keep the prompt elegant, dense with artistic details, and optimized for image generators.
+4. Do NOT output any conversational preamble, explanations, tags, or markdown. Output ONLY the raw final English prompt.
+
+Decorated Input:
+"${decoratedPrompt}"`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-flash',
+      contents: prompt,
+    });
+
+    return response.text?.trim() || decoratedPrompt;
+  } catch (e) {
+    console.error("Gemini prompt optimization failed, falling back to original decorated prompt:", e);
+    return decoratedPrompt;
+  }
+}
+

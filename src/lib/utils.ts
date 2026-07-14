@@ -126,7 +126,7 @@ export function cleanTauriAssetUrl(url: string): string {
   if (!url) return url;
   
   // Identify the protocol and host part (e.g., "asset://localhost" or "https://asset.localhost")
-  const match = url.match(/^([a-zA-Z0-9]+:\/\/[^\/]+)(.*)$/);
+  const match = url.match(/^([a-zA-Z0-9]+:\/\/[a-zA-Z0-9.-]+(?::\d+)?)(.*)$/);
   if (!match) return url;
   
   const protocolAndHost = match[1]; // e.g., "asset://localhost"
@@ -151,10 +151,37 @@ export function cleanTauriAssetUrl(url: string): string {
 export function safeConvertFileSrc(filePath: string): string {
   if (!filePath) return '';
 
-  const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+  let actualPath = filePath;
+  if (actualPath.startsWith('JSON:')) {
+    try {
+      const parsed = JSON.parse(actualPath.replace('JSON:', ''));
+      if (parsed.selectedAvatar) {
+        actualPath = parsed.selectedAvatar;
+      } else if (parsed.avatars && parsed.avatars.length > 0) {
+        actualPath = parsed.avatars[0];
+      }
+    } catch (e) {
+      console.warn('Failed to parse path JSON inside safeConvertFileSrc:', e);
+      // Robust regex fallback
+      const selectedAvatarMatch = actualPath.match(/"selectedAvatar"\s*:\s*"([^"]+)"/);
+      const avatarsMatch = actualPath.match(/"avatars"\s*:\s*\[\s*"([^"]+)"/);
+      if (selectedAvatarMatch) {
+        actualPath = selectedAvatarMatch[1];
+      } else if (avatarsMatch) {
+        actualPath = avatarsMatch[1];
+      }
+    }
+  }
+
+  const isTauri = typeof window !== 'undefined' && 
+    (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__) &&
+    (window.location.hostname === 'localhost' || 
+     window.location.hostname === '127.0.0.1' || 
+     window.location.hostname.endsWith('.localhost') ||
+     window.location.protocol === 'tauri:');
   
   // Normalize windows backslashes to unix slashes
-  let absolutePath = filePath.replace(/\\/g, '/');
+  let absolutePath = actualPath.replace(/\\/g, '/');
   
   // Clean prefix to get pure subpath
   let subpath = absolutePath;
@@ -296,6 +323,12 @@ export function getAssetUrl(path: string | undefined | null): string {
 
   // Strip any assets:/// or assets://localhost/ or asset://localhost/ prefixes
   const tauriPrefixes = [
+    'https://tauri.localhost/',
+    'http://tauri.localhost/',
+    'https://tauri.localhost',
+    'http://tauri.localhost',
+    'tauri.localhost/',
+    'tauri.localhost',
     'assets://localhost/',
     'asset://localhost/',
     'http://asset.localhost/',
@@ -334,10 +367,37 @@ export function useMediaUrl(path: string | undefined | null, mediaType: 'video' 
       return;
     }
 
-    const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+    let actualPath = path;
+    if (actualPath.startsWith('JSON:')) {
+      try {
+        const parsed = JSON.parse(actualPath.replace('JSON:', ''));
+        if (parsed.selectedAvatar) {
+          actualPath = parsed.selectedAvatar;
+        } else if (parsed.avatars && parsed.avatars.length > 0) {
+          actualPath = parsed.avatars[0];
+        }
+      } catch (e) {
+        console.warn('Failed to parse path JSON inside useMediaUrl:', e);
+        // Robust regex fallback
+        const selectedAvatarMatch = actualPath.match(/"selectedAvatar"\s*:\s*"([^"]+)"/);
+        const avatarsMatch = actualPath.match(/"avatars"\s*:\s*\[\s*"([^"]+)"/);
+        if (selectedAvatarMatch) {
+          actualPath = selectedAvatarMatch[1];
+        } else if (avatarsMatch) {
+          actualPath = avatarsMatch[1];
+        }
+      }
+    }
+
+    const isTauri = typeof window !== 'undefined' && 
+      (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__) &&
+      (window.location.hostname === 'localhost' || 
+       window.location.hostname === '127.0.0.1' || 
+       window.location.hostname.endsWith('.localhost') ||
+       window.location.protocol === 'tauri:');
 
     // Clean up path similarly to getAssetUrl
-    let cleanPath = decodeURIComponent(path);
+    let cleanPath = decodeURIComponent(actualPath);
     cleanPath = cleanPath.replace(/\\/g, '/');
 
     // Strip http(s)://localhost:XXXX/ or http(s)://127.0.0.1:XXXX/ if present
@@ -510,14 +570,36 @@ export function useLocalImageBase64(path: string | undefined | null): string {
       return;
     }
 
+    let actualPath = path;
+    if (actualPath.startsWith('JSON:')) {
+      try {
+        const parsed = JSON.parse(actualPath.replace('JSON:', ''));
+        if (parsed.selectedAvatar) {
+          actualPath = parsed.selectedAvatar;
+        } else if (parsed.avatars && parsed.avatars.length > 0) {
+          actualPath = parsed.avatars[0];
+        }
+      } catch (e) {
+        console.warn('Failed to parse path JSON inside useLocalImageBase64:', e);
+        // Robust regex fallback
+        const selectedAvatarMatch = actualPath.match(/"selectedAvatar"\s*:\s*"([^"]+)"/);
+        const avatarsMatch = actualPath.match(/"avatars"\s*:\s*\[\s*"([^"]+)"/);
+        if (selectedAvatarMatch) {
+          actualPath = selectedAvatarMatch[1];
+        } else if (avatarsMatch) {
+          actualPath = avatarsMatch[1];
+        }
+      }
+    }
+
     // Fast path: if already a base64 data URL, blob URL, or remote HTTP URL, use it directly
-    if (path.startsWith('data:') || path.startsWith('blob:') || path.startsWith('http://') || path.startsWith('https://')) {
-      setSrc(path);
+    if (actualPath.startsWith('data:') || actualPath.startsWith('blob:') || actualPath.startsWith('http://') || actualPath.startsWith('https://')) {
+      setSrc(actualPath);
       return;
     }
 
     // Decode and normalize
-    let cleanPath = decodeURIComponent(path);
+    let cleanPath = decodeURIComponent(actualPath);
     cleanPath = cleanPath.replace(/\\/g, '/');
 
     // Strip http(s)://localhost:XXXX/ or http(s)://127.0.0.1:XXXX/ if present
@@ -598,7 +680,12 @@ export function useLocalImageBase64(path: string | undefined | null): string {
           subpath = subpath.slice(1);
         }
 
-        const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
+        const isTauri = typeof window !== 'undefined' && 
+          (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__) &&
+          (window.location.hostname === 'localhost' || 
+           window.location.hostname === '127.0.0.1' || 
+           window.location.hostname.endsWith('.localhost') ||
+           window.location.protocol === 'tauri:');
         if (isTauri) {
           try {
             // Prioritize standard Tauri asset protocol using convertFileSrc with absolute physical path to solve WebKitWebProcess memory bloat

@@ -1,6 +1,4 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
-use std::path::Path;
-use std::fs;
 
 pub fn get_migrations() -> Vec<Migration> {
     vec![
@@ -164,6 +162,15 @@ pub fn get_migrations() -> Vec<Migration> {
                     started_at INTEGER,
                     completed_at INTEGER,
                     priority INTEGER DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS system_prompts (
+                    uuid TEXT PRIMARY KEY,
+                    name TEXT,
+                    classification TEXT,
+                    prompt TEXT,
+                    created_at INTEGER,
+                    updated_at INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS video_translation_projects (
@@ -396,6 +403,192 @@ pub fn run_database_migrations_backend(db_path: &str) -> Result<(), Box<dyn std:
         );",
         [],
     )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS system_prompts (
+            uuid TEXT PRIMARY KEY,
+            name TEXT,
+            classification TEXT,
+            prompt TEXT,
+            created_at INTEGER,
+            updated_at INTEGER
+        );",
+        [],
+    )?;
+
+    // Check and seed default/standard system prompts using INSERT OR IGNORE
+    println!("[Rust Migrations] Checking and seeding default system prompts & standard presets in Rust...");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let defaults = vec![
+        (
+            "prompt-uuid-details-default",
+            "Cover & Style Director (封面及风格导演)",
+            "details",
+            "You are an expert design director and style consultant. Focus on analyzing the project's creative direction, visual theme, and storytelling tone. Guide the user in drafting consistent style guidelines, select fitting color schemes, and brainstorm evocative ideas for the project's cover image."
+        ),
+        (
+            "prompt-uuid-script-default",
+            "Screenplay & Dialogue Maestro (编剧与对白大师)",
+            "script",
+            "You are an elite screenwriter and script supervisor. Assist the user in drafting precise dialogues, voiceover lines, director's cues (camera angles, movements), and visual prompt descriptions for scene synthesis. Ensure the speech rhythm, dialogue style, and stage directions form a cohesive dramatic narrative."
+        ),
+        (
+            "prompt-uuid-visuals-default",
+            "IP Character & Environment Sculptor (IP角色与环境塑造师)",
+            "visuals",
+            "You are a lead character designer and worldbuilding artist. Help the user define consistent characters (IPs), props, and environmental parameters. Maintain detailed physical descriptions, clothing, mood settings, and lighting prompts to keep visual likeness intact across generations."
+        ),
+        (
+            "prompt-uuid-audio-default",
+            "Voice Casting & Sound Designer (声色与声效设计师)",
+            "audio",
+            "You are a professional audio designer and voice casting director. Assist the user in configuring distinct voiceover timbres, speech rates, emotional intonations, and character-specific acoustic profiles. Focus on optimizing vocal performance and matching roles to their ideal vocal qualities."
+        ),
+        // Composition Type (构图类型)
+        (
+            "std-prompt-comp-wide",
+            "Cinematic Wide Shot (电影级宽画幅构图)",
+            "composition",
+            "Cinematic wide shot, stunning landscape framing, deep depth of field, clear horizontal line, panoramic scale, epic sense of scale, balanced rule of thirds"
+        ),
+        (
+            "std-prompt-comp-symmetric",
+            "Symmetric Cinematic (对称式电影构图)",
+            "composition",
+            "Symmetric cinematic composition, perfect balance, center-focused framing, dramatic alignment, clean architectural guidelines, formal artistic structure"
+        ),
+        (
+            "std-prompt-comp-thirds",
+            "Rule of Thirds Portrait (三分法黄金人物构图)",
+            "composition",
+            "Rule of thirds portrait framing, subject aligned on vertical grid line, dynamic negative space, cinematic balance, comfortable visual negative space"
+        ),
+        (
+            "std-prompt-comp-closeup",
+            "Extreme Close-Up Detail (局部极度特写)",
+            "composition",
+            "Extreme close-up shot, macro detail focus, shallow depth of field, high-fidelity texture, intense emotional expression, dramatic focal point"
+        ),
+        // Lighting Type (光影类型)
+        (
+            "std-prompt-light-volumetric",
+            "Volumetric God Rays (体积光/丁达尔圣光)",
+            "lighting",
+            "Volumetric lighting, dramatic god rays, Tyndall effect, visible light beams cutting through atmosphere, smoky dust particles, high contrast shadows"
+        ),
+        (
+            "std-prompt-light-rembrandt",
+            "Rembrandt Classic (古典伦勃朗肖像光)",
+            "lighting",
+            "Rembrandt lighting style, classic 45-degree key light, dramatic triangle shadow on cheek, soft ambient fill, painterly contrast, moody chiaroscuro"
+        ),
+        (
+            "std-prompt-light-backlight",
+            "Cinematic Backlight (电影感轮廓逆光)",
+            "lighting",
+            "Cinematic backlighting, golden rim light, glowing hair strands, beautiful halo effect, rich background separation, high contrast silhouette, lens flare"
+        ),
+        (
+            "std-prompt-light-neon",
+            "Cyberpunk Neon Glow (赛博朋克霓虹夜光)",
+            "lighting",
+            "Cyberpunk neon glow, vivid pink and cyan dual lighting, wet pavement reflections, high contrast nocturnal shadows, futuristic moody illumination"
+        ),
+        // Color Type (色彩类型)
+        (
+            "std-prompt-color-tealorange",
+            "Teal and Orange Blockbuster (好莱坞经典青橙色调)",
+            "color",
+            "Hollywood Teal and Orange color grading, high contrast cinematic film palette, warm skin tones, cool shadows, atmospheric depth, blockbuster aesthetic"
+        ),
+        (
+            "std-prompt-color-vintage",
+            "Vintage Kodachrome (复古柯达彩色胶片)",
+            "color",
+            "Vintage Kodachrome color profile, warm nostalgic tones, subtle chromatic aberration, classic 35mm film grain, analog color saturation, retro aesthetic"
+        ),
+        (
+            "std-prompt-color-moodydark",
+            "Moody Low Saturation (低饱和度冷郁氛围)",
+            "color",
+            "Moody low saturation color grading, desaturated cool tones, deep dark shadows, gloomy atmospheric mist, muted colors, somber cinematic style"
+        ),
+        (
+            "std-prompt-color-pastel",
+            "Vibrant Pastel Fantasy (高饱和幻想马卡龙色)",
+            "color",
+            "Vibrant pastel colors, high saturation fantasy palette, soft whimsical tones, dreamy watercolor shades, bright and cheerful atmospheric grading"
+        ),
+        // Quality (画质)
+        (
+            "std-prompt-qual-8k",
+            "8K UHD Masterpiece (8K超清杰作)",
+            "quality",
+            "8k resolution, UHD masterpiece, razor-sharp details, high-fidelity textures, micro-detail rendering, photorealistic skin pores and surface fabrics, award-winning cinematic fidelity"
+        ),
+        (
+            "std-prompt-qual-ue5",
+            "Unreal Engine 5 Render (虚幻5实时渲染级)",
+            "quality",
+            "Unreal Engine 5 render style, hyperrealistic 3D graphics, ray-traced global illumination, Nanite micro-polygon details, sub-surface scattering, ultra high-end digital art"
+        ),
+        // Style (画风)
+        (
+            "std-prompt-style-realism",
+            "Cinematic Realism (写实院线电影风)",
+            "style",
+            "Cinematic photorealism, shot on 35mm Panavision camera, anamorphic lens, real-life lighting, raw documentary texture, high visual credibility"
+        ),
+        (
+            "std-prompt-style-anime",
+            "Makoto Shinkai Anime (新海诚动漫插画风)",
+            "style",
+            "Makoto Shinkai anime style, beautiful hand-drawn illustration, vibrant blue skies, fluffy clouds, highly detailed background, romantic anime lighting, soft dream-like colors"
+        ),
+        (
+            "std-prompt-style-pixar",
+            "3D Disney Pixar (迪士尼皮克斯3D动画风)",
+            "style",
+            "3D stylized character design, Disney Pixar animation style, adorable features, rich clay-like smooth textures, vibrant expressive lighting, cheerful color palette"
+        ),
+        (
+            "std-prompt-style-watercolor",
+            "Traditional Ink Watercolor (国风水墨写意风)",
+            "style",
+            "Traditional Chinese ink wash and watercolor painting, soft sweeping brushstrokes, minimalist composition, dynamic splash ink effect, elegant negative space, ethereal aesthetic"
+        ),
+        // Atmosphere (氛围)
+        (
+            "std-prompt-atmos-eerie",
+            "Eerie Suspense Horror (惊悚诡异悬疑)",
+            "atmosphere",
+            "Eerie suspenseful atmosphere, mysterious creeping fog, dim flickering light source, cold unsettling air, tense thriller mood, lingering shadows"
+        ),
+        (
+            "std-prompt-atmos-epic",
+            "Epic Grand Scale (史诗宏大震撼)",
+            "atmosphere",
+            "Epic grand atmosphere, awe-inspiring scale, majestic sweeping view, cinematic orchestration, heroic storytelling perspective, breath-taking dramatic depth"
+        ),
+        (
+            "std-prompt-atmos-cozy",
+            "Cozy Warm Healing (治愈温馨安详)",
+            "atmosphere",
+            "Cozy warm healing atmosphere, soft gentle sunlight, tranquil peaceful environment, comforting glowing ambiance, slow-living relaxation, serene emotional tone"
+        )
+    ];
+
+    for p in defaults {
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO system_prompts (uuid, name, classification, prompt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![p.0, p.1, p.2, p.3, now, now],
+        );
+    }
+    println!("[Rust Migrations] Done checking and seeding system prompts and standard presets!");
 
     // Robust column alter safety checks
     let alter_queries = vec![

@@ -435,7 +435,7 @@ export function VisualsLibrary() {
         .catch(err => {
           console.warn("Speech playback error:", err);
           // Play physical fallback audio for iframe sandbox environments
-          currentRef.src = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+          currentRef.src = "";
           currentRef.play().then(() => {
             if (isStoryboard) {
               setActiveStoryAudioId(itemId);
@@ -665,7 +665,7 @@ export function VisualsLibrary() {
         await new Promise(r => setTimeout(r, 600));
 
         // Fallback to high quality music / speech sound helix stream
-        generatedPath = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+        generatedPath = "";
         log(`Voice synth finished: ${generatedPath}`);
         editingItem.audioPath = generatedPath;
 
@@ -676,7 +676,7 @@ export function VisualsLibrary() {
         await new Promise(r => setTimeout(r, 800));
 
         // High quality futuristic mp4 looping background
-        generatedPath = "https://assets.mixkit.co/videos/preview/mixkit-abstract-laser-lights-background-31998-large.mp4";
+        generatedPath = "";
         log(`Dynamic motion render finished: ${generatedPath}`);
         editingItem.videoPath = generatedPath;
       }
@@ -729,7 +729,7 @@ export function VisualsLibrary() {
             <div className="flex items-center gap-2 text-xs md:text-sm text-white/40">
               <Link id="nav-p" to="/" className="hover:text-white transition-colors">Projects</Link>
               <span>/</span>
-              <Link id="nav-pname" to={`/project/${id}`} className="hover:text-white transition-colors max-w-[120px] truncate block">{project?.name || 'Project Workspace'}</Link>
+              <Link id="nav-pname" to={`/project/${id}`} className="hover:text-white transition-colors max-w-[120px] truncate block">{project?.projectName || 'Project Workspace'}</Link>
               <span>/</span>
               <span className="text-white/80 font-medium">Visual Assets Gallery</span>
             </div>
@@ -825,12 +825,13 @@ export function VisualsLibrary() {
               {/* Type Category Filter Badges */}
               <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-2 md:pb-0">
                 <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-white/30 mr-2 flex items-center gap-1"><Filter className="w-3 h-3" /> Filter:</span>
-                {['All', 'IP', '环境', '物品', '其它'].map(category => {
+                {['All', 'IP', '环境', '物品', '运镜', '其它'].map(category => {
                   const translations: Record<string, string> = {
                     'All': 'All',
                     'IP': 'IP Character',
                     '环境': 'Environment',
                     '物品': 'Props',
+                    '运镜': 'Camera Motion',
                     '其它': 'Others'
                   };
                   return (
@@ -919,11 +920,13 @@ export function VisualsLibrary() {
                           item.type === 'IP' ? "bg-pink-500/25 border-pink-500/30 text-pink-300" :
                           item.type === '环境' ? "bg-cyan-500/25 border-cyan-500/30 text-cyan-300" :
                           item.type === '物品' ? "bg-green-500/25 border-green-500/30 text-green-300" :
+                          item.type === '运镜' ? "bg-purple-500/25 border-purple-500/30 text-purple-300 font-bold" :
                           "bg-slate-500/25 border-slate-500/30 text-slate-300"
                         )}>
                           {item.type === 'IP' ? 'IP Character' :
                            item.type === '环境' ? 'Environment' :
                            item.type === '物品' ? 'Props' :
+                           item.type === '运镜' ? 'Camera Motion' :
                            item.type === '其它' ? 'Others' :
                            item.type || 'Other'}
                         </span>
@@ -943,7 +946,16 @@ export function VisualsLibrary() {
                         <div className="flex items-start justify-between">
                           <div className="space-y-1">
                             <h3 className="font-bold text-lg text-white group-hover:text-brand-primary transition-colors leading-tight truncate">
-                              {item.title}
+                              {item.type === '运镜' ? (
+                                <span className="flex flex-col sm:flex-row sm:items-baseline gap-1">
+                                  <span>{item.title.split(' ').slice(0, -1).join(' ') || item.title}</span>
+                                  <span className="text-xs text-white/40 font-normal">
+                                    {item.title.split(' ').pop()}
+                                  </span>
+                                </span>
+                              ) : (
+                                item.title
+                              )}
                             </h3>
                             {item.shortName && (
                               <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider block">
@@ -1413,7 +1425,11 @@ export function VisualsLibrary() {
                             <option value="0" disabled>-- Choose visual library source --</option>
                             {visualItems.map(item => (
                               <option key={item.id} value={item.id}>
-                                {item.title} ({item.type || 'IP'}) #{item.id}
+                                {item.type === '运镜' ? (
+                                  `${item.title.split(' ').slice(0, -1).join(' ') || item.title} [${item.title.split(' ').pop()}]`
+                                ) : (
+                                  item.title
+                                )} ({item.type || 'IP'}) #{item.id}
                               </option>
                             ))}
                           </select>
@@ -1579,7 +1595,13 @@ export function VisualsLibrary() {
                                   </span>
                                   <span className="text-white/40 text-xs">→</span>
                                   <span className="text-white text-xs font-semibold">
-                                    {isStatic ? (targetAsset?.title || `Asset #${rule.visualAssetId}`) : `${rule.type?.toUpperCase()} SUITE`}
+                                    {isStatic ? (
+                                      targetAsset?.type === '运镜' ? (
+                                        `${targetAsset.title.split(' ').slice(0, -1).join(' ') || targetAsset.title} [${targetAsset.title.split(' ').pop()}]`
+                                      ) : (
+                                        targetAsset?.title || `Asset #${rule.visualAssetId}`
+                                      )
+                                    ) : `${rule.type?.toUpperCase()} SUITE`}
                                   </span>
                                   <span className={cn(
                                     "px-1.5 py-0.2 text-[8px] font-mono rounded-full border uppercase tracking-wider font-extrabold",
@@ -1771,6 +1793,7 @@ export function VisualsLibrary() {
                         <option value="IP">IP Character (Concept/Character)</option>
                         <option value="环境">Environment (Scene/Setting)</option>
                         <option value="物品">Props (Object/Vehicle)</option>
+                        <option value="运镜">Camera Motion (Camera movement prompt)</option>
                         <option value="其它">Others (General Conceptual concepts)</option>
                       </select>
                     </div>

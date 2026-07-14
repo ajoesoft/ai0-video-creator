@@ -174,6 +174,194 @@ export interface GlobalTranslationKeys {
   ttsVoiceLabel: string;
   enqueueTaskBtn: string;
   queuePolicyDocsTitle: string;
+   // Page Header
+  backToProjectDetails: string;
+  digitalHumanStudio: string;
+  loadingDigitalHumanProject: string;
+  workflowLabel: string;
+  engineLabel: string;
+
+  // Avatar Consistency Section
+  avatarConsistencyTitle: string;
+  seedLabel: string;
+  avatarPromptPlaceholder: string;
+  workflowEngineLabel: string;
+  turboEngineName: string;
+  turboEngineDesc: string;
+  qualityEngineName: string;
+  qualityEngineDesc: string;
+  artStylePresetLabel: string;
+  consistencySeedLabel: string;
+  randomizeSeedTooltip: string;
+  generateConsistencyAvatarsBtnLoading: string;
+  generateConsistencyAvatarsBtn: string;
+  noAvatarGeneratedTip: string;
+  avatarGenerateTip: string;
+  generatedAvatarListTitle: string;
+  avatarIndexPromptTitle: string;
+  noCustomAvatarPromptTip: string;
+  saveAvatarPromptBtn: string;
+  saveAvatarPromptSuccess: string;
+
+  // Soundtrack Engine Section
+  soundtrackEngineTitle: string;
+  musicStylePromptLabel: string;
+  musicPromptPlaceholder: string;
+  generateBgmBtnLoading: string;
+  generateBgmBtn: string;
+  masterSoundtrackGeneratedTip: string;
+  playAudioTooltip: string;
+
+  // Info Tab Panel
+  workflowTab: string;
+  timingTab: string;
+  singingTab: string;
+  workflowDescTitle: string;
+  workflowStepDesc: string;
+  timingWarningTitle: string;
+  timingWarningDesc: string;
+  singingModeDescTitle: string;
+  singingModeDesc: string;
+
+  // Add Dialogue Section
+  addDialogueTitle: string;
+  singleEntryTab: string;
+  batchDialogueTab: string;
+  segmentTitleLabel: string;
+  segmentTitlePlaceholder: string;
+  voiceToneLabel: string;
+  customVoiceToggleBtn: string;
+  closeCustomVoiceBtn: string;
+  timbreEngineLabel: string;
+  timbreNameLabel: string;
+  timbreNamePlaceholder: string;
+  voiceGenderLabel: string;
+  femaleVoice: string;
+  maleVoice: string;
+  cyberVoice: string;
+  emotionStyleLabel: string;
+  emotionWarm: string;
+  emotionArticulate: string;
+  emotionDeep: string;
+  emotionEnergetic: string;
+  emotionSoft: string;
+  emotionCyber: string;
+  voicePitchLabel: string;
+  lowPitchTip: string;
+  highPitchTip: string;
+  speechRateLabel: string;
+  autoSaveTimbreTip: string;
+  saveTimbreBtn: string;
+  manageTimbreTitle: string;
+  deleteTimbreBtn: string;
+
+  // Single Dialogue Input
+  dialogueContentLabel: string;
+  charCountWarningTip: string;
+  charLimitRuleTip: string;
+  enableSingingModeLabel: string;
+  addSegmentBtn: string;
+
+  // Batch Dialogue Input
+  batchScriptLabel: string;
+  batchTextPlaceholder: string;
+  batchRuleTitle: string;
+  batchRule1: string;
+  batchRule2: string;
+  batchRule3: string;
+  batchImportLoading: string;
+  batchImportBtn: string;
+
+  // Dialogue Script List
+  dialogueScriptTitle: string;
+  lineCountSuffix: string;
+  noDialogueTip: string;
+  estimatedDurationLabel: string;
+  overTimeLimitWarning: string;
+  ttsVoiceOkTag: string;
+  regenerateSpeechBtn: string;
+  generateSpeechBtn: string;
+  singingVocalOkTag: string;
+  generateSingingTrackBtn: string;
+  sceneImageOkTag: string;
+  regenerateSceneTooltip: string;
+  scenicImageBtn: string;
+  ltxTalkingOkTag: string;
+  watchVideoBtn: string;
+  ltxRenderBtn: string;
+  ltxRenderDisabledTip: string;
+  singingVideoOkTag: string;
+  singingLtxRenderBtn: string;
+  singingRenderDisabledTip: string;
+  deleteLineTooltip: string;
+
+  // Video Preview Deck
+  previewDeckTitle: string;
+  avatarLaneLabel: string;
+  audioTtsLaneLabel: string;
+  bgmTrackLabel: string;
+  noBgmLoadedTip: string;
+  playingMixedTip: string;
+  selectWatchToPlayTip: string;
+  closeModalBtn: string;
+  ltxMasterPipelineTitle: string;
+
+  // Scene Image Modal
+  sceneWorkflowTitle: string;
+  diffusionEngineLabel: string;
+  widthLabel: string;
+  heightLabel: string;
+  importAvatarPromptTitle: string;
+  importAvatarPromptBtn: string;
+  currentSceneImageLabel: string;
+  regenerateOverwriteTip: string;
+  promptDecoratorTitle: string;
+  projectVisualStyleLabel: string;
+  ipCharacterLabel: string;
+  sceneEnvironmentLabel: string;
+  lightingStyleLabel: string;
+  voiceAlignmentLabel: string;
+  noneOption: string;
+  fusePromptBtnLoading: string;
+  fusePromptBtn: string;
+  decoratedOutputTitle: string;
+  scenePromptLabel: string;
+  scenePromptPlaceholder: string;
+  cancelBtn: string;
+  generateSceneBtn: string;
+
+  // TTS Timbre Modal
+  timbreStudioTitle: string;
+  dialogueTextLabel: string;
+  charsSuffix: string;
+  referenceAudioTitle: string;
+  referenceAudioDesc: string;
+  dragUploadTip: string;
+  loadedCustomVoiceTip: string;
+  uploadFormatTip: string;
+  selectStandardRefTip: string;
+  voiceAttributeTitle: string;
+  generateAsLyricsLabel: string;
+  synthesisEngineLabel: string;
+  voiceDesignEngine: string;
+  voiceCloneEngine: string;
+  selectTimbreLabel: string;
+  voiceDesignPromptLabel: string;
+  voiceDesignPromptPlaceholder: string;
+  voiceDesignDescTip: string;
+  saveCustomTimbreTitle: string;
+  cancelSavePresetBtn: string;
+  customTimbreNamePlaceholder: string;
+  savePresetBtn: string;
+  cloneGenerateVoiceBtn: string;
+
+  // Art Style Option Text
+  styleRealism: string;
+  styleScenery: string;
+  styleCinematic: string;
+  styleAnime: string;
+  styleGhibli: string;
+  styleCyberpunk: string;
 }
 
 export const globalTranslations: Record<string, GlobalTranslationKeys> = {
@@ -199,7 +387,7 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     queuePolicySingleQueue: "1. Single-queue Serialism: To minimize VRAM overload risk, all task sequences are prioritized and processed serially in the background.",
     queuePolicyHarness: "2. Smart Harness Consistency Injection: Integrated IP trigger tech. For text-to-image and image-to-video tasks containing the '@Character' Trigger, prompt modifiers are automatically injected when invoking Comfy diffusion models.",
     queuePolicyClockwheel: "3. Scheduled Tasks & Clockwheel: Tasks set with a time delay will hang in a pending state, and will only be queued when local clock matches the scheduled threshold.",
-    queueActiveInstancesLabel: "Real-time Compute Queue Pool (活跃任务调配池)",
+    queueActiveInstancesLabel: "Real-time Compute Queue Pool",
     queueEmptyPool: "No active computing records in the pool.",
     queueEmptyPoolDesc: "You can use the left template configuration to dispatch and queue a test task.",
     alertSelectSaveProject: "Please select a project to save first!",
@@ -222,8 +410,8 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     nodeDataSlotLabel: "Read output files from this slot after running.",
     pasteComfyJsonPlaceholder: "Paste the ComfyUI API JSON format here...",
     comfyApiTip: "Tip: Workflows must be saved in ComfyUI as API Format JSON, not standard UI format, for the scheduler to resolve execution nodes.",
-    selectInstalledModels: "Select Installed Models (选择已下载的模型)",
-    activeModelId: "Active Model Identifier (当前使用的模型标识)",
+    selectInstalledModels: "Select Installed Models",
+    activeModelId: "Active Model Identifier",
     howToConnect: "How to connect: ",
     projectScriptSegments: "Project Script Segments",
     doubleClickPreviewTips: "Double click card to preview | Click + to insert",
@@ -352,7 +540,195 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "TTS Text to Speech Content (Synthesis Context Text)",
     ttsVoiceLabel: "Reference Voice or Cloned Speaker (Reference Cloner Design)",
     enqueueTaskBtn: "Enqueue Task",
-    queuePolicyDocsTitle: "Queue Policy & Compute Docs"
+    queuePolicyDocsTitle: "Queue Policy & Compute Docs",
+      // Page Header
+    backToProjectDetails: "Back to Details",
+    digitalHumanStudio: "Digital Human Studio",
+    loadingDigitalHumanProject: "Loading Digital Human project...",
+    workflowLabel: "Workflow",
+    engineLabel: "Engine",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "Avatar Consistency",
+    seedLabel: "Seed",
+    avatarPromptPlaceholder: "Enter detailed portrait prompts...",
+    workflowEngineLabel: "Workflow Engine",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "Ultra Fast (8-step)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "High Quality",
+    artStylePresetLabel: "Art Style Preset",
+    consistencySeedLabel: "Consistency Seed",
+    randomizeSeedTooltip: "Randomize",
+    generateConsistencyAvatarsBtnLoading: "Synthesizing Avatar Array...",
+    generateConsistencyAvatarsBtn: "Generate Consistency Avatars",
+    noAvatarGeneratedTip: "No digital avatars generated yet",
+    avatarGenerateTip: "Enter a prompt and click generate consistency avatars above",
+    generatedAvatarListTitle: "Generated Consistent Avatars (Click to select & edit prompt):",
+    avatarIndexPromptTitle: "Avatar #{index} Prompt",
+    noCustomAvatarPromptTip: "No custom prompt stored for this avatar index. Enter custom modifier tags...",
+    saveAvatarPromptBtn: "Save Prompt",
+    saveAvatarPromptSuccess: "✓ Saved",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "Soundtrack Engine",
+    musicStylePromptLabel: "Music Style Prompt",
+    musicPromptPlaceholder: "Cinematic soundtrack, gentle soothing tones...",
+    generateBgmBtnLoading: "Rendering ambient track...",
+    generateBgmBtn: "Generate Project Background Music",
+    masterSoundtrackGeneratedTip: "Master Soundtrack Generated",
+    playAudioTooltip: "Play Audio",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s Restriction",
+    singingTab: "Singing Mode",
+    workflowDescTitle: "LTX 2.3 Workflow Instruction",
+    workflowStepDesc: "1. Generate avatar base map ➔ 2. Input script segments ➔ 3. Generate TTS voice ➔ 4. Render lip-sync digital human video with avatar & audio.",
+    timingWarningTitle: "12 Second Limit Warning",
+    timingWarningDesc: "If your dialogue text is too long, use batch import, it will auto split into natural sentences within 12 seconds by punctuation and word count limit.",
+    singingModeDescTitle: "Digital Human Singing Mode",
+    singingModeDesc: "Convert script text into lyrics for melody generation and lip-sync rendering.",
+
+    // Add Dialogue Section
+    addDialogueTitle: "Add Dialogue Segment",
+    singleEntryTab: "Single Entry",
+    batchDialogueTab: "Batch Dialogue",
+    segmentTitleLabel: "Segment Title / Name Prefix",
+    segmentTitlePlaceholder: "e.g. Opening, Introduction, Hook...",
+    voiceToneLabel: "Voice Tone (Timbre Studio)",
+    customVoiceToggleBtn: "⚙️ Custom Timbre",
+    closeCustomVoiceBtn: "✕ Close",
+    timbreStudioTitle: "Timbre Studio",
+    timbreEngineLabel: "Engine",
+    timbreNameLabel: "Timbre Name",
+    timbreNamePlaceholder: "e.g. My Custom Voice...",
+    voiceGenderLabel: "Voice Gender",
+    femaleVoice: "Female",
+    maleVoice: "Male",
+    cyberVoice: "Cyber",
+    emotionStyleLabel: "Emotion / Style",
+    emotionWarm: "Warm",
+    emotionArticulate: "Articulate",
+    emotionDeep: "Deep",
+    emotionEnergetic: "Energetic",
+    emotionSoft: "Soft",
+    emotionCyber: "Cyber",
+    voicePitchLabel: "Voice Pitch",
+    lowPitchTip: "LOW (-5)",
+    highPitchTip: "HIGH (+5)",
+    speechRateLabel: "Speech Rate",
+    autoSaveTimbreTip: "Auto-saved to local preset timbres",
+    saveTimbreBtn: "Save Timbre",
+    manageTimbreTitle: "Manage Timbres:",
+    deleteTimbreBtn: "Delete",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "Dialogue Content / Lyrics (Max 12 Seconds)",
+    charCountWarningTip: "{count} Chars {warning}",
+    charLimitRuleTip: "Word Count Tip: Max ~42 Chinese chars / 30 English words within 12s.",
+    enableSingingModeLabel: "🎵 Enable Singing Song Mode",
+    addSegmentBtn: "Add Segment",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "Full Dialogue Script (Batch paste)",
+    batchTextPlaceholder: "Paste the entire script or multi-line dialog here. It will be automatically split by sentence punctuation into natural chunks of under 12 seconds each.",
+    batchRuleTitle: "Smart Chunking & 12s Speech Limit Rules:",
+    batchRule1: "1. Splits by line breaks, periods, exclamation/question marks;",
+    batchRule2: "2. If a segment exceeds limits, splits further by commas or sub-clauses;",
+    batchRule3: "3. Guarantees that every chunk stays under 12s duration for mouth-shape alignment.",
+    batchImportLoading: "Importing & splitting...",
+    batchImportBtn: "Smart Split & Import Script",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "Dialogue Script & Render Lines",
+    lineCountSuffix: "Line(s)",
+    noDialogueTip: "No script dialogues. Please add your first spoken line above!",
+    estimatedDurationLabel: "{duration}s",
+    overTimeLimitWarning: "Text length warning: This line exceeds 12s limit, may cause lip sync failure or render rejection. Please shorten it!",
+    ttsVoiceOkTag: "TTS Voice OK",
+    regenerateSpeechBtn: "Regenerate",
+    generateSpeechBtn: "Generate Speech (TTS)",
+    singingVocalOkTag: "Singing Vocal OK",
+    generateSingingTrackBtn: "Generate Singing Track",
+    sceneImageOkTag: "Scene Image OK",
+    regenerateSceneTooltip: "Regenerate scene",
+    scenicImageBtn: "Scenic Image",
+    ltxTalkingOkTag: "LTX Talking OK",
+    watchVideoBtn: "Watch",
+    ltxRenderBtn: "LTX 2.3 Render",
+    ltxRenderDisabledTip: "Please generate speech voiceover first",
+    singingVideoOkTag: "Singing Video OK",
+    singingLtxRenderBtn: "Singing LTX Render",
+    singingRenderDisabledTip: "Please generate singing audio first",
+    deleteLineTooltip: "Delete this line",
+
+    // Video Preview Deck
+    previewDeckTitle: "Integrated Digital Human Video Preview Deck",
+    avatarLaneLabel: "Face Avatar Lane:",
+    audioTtsLaneLabel: "Audio TTS Lane:",
+    bgmTrackLabel: "Background Music Track:",
+    noBgmLoadedTip: "No BGM Loaded",
+    playingMixedTip: "● PLAYING MIXED",
+    selectWatchToPlayTip: "Select \"Watch\" to play segment rendering inside Master Preview Deck",
+    closeModalBtn: "CLOSE",
+    ltxMasterPipelineTitle: "LTX 2.3 Master Pipeline Output",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "Scene Image Workflow Configuration",
+    diffusionEngineLabel: "Diffusion Engine Model",
+    widthLabel: "Width (px)",
+    heightLabel: "Height (px)",
+    importAvatarPromptTitle: "Selected Avatar Prompt",
+    importAvatarPromptBtn: "Import Selected Avatar Prompt",
+    currentSceneImageLabel: "Current Scene Image",
+    regenerateOverwriteTip: "Regenerating will overwrite existing",
+    promptDecoratorTitle: "Prompt Decorator Presets",
+    projectVisualStyleLabel: "Project Visual Style",
+    ipCharacterLabel: "IP Character",
+    sceneEnvironmentLabel: "Scene Environment",
+    lightingStyleLabel: "Lighting Style",
+    voiceAlignmentLabel: "Voice Alignment",
+    noneOption: "None",
+    fusePromptBtnLoading: "Executing Decorator Chain Fusion...",
+    fusePromptBtn: "Fuse Prompt via Decorator Pattern",
+    decoratedOutputTitle: "Decorated Chain Output:",
+    scenePromptLabel: "Scene Prompt",
+    scenePromptPlaceholder: "e.g. A gorgeous modern living room with natural sunlight, Ghibli anime style cozy background...",
+    cancelBtn: "Cancel",
+    generateSceneBtn: "Generate Scene",
+
+    // TTS Timbre Modal
+    dialogueTextLabel: "Dialogue Script Text",
+    charsSuffix: "chars",
+    referenceAudioTitle: "1. Timbre Cloner Reference Audio",
+    referenceAudioDesc: "Upload a voice file, or click on a template below to clone character voice:",
+    dragUploadTip: "Drag & drop reference audio, or click to upload",
+    loadedCustomVoiceTip: "✓ Loaded Custom Voice: {name}",
+    uploadFormatTip: "Supports WAV, MP3, M4A. Up to 30s recommended.",
+    selectStandardRefTip: "Or Select Standard Reference Presets:",
+    voiceAttributeTitle: "2. VoxCPM2 Voice Attributes Detail",
+    generateAsLyricsLabel: "Generate as Lyrics",
+    synthesisEngineLabel: "Synthesis Engine / Workflow",
+    voiceDesignEngine: "VoxCPM2 Voice Design",
+    voiceCloneEngine: "Voice Clone",
+    selectTimbreLabel: "Select Voice / Designed Timbre",
+    voiceDesignPromptLabel: "✍️ Voice Design Description Prompt",
+    voiceDesignPromptPlaceholder: "e.g., A warm, mature female voice, speaking slowly and professionally...",
+    voiceDesignDescTip: "The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.",
+    saveCustomTimbreTitle: "Save as custom saved timbre preset",
+    cancelSavePresetBtn: "✕ Cancel",
+    customTimbreNamePlaceholder: "Custom timbre name...",
+    savePresetBtn: "Save",
+    cloneGenerateVoiceBtn: "Clone & Generate Voice",
+
+    // Art Style Option Text
+    styleRealism: "Realism",
+    styleScenery: "Scenery",
+    styleCinematic: "Cinematic Movie",
+    styleAnime: "Anime/Manga",
+    styleGhibli: "Ghibli Style",
+    styleCyberpunk: "Cyberpunk"
   },
   zh: {
     alertTriggerEmpty: "触发关键词不能为空！",
@@ -529,7 +905,195 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "TTS 文本转配音正文 (Synthesis Context Text)",
     ttsVoiceLabel: "克隆角色或配音模板 (Reference Cloner Design)",
     enqueueTaskBtn: "推入后台算力队列 (Enqueue Task)",
-    queuePolicyDocsTitle: "排队与算力说明 (Queue Policy Docs)"
+    queuePolicyDocsTitle: "排队与算力说明 (Queue Policy Docs)",
+    // Page Header
+    backToProjectDetails: "返回项目配置",
+    digitalHumanStudio: "数字人工作室",
+    loadingDigitalHumanProject: "加载数字人项目中...",
+    workflowLabel: "工作流",
+    engineLabel: "引擎",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "人物一致性底图",
+    seedLabel: "随机种子",
+    avatarPromptPlaceholder: "输入详细人物肖像提示词...",
+    workflowEngineLabel: "人物生成工作流引擎",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "极致超快 Turbo (8步)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "高保真质量型",
+    artStylePresetLabel: "美术风格预设",
+    consistencySeedLabel: "一致性种子",
+    randomizeSeedTooltip: "随机重置",
+    generateConsistencyAvatarsBtnLoading: "正在合成一致性面容阵列...",
+    generateConsistencyAvatarsBtn: "生成人物一致性参考图",
+    noAvatarGeneratedTip: "无已生成的人物形象底图",
+    avatarGenerateTip: "请输入提示词，并点击上方“生成人物一致性参考图”",
+    generatedAvatarListTitle: "已生成一致性参考底图 (点击序号选择，可保存各自提示词):",
+    avatarIndexPromptTitle: "形象 #{index} 专属生成提示词",
+    noCustomAvatarPromptTip: "该形象索引暂无自定义提示词，可输入修饰标签...",
+    saveAvatarPromptBtn: "保存提示词",
+    saveAvatarPromptSuccess: "✓ 提示词已保存",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "AI0 氛围配乐引擎 (Audio Ace XL)",
+    musicStylePromptLabel: "配乐风格提示词",
+    musicPromptPlaceholder: "电影感原声，舒缓治愈柔和音色...",
+    generateBgmBtnLoading: "正在渲染背景配乐...",
+    generateBgmBtn: "生成项目氛围配乐",
+    masterSoundtrackGeneratedTip: "主轨氛围配乐已生成",
+    playAudioTooltip: "播放音频",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s时长限制",
+    singingTab: "歌唱模式",
+    workflowDescTitle: "LTX 2.3 工作流说明",
+    workflowStepDesc: "① 生成人物底图 ➔ ② 输入脚本句段 ➔ ③ 点击生成 TTS 声音 ➔ ④ 结合声音和底图一键合成高精数字人视频。",
+    timingWarningTitle: "12秒时长限制警告",
+    timingWarningDesc: "如果台词过长，请使用批量导入功能，它将依据自然标点和字数上限，自动切分成12秒内短句。",
+    singingModeDescTitle: "数字人歌唱模式",
+    singingModeDesc: "支持将脚本文字转为歌词，完成旋律生成与对口型渲染。",
+
+    // Add Dialogue Section
+    addDialogueTitle: "添加数字人话术脚本",
+    singleEntryTab: "单句输入",
+    batchDialogueTab: "整段批量对话",
+    segmentTitleLabel: "片段标题 / 前缀名称",
+    segmentTitlePlaceholder: "例如：开场介绍、引子...",
+    voiceToneLabel: "音色选择 (音色工作室)",
+    customVoiceToggleBtn: "⚙️ 自定义音色",
+    closeCustomVoiceBtn: "✕ 收起",
+    timbreStudioTitle: "智能音色微调",
+    timbreEngineLabel: "引擎",
+    timbreNameLabel: "音色名称",
+    timbreNamePlaceholder: "例如: 温暖轻柔女播, 磁性中英男声...",
+    voiceGenderLabel: "声音性别",
+    femaleVoice: "女声",
+    maleVoice: "男声",
+    cyberVoice: "虚拟特工",
+    emotionStyleLabel: "情感风格",
+    emotionWarm: "温暖知性",
+    emotionArticulate: "新闻播音",
+    emotionDeep: "低沉浑厚",
+    emotionEnergetic: "朝气蓬勃",
+    emotionSoft: "温柔轻语",
+    emotionCyber: "赛博机械",
+    voicePitchLabel: "音高",
+    lowPitchTip: "低 (-5)",
+    highPitchTip: "高 (+5)",
+    speechRateLabel: "语速",
+    autoSaveTimbreTip: "自动保存至本地音色预设库",
+    saveTimbreBtn: "保存预置音色",
+    manageTimbreTitle: "管理自定义音色库 (删除/管理):",
+    deleteTimbreBtn: "删除",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "口播台词 / 歌词 (最长12秒)",
+    charCountWarningTip: "{count} 字符 {warning}",
+    charLimitRuleTip: "字数控制提示: 12秒大约对应中文 42 字以内 / 英文 30 词以内。",
+    enableSingingModeLabel: "🎵 当作歌词生成",
+    addSegmentBtn: "添加至话术脚本",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "完整对话 / 批量台词脚本",
+    batchTextPlaceholder: "在此一次性输入全部对话，例如：\n“大家好，今天我们来聊聊AI。这绝对是科技史上最伟大的变革。希望大家能够喜欢！”\n系统将自动检测句号/感叹号/分号/换行/逗号，将其智能拆分成12秒以内的句段，一键批量生成！",
+    batchRuleTitle: "智能分句与12秒字数限制规则：",
+    batchRule1: "① 优先按照换行、句号（。）、感叹号（！）等强句尾标点进行切分；",
+    batchRule2: "② 若单句字数仍较长，系统将依据逗号（，）、顿号（、）智能细分成连贯的子句；",
+    batchRule3: "③ 100% 保证单段文案控制在 12秒内 (中文 40字以内 / 英文 25词)，完美契合 LTX-2.3 密集注意力时序机制，杜绝声音被截断。",
+    batchImportLoading: "正在智能分割并导入...",
+    batchImportBtn: "自然句分割一键批量生成",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "数字人话术与算力轨",
+    lineCountSuffix: "条",
+    noDialogueTip: "暂无话术。请在上方输入对话添加第一句话术！",
+    estimatedDurationLabel: "{duration}秒",
+    overTimeLimitWarning: "长字警告: 单句估算已超过12秒限制，可能导致口型不齐或服务器拒绝渲染。请截短！",
+    ttsVoiceOkTag: "语音合成完成",
+    regenerateSpeechBtn: "重新生成",
+    generateSpeechBtn: "生成配音(TTS)",
+    singingVocalOkTag: "歌唱人声已生成",
+    generateSingingTrackBtn: "生成歌唱音轨",
+    sceneImageOkTag: "场景图已生成",
+    regenerateSceneTooltip: "重新生成场景图",
+    scenicImageBtn: "生成场景图",
+    ltxTalkingOkTag: "数字人对口视频完成",
+    watchVideoBtn: "预览",
+    ltxRenderBtn: "LTX 2.3 渲染视频",
+    ltxRenderDisabledTip: "请先生成语音配音",
+    singingVideoOkTag: "歌唱视频已生成",
+    singingLtxRenderBtn: "歌唱LTX渲染",
+    singingRenderDisabledTip: "请先生成歌唱音频",
+    deleteLineTooltip: "删除本条台词",
+
+    // Video Preview Deck
+    previewDeckTitle: "数字人合成演示导轨",
+    avatarLaneLabel: "人物形象轨道：",
+    audioTtsLaneLabel: "配音音频轨道：",
+    bgmTrackLabel: "背景配乐轨道：",
+    noBgmLoadedTip: "未加载配乐",
+    playingMixedTip: "● 混音播放中",
+    selectWatchToPlayTip: "点击「预览」可在总预览窗口播放片段渲染结果",
+    closeModalBtn: "关闭",
+    ltxMasterPipelineTitle: "LTX 2.3 主渲染管线输出",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "场景生图工作流配置中心",
+    diffusionEngineLabel: "生图工作流模型选择",
+    widthLabel: "宽度 (像素)",
+    heightLabel: "高度 (像素)",
+    importAvatarPromptTitle: "当前选中的人物底图提示词",
+    importAvatarPromptBtn: "引入选中的人物提示词",
+    currentSceneImageLabel: "当前已生成的场景图片",
+    regenerateOverwriteTip: "再次生成将覆盖原图",
+    promptDecoratorTitle: "智能提示词装饰器控制台",
+    projectVisualStyleLabel: "项目主视觉风格",
+    ipCharacterLabel: "IP角色设定",
+    sceneEnvironmentLabel: "场景环境",
+    lightingStyleLabel: "场景灯光",
+    voiceAlignmentLabel: "声景匹配音色",
+    noneOption: "无",
+    fusePromptBtnLoading: "正在执行装饰器链条融合...",
+    fusePromptBtn: "使用装饰器模式一键融合提示词",
+    decoratedOutputTitle: "装饰器链条 (Decorator Chain) 合并结构:",
+    scenePromptLabel: "场景模型融合提示词",
+    scenePromptPlaceholder: "示例：明亮现代客厅，自然柔光，吉卜力治愈动画背景...",
+    cancelBtn: "取消",
+    generateSceneBtn: "生成场景图片",
+
+    // TTS Timbre Modal
+    dialogueTextLabel: "配音文本输入 (话术脚本)",
+    charsSuffix: "字",
+    referenceAudioTitle: "1. 克隆参考语音定义",
+    referenceAudioDesc: "上传您的专属声音文件，或在下方选择标准音色模板作为参考，系统将通过 VoxCPM2 进行智能声纹还原：",
+    dragUploadTip: "拖拽音频至此，或点击上传克隆模版",
+    loadedCustomVoiceTip: "✓ 已成功加载参考音频: {name}",
+    uploadFormatTip: "支持 WAV, MP3, M4A 格式，最长支持30秒声音克隆",
+    selectStandardRefTip: "或点击选择标准参考音色:",
+    voiceAttributeTitle: "2. VoxCPM2 细节微调 & 特征属性",
+    generateAsLyricsLabel: "当作歌词生成",
+    synthesisEngineLabel: "配音工作流引擎",
+    voiceDesignEngine: "音色设计",
+    voiceCloneEngine: "声音克隆",
+    selectTimbreLabel: "选择已有音色",
+    voiceDesignPromptLabel: "✍️ 音色描述与设计 prompt",
+    voiceDesignPromptPlaceholder: "输入自定义音色描述，如: 温暖知性的成熟女声，语气缓慢而专业，带有新闻播音质感...",
+    voiceDesignDescTip: "AI 引擎将根据上述音色描述设计出符合特性的全新声音，并合成对应的朗读语音",
+    saveCustomTimbreTitle: "将克隆生成的音色保存为我的专属音色预置",
+    cancelSavePresetBtn: "✕ 取消保存",
+    customTimbreNamePlaceholder: "输入自定义音色名称...",
+    savePresetBtn: "保存",
+    cloneGenerateVoiceBtn: "智能克隆并生成语音",
+
+    // Art Style Option Text
+    styleRealism: "人物/写实 Realism",
+    styleScenery: "风光/自然 Scenery",
+    styleCinematic: "电影/胶片 Cinematic Movie",
+    styleAnime: "动画/二次元 Anime/Manga",
+    styleGhibli: "吉卜力/治愈 Ghibli Style",
+    styleCyberpunk: "赛博朋克 Cyberpunk"
   },
   es: {
     alertTriggerEmpty: "¡El campo de palabra clave de activación no puede estar vacío!",
@@ -706,7 +1270,194 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "Contenido de Texto a Voz de TTS (Synthesis Context Text)",
     ttsVoiceLabel: "Voz de Referencia o Altavoz Clonado (Reference Cloner Design)",
     enqueueTaskBtn: "Añadir a la Cola",
-    queuePolicyDocsTitle: "Política de Cola y Documentos de Cómputo"
+    queuePolicyDocsTitle: "Política de Cola y Documentos de Cómputo",
+      backToProjectDetails: "Back to Details",
+    digitalHumanStudio: "Digital Human Studio",
+    loadingDigitalHumanProject: "Loading Digital Human project...",
+    workflowLabel: "Workflow",
+    engineLabel: "Engine",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "Avatar Consistency",
+    seedLabel: "Seed",
+    avatarPromptPlaceholder: "Enter detailed portrait prompts...",
+    workflowEngineLabel: "Workflow Engine",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "Ultra Fast (8-step)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "High Quality",
+    artStylePresetLabel: "Art Style Preset",
+    consistencySeedLabel: "Consistency Seed",
+    randomizeSeedTooltip: "Randomize",
+    generateConsistencyAvatarsBtnLoading: "Synthesizing Avatar Array...",
+    generateConsistencyAvatarsBtn: "Generate Consistency Avatars",
+    noAvatarGeneratedTip: "No digital avatars generated yet",
+    avatarGenerateTip: "Enter a prompt and click generate consistency avatars above",
+    generatedAvatarListTitle: "Generated Consistent Avatars (Click to select & edit prompt):",
+    avatarIndexPromptTitle: "Avatar #{index} Prompt",
+    noCustomAvatarPromptTip: "No custom prompt stored for this avatar index. Enter custom modifier tags...",
+    saveAvatarPromptBtn: "Save Prompt",
+    saveAvatarPromptSuccess: "✓ Saved",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "Soundtrack Engine",
+    musicStylePromptLabel: "Music Style Prompt",
+    musicPromptPlaceholder: "Cinematic soundtrack, gentle soothing tones...",
+    generateBgmBtnLoading: "Rendering ambient track...",
+    generateBgmBtn: "Generate Project Background Music",
+    masterSoundtrackGeneratedTip: "Master Soundtrack Generated",
+    playAudioTooltip: "Play Audio",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s Restriction",
+    singingTab: "Singing Mode",
+    workflowDescTitle: "LTX 2.3 Workflow Instruction",
+    workflowStepDesc: "1. Generate avatar base map ➔ 2. Input script segments ➔ 3. Generate TTS voice ➔ 4. Render lip-sync digital human video with avatar & audio.",
+    timingWarningTitle: "12 Second Limit Warning",
+    timingWarningDesc: "If your dialogue text is too long, use batch import, it will auto split into natural sentences within 12 seconds by punctuation and word count limit.",
+    singingModeDescTitle: "Digital Human Singing Mode",
+    singingModeDesc: "Convert script text into lyrics for melody generation and lip-sync rendering.",
+
+    // Add Dialogue Section
+    addDialogueTitle: "Add Dialogue Segment",
+    singleEntryTab: "Single Entry",
+    batchDialogueTab: "Batch Dialogue",
+    segmentTitleLabel: "Segment Title / Name Prefix",
+    segmentTitlePlaceholder: "e.g. Opening, Introduction, Hook...",
+    voiceToneLabel: "Voice Tone (Timbre Studio)",
+    customVoiceToggleBtn: "⚙️ Custom Timbre",
+    closeCustomVoiceBtn: "✕ Close",
+    timbreStudioTitle: "Timbre Studio",
+    timbreEngineLabel: "Engine",
+    timbreNameLabel: "Timbre Name",
+    timbreNamePlaceholder: "e.g. My Custom Voice...",
+    voiceGenderLabel: "Voice Gender",
+    femaleVoice: "Female",
+    maleVoice: "Male",
+    cyberVoice: "Cyber",
+    emotionStyleLabel: "Emotion / Style",
+    emotionWarm: "Warm",
+    emotionArticulate: "Articulate",
+    emotionDeep: "Deep",
+    emotionEnergetic: "Energetic",
+    emotionSoft: "Soft",
+    emotionCyber: "Cyber",
+    voicePitchLabel: "Voice Pitch",
+    lowPitchTip: "LOW (-5)",
+    highPitchTip: "HIGH (+5)",
+    speechRateLabel: "Speech Rate",
+    autoSaveTimbreTip: "Auto-saved to local preset timbres",
+    saveTimbreBtn: "Save Timbre",
+    manageTimbreTitle: "Manage Timbres:",
+    deleteTimbreBtn: "Delete",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "Dialogue Content / Lyrics (Max 12 Seconds)",
+    charCountWarningTip: "{count} Chars {warning}",
+    charLimitRuleTip: "Word Count Tip: Max ~42 Chinese chars / 30 English words within 12s.",
+    enableSingingModeLabel: "🎵 Enable Singing Song Mode",
+    addSegmentBtn: "Add Segment",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "Full Dialogue Script (Batch paste)",
+    batchTextPlaceholder: "Paste the entire script or multi-line dialog here. It will be automatically split by sentence punctuation into natural chunks of under 12 seconds each.",
+    batchRuleTitle: "Smart Chunking & 12s Speech Limit Rules:",
+    batchRule1: "1. Splits by line breaks, periods, exclamation/question marks;",
+    batchRule2: "2. If a segment exceeds limits, splits further by commas or sub-clauses;",
+    batchRule3: "3. Guarantees that every chunk stays under 12s duration for mouth-shape alignment.",
+    batchImportLoading: "Importing & splitting...",
+    batchImportBtn: "Smart Split & Import Script",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "Dialogue Script & Render Lines",
+    lineCountSuffix: "Line(s)",
+    noDialogueTip: "No script dialogues. Please add your first spoken line above!",
+    estimatedDurationLabel: "{duration}s",
+    overTimeLimitWarning: "Text length warning: This line exceeds 12s limit, may cause lip sync failure or render rejection. Please shorten it!",
+    ttsVoiceOkTag: "TTS Voice OK",
+    regenerateSpeechBtn: "Regenerate",
+    generateSpeechBtn: "Generate Speech (TTS)",
+    singingVocalOkTag: "Singing Vocal OK",
+    generateSingingTrackBtn: "Generate Singing Track",
+    sceneImageOkTag: "Scene Image OK",
+    regenerateSceneTooltip: "Regenerate scene",
+    scenicImageBtn: "Scenic Image",
+    ltxTalkingOkTag: "LTX Talking OK",
+    watchVideoBtn: "Watch",
+    ltxRenderBtn: "LTX 2.3 Render",
+    ltxRenderDisabledTip: "Please generate speech voiceover first",
+    singingVideoOkTag: "Singing Video OK",
+    singingLtxRenderBtn: "Singing LTX Render",
+    singingRenderDisabledTip: "Please generate singing audio first",
+    deleteLineTooltip: "Delete this line",
+
+    // Video Preview Deck
+    previewDeckTitle: "Integrated Digital Human Video Preview Deck",
+    avatarLaneLabel: "Face Avatar Lane:",
+    audioTtsLaneLabel: "Audio TTS Lane:",
+    bgmTrackLabel: "Background Music Track:",
+    noBgmLoadedTip: "No BGM Loaded",
+    playingMixedTip: "● PLAYING MIXED",
+    selectWatchToPlayTip: "Select \"Watch\" to play segment rendering inside Master Preview Deck",
+    closeModalBtn: "CLOSE",
+    ltxMasterPipelineTitle: "LTX 2.3 Master Pipeline Output",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "Scene Image Workflow Configuration",
+    diffusionEngineLabel: "Diffusion Engine Model",
+    widthLabel: "Width (px)",
+    heightLabel: "Height (px)",
+    importAvatarPromptTitle: "Selected Avatar Prompt",
+    importAvatarPromptBtn: "Import Selected Avatar Prompt",
+    currentSceneImageLabel: "Current Scene Image",
+    regenerateOverwriteTip: "Regenerating will overwrite existing",
+    promptDecoratorTitle: "Prompt Decorator Presets",
+    projectVisualStyleLabel: "Project Visual Style",
+    ipCharacterLabel: "IP Character",
+    sceneEnvironmentLabel: "Scene Environment",
+    lightingStyleLabel: "Lighting Style",
+    voiceAlignmentLabel: "Voice Alignment",
+    noneOption: "None",
+    fusePromptBtnLoading: "Executing Decorator Chain Fusion...",
+    fusePromptBtn: "Fuse Prompt via Decorator Pattern",
+    decoratedOutputTitle: "Decorated Chain Output:",
+    scenePromptLabel: "Scene Prompt",
+    scenePromptPlaceholder: "e.g. A gorgeous modern living room with natural sunlight, Ghibli anime style cozy background...",
+    cancelBtn: "Cancel",
+    generateSceneBtn: "Generate Scene",
+
+    // TTS Timbre Modal
+    dialogueTextLabel: "Dialogue Script Text",
+    charsSuffix: "chars",
+    referenceAudioTitle: "1. Timbre Cloner Reference Audio",
+    referenceAudioDesc: "Upload a voice file, or click on a template below to clone character voice:",
+    dragUploadTip: "Drag & drop reference audio, or click to upload",
+    loadedCustomVoiceTip: "✓ Loaded Custom Voice: {name}",
+    uploadFormatTip: "Supports WAV, MP3, M4A. Up to 30s recommended.",
+    selectStandardRefTip: "Or Select Standard Reference Presets:",
+    voiceAttributeTitle: "2. VoxCPM2 Voice Attributes Detail",
+    generateAsLyricsLabel: "Generate as Lyrics",
+    synthesisEngineLabel: "Synthesis Engine / Workflow",
+    voiceDesignEngine: "VoxCPM2 Voice Design",
+    voiceCloneEngine: "Voice Clone",
+    selectTimbreLabel: "Select Voice / Designed Timbre",
+    voiceDesignPromptLabel: "✍️ Voice Design Description Prompt",
+    voiceDesignPromptPlaceholder: "e.g., A warm, mature female voice, speaking slowly and professionally...",
+    voiceDesignDescTip: "The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.",
+    saveCustomTimbreTitle: "Save as custom saved timbre preset",
+    cancelSavePresetBtn: "✕ Cancel",
+    customTimbreNamePlaceholder: "Custom timbre name...",
+    savePresetBtn: "Save",
+    cloneGenerateVoiceBtn: "Clone & Generate Voice",
+
+    // Art Style Option Text
+    styleRealism: "Realism",
+    styleScenery: "Scenery",
+    styleCinematic: "Cinematic Movie",
+    styleAnime: "Anime/Manga",
+    styleGhibli: "Ghibli Style",
+    styleCyberpunk: "Cyberpunk"
   },
   fr: {
     alertTriggerEmpty: "Le mot-clé de déclenchement ne peut pas être vide !",
@@ -883,7 +1634,194 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "Contenu de texte vers parole TTS (Synthesis Context Text)",
     ttsVoiceLabel: "Voix de référence ou haut-parleur cloné (Reference Cloner Design)",
     enqueueTaskBtn: "Ajouter à la file d'attente",
-    queuePolicyDocsTitle: "Politique de file d'attente et documents de calcul"
+    queuePolicyDocsTitle: "Politique de file d'attente et documents de calcul",
+      backToProjectDetails: "Back to Details",
+    digitalHumanStudio: "Digital Human Studio",
+    loadingDigitalHumanProject: "Loading Digital Human project...",
+    workflowLabel: "Workflow",
+    engineLabel: "Engine",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "Avatar Consistency",
+    seedLabel: "Seed",
+    avatarPromptPlaceholder: "Enter detailed portrait prompts...",
+    workflowEngineLabel: "Workflow Engine",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "Ultra Fast (8-step)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "High Quality",
+    artStylePresetLabel: "Art Style Preset",
+    consistencySeedLabel: "Consistency Seed",
+    randomizeSeedTooltip: "Randomize",
+    generateConsistencyAvatarsBtnLoading: "Synthesizing Avatar Array...",
+    generateConsistencyAvatarsBtn: "Generate Consistency Avatars",
+    noAvatarGeneratedTip: "No digital avatars generated yet",
+    avatarGenerateTip: "Enter a prompt and click generate consistency avatars above",
+    generatedAvatarListTitle: "Generated Consistent Avatars (Click to select & edit prompt):",
+    avatarIndexPromptTitle: "Avatar #{index} Prompt",
+    noCustomAvatarPromptTip: "No custom prompt stored for this avatar index. Enter custom modifier tags...",
+    saveAvatarPromptBtn: "Save Prompt",
+    saveAvatarPromptSuccess: "✓ Saved",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "Soundtrack Engine",
+    musicStylePromptLabel: "Music Style Prompt",
+    musicPromptPlaceholder: "Cinematic soundtrack, gentle soothing tones...",
+    generateBgmBtnLoading: "Rendering ambient track...",
+    generateBgmBtn: "Generate Project Background Music",
+    masterSoundtrackGeneratedTip: "Master Soundtrack Generated",
+    playAudioTooltip: "Play Audio",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s Restriction",
+    singingTab: "Singing Mode",
+    workflowDescTitle: "LTX 2.3 Workflow Instruction",
+    workflowStepDesc: "1. Generate avatar base map ➔ 2. Input script segments ➔ 3. Generate TTS voice ➔ 4. Render lip-sync digital human video with avatar & audio.",
+    timingWarningTitle: "12 Second Limit Warning",
+    timingWarningDesc: "If your dialogue text is too long, use batch import, it will auto split into natural sentences within 12 seconds by punctuation and word count limit.",
+    singingModeDescTitle: "Digital Human Singing Mode",
+    singingModeDesc: "Convert script text into lyrics for melody generation and lip-sync rendering.",
+
+    // Add Dialogue Section
+    addDialogueTitle: "Add Dialogue Segment",
+    singleEntryTab: "Single Entry",
+    batchDialogueTab: "Batch Dialogue",
+    segmentTitleLabel: "Segment Title / Name Prefix",
+    segmentTitlePlaceholder: "e.g. Opening, Introduction, Hook...",
+    voiceToneLabel: "Voice Tone (Timbre Studio)",
+    customVoiceToggleBtn: "⚙️ Custom Timbre",
+    closeCustomVoiceBtn: "✕ Close",
+    timbreStudioTitle: "Timbre Studio",
+    timbreEngineLabel: "Engine",
+    timbreNameLabel: "Timbre Name",
+    timbreNamePlaceholder: "e.g. My Custom Voice...",
+    voiceGenderLabel: "Voice Gender",
+    femaleVoice: "Female",
+    maleVoice: "Male",
+    cyberVoice: "Cyber",
+    emotionStyleLabel: "Emotion / Style",
+    emotionWarm: "Warm",
+    emotionArticulate: "Articulate",
+    emotionDeep: "Deep",
+    emotionEnergetic: "Energetic",
+    emotionSoft: "Soft",
+    emotionCyber: "Cyber",
+    voicePitchLabel: "Voice Pitch",
+    lowPitchTip: "LOW (-5)",
+    highPitchTip: "HIGH (+5)",
+    speechRateLabel: "Speech Rate",
+    autoSaveTimbreTip: "Auto-saved to local preset timbres",
+    saveTimbreBtn: "Save Timbre",
+    manageTimbreTitle: "Manage Timbres:",
+    deleteTimbreBtn: "Delete",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "Dialogue Content / Lyrics (Max 12 Seconds)",
+    charCountWarningTip: "{count} Chars {warning}",
+    charLimitRuleTip: "Word Count Tip: Max ~42 Chinese chars / 30 English words within 12s.",
+    enableSingingModeLabel: "🎵 Enable Singing Song Mode",
+    addSegmentBtn: "Add Segment",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "Full Dialogue Script (Batch paste)",
+    batchTextPlaceholder: "Paste the entire script or multi-line dialog here. It will be automatically split by sentence punctuation into natural chunks of under 12 seconds each.",
+    batchRuleTitle: "Smart Chunking & 12s Speech Limit Rules:",
+    batchRule1: "1. Splits by line breaks, periods, exclamation/question marks;",
+    batchRule2: "2. If a segment exceeds limits, splits further by commas or sub-clauses;",
+    batchRule3: "3. Guarantees that every chunk stays under 12s duration for mouth-shape alignment.",
+    batchImportLoading: "Importing & splitting...",
+    batchImportBtn: "Smart Split & Import Script",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "Dialogue Script & Render Lines",
+    lineCountSuffix: "Line(s)",
+    noDialogueTip: "No script dialogues. Please add your first spoken line above!",
+    estimatedDurationLabel: "{duration}s",
+    overTimeLimitWarning: "Text length warning: This line exceeds 12s limit, may cause lip sync failure or render rejection. Please shorten it!",
+    ttsVoiceOkTag: "TTS Voice OK",
+    regenerateSpeechBtn: "Regenerate",
+    generateSpeechBtn: "Generate Speech (TTS)",
+    singingVocalOkTag: "Singing Vocal OK",
+    generateSingingTrackBtn: "Generate Singing Track",
+    sceneImageOkTag: "Scene Image OK",
+    regenerateSceneTooltip: "Regenerate scene",
+    scenicImageBtn: "Scenic Image",
+    ltxTalkingOkTag: "LTX Talking OK",
+    watchVideoBtn: "Watch",
+    ltxRenderBtn: "LTX 2.3 Render",
+    ltxRenderDisabledTip: "Please generate speech voiceover first",
+    singingVideoOkTag: "Singing Video OK",
+    singingLtxRenderBtn: "Singing LTX Render",
+    singingRenderDisabledTip: "Please generate singing audio first",
+    deleteLineTooltip: "Delete this line",
+
+    // Video Preview Deck
+    previewDeckTitle: "Integrated Digital Human Video Preview Deck",
+    avatarLaneLabel: "Face Avatar Lane:",
+    audioTtsLaneLabel: "Audio TTS Lane:",
+    bgmTrackLabel: "Background Music Track:",
+    noBgmLoadedTip: "No BGM Loaded",
+    playingMixedTip: "● PLAYING MIXED",
+    selectWatchToPlayTip: "Select \"Watch\" to play segment rendering inside Master Preview Deck",
+    closeModalBtn: "CLOSE",
+    ltxMasterPipelineTitle: "LTX 2.3 Master Pipeline Output",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "Scene Image Workflow Configuration",
+    diffusionEngineLabel: "Diffusion Engine Model",
+    widthLabel: "Width (px)",
+    heightLabel: "Height (px)",
+    importAvatarPromptTitle: "Selected Avatar Prompt",
+    importAvatarPromptBtn: "Import Selected Avatar Prompt",
+    currentSceneImageLabel: "Current Scene Image",
+    regenerateOverwriteTip: "Regenerating will overwrite existing",
+    promptDecoratorTitle: "Prompt Decorator Presets",
+    projectVisualStyleLabel: "Project Visual Style",
+    ipCharacterLabel: "IP Character",
+    sceneEnvironmentLabel: "Scene Environment",
+    lightingStyleLabel: "Lighting Style",
+    voiceAlignmentLabel: "Voice Alignment",
+    noneOption: "None",
+    fusePromptBtnLoading: "Executing Decorator Chain Fusion...",
+    fusePromptBtn: "Fuse Prompt via Decorator Pattern",
+    decoratedOutputTitle: "Decorated Chain Output:",
+    scenePromptLabel: "Scene Prompt",
+    scenePromptPlaceholder: "e.g. A gorgeous modern living room with natural sunlight, Ghibli anime style cozy background...",
+    cancelBtn: "Cancel",
+    generateSceneBtn: "Generate Scene",
+
+    // TTS Timbre Modal
+    dialogueTextLabel: "Dialogue Script Text",
+    charsSuffix: "chars",
+    referenceAudioTitle: "1. Timbre Cloner Reference Audio",
+    referenceAudioDesc: "Upload a voice file, or click on a template below to clone character voice:",
+    dragUploadTip: "Drag & drop reference audio, or click to upload",
+    loadedCustomVoiceTip: "✓ Loaded Custom Voice: {name}",
+    uploadFormatTip: "Supports WAV, MP3, M4A. Up to 30s recommended.",
+    selectStandardRefTip: "Or Select Standard Reference Presets:",
+    voiceAttributeTitle: "2. VoxCPM2 Voice Attributes Detail",
+    generateAsLyricsLabel: "Generate as Lyrics",
+    synthesisEngineLabel: "Synthesis Engine / Workflow",
+    voiceDesignEngine: "VoxCPM2 Voice Design",
+    voiceCloneEngine: "Voice Clone",
+    selectTimbreLabel: "Select Voice / Designed Timbre",
+    voiceDesignPromptLabel: "✍️ Voice Design Description Prompt",
+    voiceDesignPromptPlaceholder: "e.g., A warm, mature female voice, speaking slowly and professionally...",
+    voiceDesignDescTip: "The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.",
+    saveCustomTimbreTitle: "Save as custom saved timbre preset",
+    cancelSavePresetBtn: "✕ Cancel",
+    customTimbreNamePlaceholder: "Custom timbre name...",
+    savePresetBtn: "Save",
+    cloneGenerateVoiceBtn: "Clone & Generate Voice",
+
+    // Art Style Option Text
+    styleRealism: "Realism",
+    styleScenery: "Scenery",
+    styleCinematic: "Cinematic Movie",
+    styleAnime: "Anime/Manga",
+    styleGhibli: "Ghibli Style",
+    styleCyberpunk: "Cyberpunk"
   },
   ar: {
     alertTriggerEmpty: "لا يمكن أن تكون الكلمة المفتاحية للتشغيل فارغة!",
@@ -1060,7 +1998,195 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "محتوى النص إلى كلام TTS (Synthesis Context Text)",
     ttsVoiceLabel: "الصوت المرجعي أو المتحدث المستنسخ (Reference Cloner Design)",
     enqueueTaskBtn: "إضافة إلى الطابور",
-    queuePolicyDocsTitle: "سياسة الطابور ووثائق الحوسبة"
+    queuePolicyDocsTitle: "سياسة الطابور ووثائق الحوسبة",
+      backToProjectDetails: "Back to Details",
+    digitalHumanStudio: "Digital Human Studio",
+    loadingDigitalHumanProject: "Loading Digital Human project...",
+    workflowLabel: "Workflow",
+    engineLabel: "Engine",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "Avatar Consistency",
+    seedLabel: "Seed",
+    avatarPromptPlaceholder: "Enter detailed portrait prompts...",
+    workflowEngineLabel: "Workflow Engine",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "Ultra Fast (8-step)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "High Quality",
+    artStylePresetLabel: "Art Style Preset",
+    consistencySeedLabel: "Consistency Seed",
+    randomizeSeedTooltip: "Randomize",
+    generateConsistencyAvatarsBtnLoading: "Synthesizing Avatar Array...",
+    generateConsistencyAvatarsBtn: "Generate Consistency Avatars",
+    noAvatarGeneratedTip: "No digital avatars generated yet",
+    avatarGenerateTip: "Enter a prompt and click generate consistency avatars above",
+    generatedAvatarListTitle: "Generated Consistent Avatars (Click to select & edit prompt):",
+    avatarIndexPromptTitle: "Avatar #{index} Prompt",
+    noCustomAvatarPromptTip: "No custom prompt stored for this avatar index. Enter custom modifier tags...",
+    saveAvatarPromptBtn: "Save Prompt",
+    saveAvatarPromptSuccess: "✓ Saved",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "Soundtrack Engine",
+    musicStylePromptLabel: "Music Style Prompt",
+    musicPromptPlaceholder: "Cinematic soundtrack, gentle soothing tones...",
+    generateBgmBtnLoading: "Rendering ambient track...",
+    generateBgmBtn: "Generate Project Background Music",
+    masterSoundtrackGeneratedTip: "Master Soundtrack Generated",
+    playAudioTooltip: "Play Audio",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s Restriction",
+    singingTab: "Singing Mode",
+    workflowDescTitle: "LTX 2.3 Workflow Instruction",
+    workflowStepDesc: "1. Generate avatar base map ➔ 2. Input script segments ➔ 3. Generate TTS voice ➔ 4. Render lip-sync digital human video with avatar & audio.",
+    timingWarningTitle: "12 Second Limit Warning",
+    timingWarningDesc: "If your dialogue text is too long, use batch import, it will auto split into natural sentences within 12 seconds by punctuation and word count limit.",
+    singingModeDescTitle: "Digital Human Singing Mode",
+    singingModeDesc: "Convert script text into lyrics for melody generation and lip-sync rendering.",
+
+    // Add Dialogue Section
+    addDialogueTitle: "Add Dialogue Segment",
+    singleEntryTab: "Single Entry",
+    batchDialogueTab: "Batch Dialogue",
+    segmentTitleLabel: "Segment Title / Name Prefix",
+    segmentTitlePlaceholder: "e.g. Opening, Introduction, Hook...",
+    voiceToneLabel: "Voice Tone (Timbre Studio)",
+    customVoiceToggleBtn: "⚙️ Custom Timbre",
+    closeCustomVoiceBtn: "✕ Close",
+    timbreStudioTitle: "Timbre Studio",
+    timbreEngineLabel: "Engine",
+    timbreNameLabel: "Timbre Name",
+    timbreNamePlaceholder: "e.g. My Custom Voice...",
+    voiceGenderLabel: "Voice Gender",
+    femaleVoice: "Female",
+    maleVoice: "Male",
+    cyberVoice: "Cyber",
+    emotionStyleLabel: "Emotion / Style",
+    emotionWarm: "Warm",
+    emotionArticulate: "Articulate",
+    emotionDeep: "Deep",
+    emotionEnergetic: "Energetic",
+    emotionSoft: "Soft",
+    emotionCyber: "Cyber",
+    voicePitchLabel: "Voice Pitch",
+    lowPitchTip: "LOW (-5)",
+    highPitchTip: "HIGH (+5)",
+    speechRateLabel: "Speech Rate",
+    autoSaveTimbreTip: "Auto-saved to local preset timbres",
+    saveTimbreBtn: "Save Timbre",
+    manageTimbreTitle: "Manage Timbres:",
+    deleteTimbreBtn: "Delete",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "Dialogue Content / Lyrics (Max 12 Seconds)",
+    charCountWarningTip: "{count} Chars {warning}",
+    charLimitRuleTip: "Word Count Tip: Max ~42 Chinese chars / 30 English words within 12s.",
+    enableSingingModeLabel: "🎵 Enable Singing Song Mode",
+    addSegmentBtn: "Add Segment",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "Full Dialogue Script (Batch paste)",
+    batchTextPlaceholder: "Paste the entire script or multi-line dialog here. It will be automatically split by sentence punctuation into natural chunks of under 12 seconds each.",
+    batchRuleTitle: "Smart Chunking & 12s Speech Limit Rules:",
+    batchRule1: "1. Splits by line breaks, periods, exclamation/question marks;",
+    batchRule2: "2. If a segment exceeds limits, splits further by commas or sub-clauses;",
+    batchRule3: "3. Guarantees that every chunk stays under 12s duration for mouth-shape alignment.",
+    batchImportLoading: "Importing & splitting...",
+    batchImportBtn: "Smart Split & Import Script",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "Dialogue Script & Render Lines",
+    lineCountSuffix: "Line(s)",
+    noDialogueTip: "No script dialogues. Please add your first spoken line above!",
+    estimatedDurationLabel: "{duration}s",
+    overTimeLimitWarning: "Text length warning: This line exceeds 12s limit, may cause lip sync failure or render rejection. Please shorten it!",
+    ttsVoiceOkTag: "TTS Voice OK",
+    regenerateSpeechBtn: "Regenerate",
+    generateSpeechBtn: "Generate Speech (TTS)",
+    singingVocalOkTag: "Singing Vocal OK",
+    generateSingingTrackBtn: "Generate Singing Track",
+    sceneImageOkTag: "Scene Image OK",
+    regenerateSceneTooltip: "Regenerate scene",
+    scenicImageBtn: "Scenic Image",
+    ltxTalkingOkTag: "LTX Talking OK",
+    watchVideoBtn: "Watch",
+    ltxRenderBtn: "LTX 2.3 Render",
+    ltxRenderDisabledTip: "Please generate speech voiceover first",
+    singingVideoOkTag: "Singing Video OK",
+    singingLtxRenderBtn: "Singing LTX Render",
+    singingRenderDisabledTip: "Please generate singing audio first",
+    deleteLineTooltip: "Delete this line",
+
+    // Video Preview Deck
+    previewDeckTitle: "Integrated Digital Human Video Preview Deck",
+    avatarLaneLabel: "Face Avatar Lane:",
+    audioTtsLaneLabel: "Audio TTS Lane:",
+    bgmTrackLabel: "Background Music Track:",
+    noBgmLoadedTip: "No BGM Loaded",
+    playingMixedTip: "● PLAYING MIXED",
+    selectWatchToPlayTip: "Select \"Watch\" to play segment rendering inside Master Preview Deck",
+    closeModalBtn: "CLOSE",
+    ltxMasterPipelineTitle: "LTX 2.3 Master Pipeline Output",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "Scene Image Workflow Configuration",
+    diffusionEngineLabel: "Diffusion Engine Model",
+    widthLabel: "Width (px)",
+    heightLabel: "Height (px)",
+    importAvatarPromptTitle: "Selected Avatar Prompt",
+    importAvatarPromptBtn: "Import Selected Avatar Prompt",
+    currentSceneImageLabel: "Current Scene Image",
+    regenerateOverwriteTip: "Regenerating will overwrite existing",
+    promptDecoratorTitle: "Prompt Decorator Presets",
+    projectVisualStyleLabel: "Project Visual Style",
+    ipCharacterLabel: "IP Character",
+    sceneEnvironmentLabel: "Scene Environment",
+    lightingStyleLabel: "Lighting Style",
+    voiceAlignmentLabel: "Voice Alignment",
+    noneOption: "None",
+    fusePromptBtnLoading: "Executing Decorator Chain Fusion...",
+    fusePromptBtn: "Fuse Prompt via Decorator Pattern",
+    decoratedOutputTitle: "Decorated Chain Output:",
+    scenePromptLabel: "Scene Prompt",
+    scenePromptPlaceholder: "e.g. A gorgeous modern living room with natural sunlight, Ghibli anime style cozy background...",
+    cancelBtn: "Cancel",
+    generateSceneBtn: "Generate Scene",
+
+    // TTS Timbre Modal
+    
+    dialogueTextLabel: "Dialogue Script Text",
+    charsSuffix: "chars",
+    referenceAudioTitle: "1. Timbre Cloner Reference Audio",
+    referenceAudioDesc: "Upload a voice file, or click on a template below to clone character voice:",
+    dragUploadTip: "Drag & drop reference audio, or click to upload",
+    loadedCustomVoiceTip: "✓ Loaded Custom Voice: {name}",
+    uploadFormatTip: "Supports WAV, MP3, M4A. Up to 30s recommended.",
+    selectStandardRefTip: "Or Select Standard Reference Presets:",
+    voiceAttributeTitle: "2. VoxCPM2 Voice Attributes Detail",
+    generateAsLyricsLabel: "Generate as Lyrics",
+    synthesisEngineLabel: "Synthesis Engine / Workflow",
+    voiceDesignEngine: "VoxCPM2 Voice Design",
+    voiceCloneEngine: "Voice Clone",
+    selectTimbreLabel: "Select Voice / Designed Timbre",
+    voiceDesignPromptLabel: "✍️ Voice Design Description Prompt",
+    voiceDesignPromptPlaceholder: "e.g., A warm, mature female voice, speaking slowly and professionally...",
+    voiceDesignDescTip: "The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.",
+    saveCustomTimbreTitle: "Save as custom saved timbre preset",
+    cancelSavePresetBtn: "✕ Cancel",
+    customTimbreNamePlaceholder: "Custom timbre name...",
+    savePresetBtn: "Save",
+    cloneGenerateVoiceBtn: "Clone & Generate Voice",
+
+    // Art Style Option Text
+    styleRealism: "Realism",
+    styleScenery: "Scenery",
+    styleCinematic: "Cinematic Movie",
+    styleAnime: "Anime/Manga",
+    styleGhibli: "Ghibli Style",
+    styleCyberpunk: "Cyberpunk"
   },
   no: {
     alertTriggerEmpty: "Utløser-nøkkelord kan ikke være tomt!",
@@ -1237,7 +2363,194 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "TTS tekst-til-tale innhold (Synthesis Context Text)",
     ttsVoiceLabel: "Referansestemme eller klonet taler (Reference Cloner Design)",
     enqueueTaskBtn: "Legg i kø",
-    queuePolicyDocsTitle: "Køpolicy og beregningsdokumenter"
+    queuePolicyDocsTitle: "Køpolicy og beregningsdokumenter",
+      backToProjectDetails: "Back to Details",
+    digitalHumanStudio: "Digital Human Studio",
+    loadingDigitalHumanProject: "Loading Digital Human project...",
+    workflowLabel: "Workflow",
+    engineLabel: "Engine",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "Avatar Consistency",
+    seedLabel: "Seed",
+    avatarPromptPlaceholder: "Enter detailed portrait prompts...",
+    workflowEngineLabel: "Workflow Engine",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "Ultra Fast (8-step)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "High Quality",
+    artStylePresetLabel: "Art Style Preset",
+    consistencySeedLabel: "Consistency Seed",
+    randomizeSeedTooltip: "Randomize",
+    generateConsistencyAvatarsBtnLoading: "Synthesizing Avatar Array...",
+    generateConsistencyAvatarsBtn: "Generate Consistency Avatars",
+    noAvatarGeneratedTip: "No digital avatars generated yet",
+    avatarGenerateTip: "Enter a prompt and click generate consistency avatars above",
+    generatedAvatarListTitle: "Generated Consistent Avatars (Click to select & edit prompt):",
+    avatarIndexPromptTitle: "Avatar #{index} Prompt",
+    noCustomAvatarPromptTip: "No custom prompt stored for this avatar index. Enter custom modifier tags...",
+    saveAvatarPromptBtn: "Save Prompt",
+    saveAvatarPromptSuccess: "✓ Saved",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "Soundtrack Engine",
+    musicStylePromptLabel: "Music Style Prompt",
+    musicPromptPlaceholder: "Cinematic soundtrack, gentle soothing tones...",
+    generateBgmBtnLoading: "Rendering ambient track...",
+    generateBgmBtn: "Generate Project Background Music",
+    masterSoundtrackGeneratedTip: "Master Soundtrack Generated",
+    playAudioTooltip: "Play Audio",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s Restriction",
+    singingTab: "Singing Mode",
+    workflowDescTitle: "LTX 2.3 Workflow Instruction",
+    workflowStepDesc: "1. Generate avatar base map ➔ 2. Input script segments ➔ 3. Generate TTS voice ➔ 4. Render lip-sync digital human video with avatar & audio.",
+    timingWarningTitle: "12 Second Limit Warning",
+    timingWarningDesc: "If your dialogue text is too long, use batch import, it will auto split into natural sentences within 12 seconds by punctuation and word count limit.",
+    singingModeDescTitle: "Digital Human Singing Mode",
+    singingModeDesc: "Convert script text into lyrics for melody generation and lip-sync rendering.",
+
+    // Add Dialogue Section
+    addDialogueTitle: "Add Dialogue Segment",
+    singleEntryTab: "Single Entry",
+    batchDialogueTab: "Batch Dialogue",
+    segmentTitleLabel: "Segment Title / Name Prefix",
+    segmentTitlePlaceholder: "e.g. Opening, Introduction, Hook...",
+    voiceToneLabel: "Voice Tone (Timbre Studio)",
+    customVoiceToggleBtn: "⚙️ Custom Timbre",
+    closeCustomVoiceBtn: "✕ Close",
+    timbreStudioTitle: "Timbre Studio",
+    timbreEngineLabel: "Engine",
+    timbreNameLabel: "Timbre Name",
+    timbreNamePlaceholder: "e.g. My Custom Voice...",
+    voiceGenderLabel: "Voice Gender",
+    femaleVoice: "Female",
+    maleVoice: "Male",
+    cyberVoice: "Cyber",
+    emotionStyleLabel: "Emotion / Style",
+    emotionWarm: "Warm",
+    emotionArticulate: "Articulate",
+    emotionDeep: "Deep",
+    emotionEnergetic: "Energetic",
+    emotionSoft: "Soft",
+    emotionCyber: "Cyber",
+    voicePitchLabel: "Voice Pitch",
+    lowPitchTip: "LOW (-5)",
+    highPitchTip: "HIGH (+5)",
+    speechRateLabel: "Speech Rate",
+    autoSaveTimbreTip: "Auto-saved to local preset timbres",
+    saveTimbreBtn: "Save Timbre",
+    manageTimbreTitle: "Manage Timbres:",
+    deleteTimbreBtn: "Delete",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "Dialogue Content / Lyrics (Max 12 Seconds)",
+    charCountWarningTip: "{count} Chars {warning}",
+    charLimitRuleTip: "Word Count Tip: Max ~42 Chinese chars / 30 English words within 12s.",
+    enableSingingModeLabel: "🎵 Enable Singing Song Mode",
+    addSegmentBtn: "Add Segment",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "Full Dialogue Script (Batch paste)",
+    batchTextPlaceholder: "Paste the entire script or multi-line dialog here. It will be automatically split by sentence punctuation into natural chunks of under 12 seconds each.",
+    batchRuleTitle: "Smart Chunking & 12s Speech Limit Rules:",
+    batchRule1: "1. Splits by line breaks, periods, exclamation/question marks;",
+    batchRule2: "2. If a segment exceeds limits, splits further by commas or sub-clauses;",
+    batchRule3: "3. Guarantees that every chunk stays under 12s duration for mouth-shape alignment.",
+    batchImportLoading: "Importing & splitting...",
+    batchImportBtn: "Smart Split & Import Script",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "Dialogue Script & Render Lines",
+    lineCountSuffix: "Line(s)",
+    noDialogueTip: "No script dialogues. Please add your first spoken line above!",
+    estimatedDurationLabel: "{duration}s",
+    overTimeLimitWarning: "Text length warning: This line exceeds 12s limit, may cause lip sync failure or render rejection. Please shorten it!",
+    ttsVoiceOkTag: "TTS Voice OK",
+    regenerateSpeechBtn: "Regenerate",
+    generateSpeechBtn: "Generate Speech (TTS)",
+    singingVocalOkTag: "Singing Vocal OK",
+    generateSingingTrackBtn: "Generate Singing Track",
+    sceneImageOkTag: "Scene Image OK",
+    regenerateSceneTooltip: "Regenerate scene",
+    scenicImageBtn: "Scenic Image",
+    ltxTalkingOkTag: "LTX Talking OK",
+    watchVideoBtn: "Watch",
+    ltxRenderBtn: "LTX 2.3 Render",
+    ltxRenderDisabledTip: "Please generate speech voiceover first",
+    singingVideoOkTag: "Singing Video OK",
+    singingLtxRenderBtn: "Singing LTX Render",
+    singingRenderDisabledTip: "Please generate singing audio first",
+    deleteLineTooltip: "Delete this line",
+
+    // Video Preview Deck
+    previewDeckTitle: "Integrated Digital Human Video Preview Deck",
+    avatarLaneLabel: "Face Avatar Lane:",
+    audioTtsLaneLabel: "Audio TTS Lane:",
+    bgmTrackLabel: "Background Music Track:",
+    noBgmLoadedTip: "No BGM Loaded",
+    playingMixedTip: "● PLAYING MIXED",
+    selectWatchToPlayTip: "Select \"Watch\" to play segment rendering inside Master Preview Deck",
+    closeModalBtn: "CLOSE",
+    ltxMasterPipelineTitle: "LTX 2.3 Master Pipeline Output",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "Scene Image Workflow Configuration",
+    diffusionEngineLabel: "Diffusion Engine Model",
+    widthLabel: "Width (px)",
+    heightLabel: "Height (px)",
+    importAvatarPromptTitle: "Selected Avatar Prompt",
+    importAvatarPromptBtn: "Import Selected Avatar Prompt",
+    currentSceneImageLabel: "Current Scene Image",
+    regenerateOverwriteTip: "Regenerating will overwrite existing",
+    promptDecoratorTitle: "Prompt Decorator Presets",
+    projectVisualStyleLabel: "Project Visual Style",
+    ipCharacterLabel: "IP Character",
+    sceneEnvironmentLabel: "Scene Environment",
+    lightingStyleLabel: "Lighting Style",
+    voiceAlignmentLabel: "Voice Alignment",
+    noneOption: "None",
+    fusePromptBtnLoading: "Executing Decorator Chain Fusion...",
+    fusePromptBtn: "Fuse Prompt via Decorator Pattern",
+    decoratedOutputTitle: "Decorated Chain Output:",
+    scenePromptLabel: "Scene Prompt",
+    scenePromptPlaceholder: "e.g. A gorgeous modern living room with natural sunlight, Ghibli anime style cozy background...",
+    cancelBtn: "Cancel",
+    generateSceneBtn: "Generate Scene",
+
+    // TTS Timbre Modal
+    dialogueTextLabel: "Dialogue Script Text",
+    charsSuffix: "chars",
+    referenceAudioTitle: "1. Timbre Cloner Reference Audio",
+    referenceAudioDesc: "Upload a voice file, or click on a template below to clone character voice:",
+    dragUploadTip: "Drag & drop reference audio, or click to upload",
+    loadedCustomVoiceTip: "✓ Loaded Custom Voice: {name}",
+    uploadFormatTip: "Supports WAV, MP3, M4A. Up to 30s recommended.",
+    selectStandardRefTip: "Or Select Standard Reference Presets:",
+    voiceAttributeTitle: "2. VoxCPM2 Voice Attributes Detail",
+    generateAsLyricsLabel: "Generate as Lyrics",
+    synthesisEngineLabel: "Synthesis Engine / Workflow",
+    voiceDesignEngine: "VoxCPM2 Voice Design",
+    voiceCloneEngine: "Voice Clone",
+    selectTimbreLabel: "Select Voice / Designed Timbre",
+    voiceDesignPromptLabel: "✍️ Voice Design Description Prompt",
+    voiceDesignPromptPlaceholder: "e.g., A warm, mature female voice, speaking slowly and professionally...",
+    voiceDesignDescTip: "The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.",
+    saveCustomTimbreTitle: "Save as custom saved timbre preset",
+    cancelSavePresetBtn: "✕ Cancel",
+    customTimbreNamePlaceholder: "Custom timbre name...",
+    savePresetBtn: "Save",
+    cloneGenerateVoiceBtn: "Clone & Generate Voice",
+
+    // Art Style Option Text
+    styleRealism: "Realism",
+    styleScenery: "Scenery",
+    styleCinematic: "Cinematic Movie",
+    styleAnime: "Anime/Manga",
+    styleGhibli: "Ghibli Style",
+    styleCyberpunk: "Cyberpunk"
   },
   nl: {
     alertTriggerEmpty: "Activeringssleutelwoord mag niet leeg zijn!",
@@ -1414,6 +2727,193 @@ export const globalTranslations: Record<string, GlobalTranslationKeys> = {
     ttsTextLabel: "TTS Tekst-naar-Spraak Inhoud (Synthesis Context Text)",
     ttsVoiceLabel: "Referentiestem of gekloonde spreker (Reference Cloner Design)",
     enqueueTaskBtn: "In Wachtrij Plaatsen",
-    queuePolicyDocsTitle: "Wachtrijbeleid & Documenten"
+    queuePolicyDocsTitle: "Wachtrijbeleid & Documenten",
+      backToProjectDetails: "Back to Details",
+    digitalHumanStudio: "Digital Human Studio",
+    loadingDigitalHumanProject: "Loading Digital Human project...",
+    workflowLabel: "Workflow",
+    engineLabel: "Engine",
+
+    // Avatar Consistency Section
+    avatarConsistencyTitle: "Avatar Consistency",
+    seedLabel: "Seed",
+    avatarPromptPlaceholder: "Enter detailed portrait prompts...",
+    workflowEngineLabel: "Workflow Engine",
+    turboEngineName: "z-image-turbo",
+    turboEngineDesc: "Ultra Fast (8-step)",
+    qualityEngineName: "qwen-image-2512",
+    qualityEngineDesc: "High Quality",
+    artStylePresetLabel: "Art Style Preset",
+    consistencySeedLabel: "Consistency Seed",
+    randomizeSeedTooltip: "Randomize",
+    generateConsistencyAvatarsBtnLoading: "Synthesizing Avatar Array...",
+    generateConsistencyAvatarsBtn: "Generate Consistency Avatars",
+    noAvatarGeneratedTip: "No digital avatars generated yet",
+    avatarGenerateTip: "Enter a prompt and click generate consistency avatars above",
+    generatedAvatarListTitle: "Generated Consistent Avatars (Click to select & edit prompt):",
+    avatarIndexPromptTitle: "Avatar #{index} Prompt",
+    noCustomAvatarPromptTip: "No custom prompt stored for this avatar index. Enter custom modifier tags...",
+    saveAvatarPromptBtn: "Save Prompt",
+    saveAvatarPromptSuccess: "✓ Saved",
+
+    // Soundtrack Engine Section
+    soundtrackEngineTitle: "Soundtrack Engine",
+    musicStylePromptLabel: "Music Style Prompt",
+    musicPromptPlaceholder: "Cinematic soundtrack, gentle soothing tones...",
+    generateBgmBtnLoading: "Rendering ambient track...",
+    generateBgmBtn: "Generate Project Background Music",
+    masterSoundtrackGeneratedTip: "Master Soundtrack Generated",
+    playAudioTooltip: "Play Audio",
+
+    // Info Tab Panel
+    workflowTab: "LTX 2.3 Workflow",
+    timingTab: "12s Restriction",
+    singingTab: "Singing Mode",
+    workflowDescTitle: "LTX 2.3 Workflow Instruction",
+    workflowStepDesc: "1. Generate avatar base map ➔ 2. Input script segments ➔ 3. Generate TTS voice ➔ 4. Render lip-sync digital human video with avatar & audio.",
+    timingWarningTitle: "12 Second Limit Warning",
+    timingWarningDesc: "If your dialogue text is too long, use batch import, it will auto split into natural sentences within 12 seconds by punctuation and word count limit.",
+    singingModeDescTitle: "Digital Human Singing Mode",
+    singingModeDesc: "Convert script text into lyrics for melody generation and lip-sync rendering.",
+
+    // Add Dialogue Section
+    addDialogueTitle: "Add Dialogue Segment",
+    singleEntryTab: "Single Entry",
+    batchDialogueTab: "Batch Dialogue",
+    segmentTitleLabel: "Segment Title / Name Prefix",
+    segmentTitlePlaceholder: "e.g. Opening, Introduction, Hook...",
+    voiceToneLabel: "Voice Tone (Timbre Studio)",
+    customVoiceToggleBtn: "⚙️ Custom Timbre",
+    closeCustomVoiceBtn: "✕ Close",
+    timbreStudioTitle: "Timbre Studio",
+    timbreEngineLabel: "Engine",
+    timbreNameLabel: "Timbre Name",
+    timbreNamePlaceholder: "e.g. My Custom Voice...",
+    voiceGenderLabel: "Voice Gender",
+    femaleVoice: "Female",
+    maleVoice: "Male",
+    cyberVoice: "Cyber",
+    emotionStyleLabel: "Emotion / Style",
+    emotionWarm: "Warm",
+    emotionArticulate: "Articulate",
+    emotionDeep: "Deep",
+    emotionEnergetic: "Energetic",
+    emotionSoft: "Soft",
+    emotionCyber: "Cyber",
+    voicePitchLabel: "Voice Pitch",
+    lowPitchTip: "LOW (-5)",
+    highPitchTip: "HIGH (+5)",
+    speechRateLabel: "Speech Rate",
+    autoSaveTimbreTip: "Auto-saved to local preset timbres",
+    saveTimbreBtn: "Save Timbre",
+    manageTimbreTitle: "Manage Timbres:",
+    deleteTimbreBtn: "Delete",
+
+    // Single Dialogue Input
+    dialogueContentLabel: "Dialogue Content / Lyrics (Max 12 Seconds)",
+    charCountWarningTip: "{count} Chars {warning}",
+    charLimitRuleTip: "Word Count Tip: Max ~42 Chinese chars / 30 English words within 12s.",
+    enableSingingModeLabel: "🎵 Enable Singing Song Mode",
+    addSegmentBtn: "Add Segment",
+
+    // Batch Dialogue Input
+    batchScriptLabel: "Full Dialogue Script (Batch paste)",
+    batchTextPlaceholder: "Paste the entire script or multi-line dialog here. It will be automatically split by sentence punctuation into natural chunks of under 12 seconds each.",
+    batchRuleTitle: "Smart Chunking & 12s Speech Limit Rules:",
+    batchRule1: "1. Splits by line breaks, periods, exclamation/question marks;",
+    batchRule2: "2. If a segment exceeds limits, splits further by commas or sub-clauses;",
+    batchRule3: "3. Guarantees that every chunk stays under 12s duration for mouth-shape alignment.",
+    batchImportLoading: "Importing & splitting...",
+    batchImportBtn: "Smart Split & Import Script",
+
+    // Dialogue Script List
+    dialogueScriptTitle: "Dialogue Script & Render Lines",
+    lineCountSuffix: "Line(s)",
+    noDialogueTip: "No script dialogues. Please add your first spoken line above!",
+    estimatedDurationLabel: "{duration}s",
+    overTimeLimitWarning: "Text length warning: This line exceeds 12s limit, may cause lip sync failure or render rejection. Please shorten it!",
+    ttsVoiceOkTag: "TTS Voice OK",
+    regenerateSpeechBtn: "Regenerate",
+    generateSpeechBtn: "Generate Speech (TTS)",
+    singingVocalOkTag: "Singing Vocal OK",
+    generateSingingTrackBtn: "Generate Singing Track",
+    sceneImageOkTag: "Scene Image OK",
+    regenerateSceneTooltip: "Regenerate scene",
+    scenicImageBtn: "Scenic Image",
+    ltxTalkingOkTag: "LTX Talking OK",
+    watchVideoBtn: "Watch",
+    ltxRenderBtn: "LTX 2.3 Render",
+    ltxRenderDisabledTip: "Please generate speech voiceover first",
+    singingVideoOkTag: "Singing Video OK",
+    singingLtxRenderBtn: "Singing LTX Render",
+    singingRenderDisabledTip: "Please generate singing audio first",
+    deleteLineTooltip: "Delete this line",
+
+    // Video Preview Deck
+    previewDeckTitle: "Integrated Digital Human Video Preview Deck",
+    avatarLaneLabel: "Face Avatar Lane:",
+    audioTtsLaneLabel: "Audio TTS Lane:",
+    bgmTrackLabel: "Background Music Track:",
+    noBgmLoadedTip: "No BGM Loaded",
+    playingMixedTip: "● PLAYING MIXED",
+    selectWatchToPlayTip: "Select \"Watch\" to play segment rendering inside Master Preview Deck",
+    closeModalBtn: "CLOSE",
+    ltxMasterPipelineTitle: "LTX 2.3 Master Pipeline Output",
+
+    // Scene Image Modal
+    sceneWorkflowTitle: "Scene Image Workflow Configuration",
+    diffusionEngineLabel: "Diffusion Engine Model",
+    widthLabel: "Width (px)",
+    heightLabel: "Height (px)",
+    importAvatarPromptTitle: "Selected Avatar Prompt",
+    importAvatarPromptBtn: "Import Selected Avatar Prompt",
+    currentSceneImageLabel: "Current Scene Image",
+    regenerateOverwriteTip: "Regenerating will overwrite existing",
+    promptDecoratorTitle: "Prompt Decorator Presets",
+    projectVisualStyleLabel: "Project Visual Style",
+    ipCharacterLabel: "IP Character",
+    sceneEnvironmentLabel: "Scene Environment",
+    lightingStyleLabel: "Lighting Style",
+    voiceAlignmentLabel: "Voice Alignment",
+    noneOption: "None",
+    fusePromptBtnLoading: "Executing Decorator Chain Fusion...",
+    fusePromptBtn: "Fuse Prompt via Decorator Pattern",
+    decoratedOutputTitle: "Decorated Chain Output:",
+    scenePromptLabel: "Scene Prompt",
+    scenePromptPlaceholder: "e.g. A gorgeous modern living room with natural sunlight, Ghibli anime style cozy background...",
+    cancelBtn: "Cancel",
+    generateSceneBtn: "Generate Scene",
+
+    // TTS Timbre Modal
+    dialogueTextLabel: "Dialogue Script Text",
+    charsSuffix: "chars",
+    referenceAudioTitle: "1. Timbre Cloner Reference Audio",
+    referenceAudioDesc: "Upload a voice file, or click on a template below to clone character voice:",
+    dragUploadTip: "Drag & drop reference audio, or click to upload",
+    loadedCustomVoiceTip: "✓ Loaded Custom Voice: {name}",
+    uploadFormatTip: "Supports WAV, MP3, M4A. Up to 30s recommended.",
+    selectStandardRefTip: "Or Select Standard Reference Presets:",
+    voiceAttributeTitle: "2. VoxCPM2 Voice Attributes Detail",
+    generateAsLyricsLabel: "Generate as Lyrics",
+    synthesisEngineLabel: "Synthesis Engine / Workflow",
+    voiceDesignEngine: "VoxCPM2 Voice Design",
+    voiceCloneEngine: "Voice Clone",
+    selectTimbreLabel: "Select Voice / Designed Timbre",
+    voiceDesignPromptLabel: "✍️ Voice Design Description Prompt",
+    voiceDesignPromptPlaceholder: "e.g., A warm, mature female voice, speaking slowly and professionally...",
+    voiceDesignDescTip: "The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.",
+    saveCustomTimbreTitle: "Save as custom saved timbre preset",
+    cancelSavePresetBtn: "✕ Cancel",
+    customTimbreNamePlaceholder: "Custom timbre name...",
+    savePresetBtn: "Save",
+    cloneGenerateVoiceBtn: "Clone & Generate Voice",
+
+    // Art Style Option Text
+    styleRealism: "Realism",
+    styleScenery: "Scenery",
+    styleCinematic: "Cinematic Movie",
+    styleAnime: "Anime/Manga",
+    styleGhibli: "Ghibli Style",
+    styleCyberpunk: "Cyberpunk"
   }
 };

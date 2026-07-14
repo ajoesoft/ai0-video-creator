@@ -1,6 +1,6 @@
 import Database from "@tauri-apps/plugin-sql";
 import { remove, exists, BaseDirectory } from "@tauri-apps/plugin-fs";
-import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType, SystemPrompt } from "../types";
+import { VideoProject, Vocabulary, VisualLibraryItem, PromptHarness, BackgroundTask, TaskStatus, TaskType, SystemPrompt, DbVoicePreset } from "../types";
 import { invoke } from "@tauri-apps/api/core";
 import { PromptHarnessEngine } from "./harness/engine";
 
@@ -252,43 +252,172 @@ export async function runDatabaseMigrations(database: Database): Promise<void> {
       );
     `);
 
-    // Check if table is empty, and seed DEFAULT_SYSTEM_PROMPTS if so
-    const existingPrompts = await database.select<any[]>("SELECT uuid FROM system_prompts LIMIT 1");
-    if (!existingPrompts || existingPrompts.length === 0) {
-      console.log("[Migration] Seeding initial default system prompts into database...");
-      const defaults = [
-        {
-          uuid: "prompt-uuid-details-default",
-          name: "Cover & Style Director (封面及风格导演)",
-          classification: "details",
-          prompt: "You are an expert design director and style consultant. Focus on analyzing the project's creative direction, visual theme, and storytelling tone. Guide the user in drafting consistent style guidelines, select fitting color schemes, and brainstorm evocative ideas for the project's cover image."
-        },
-        {
-          uuid: "prompt-uuid-script-default",
-          name: "Screenplay & Dialogue Maestro (编剧与对白大师)",
-          classification: "script",
-          prompt: "You are an elite screenwriter and script supervisor. Assist the user in drafting precise dialogues, voiceover lines, director's cues (camera angles, movements), and visual prompt descriptions for scene synthesis. Ensure the speech rhythm, dialogue style, and stage directions form a cohesive dramatic narrative."
-        },
-        {
-          uuid: "prompt-uuid-visuals-default",
-          name: "IP Character & Environment Sculptor (IP角色与环境塑造师)",
-          classification: "visuals",
-          prompt: "You are a lead character designer and worldbuilding artist. Help the user define consistent characters (IPs), props, and environmental parameters. Maintain detailed physical descriptions, clothing, mood settings, and lighting prompts to keep visual likeness intact across generations."
-        },
-        {
-          uuid: "prompt-uuid-audio-default",
-          name: "Voice Casting & Sound Designer (声色与声效设计师)",
-          classification: "audio",
-          prompt: "You are a professional audio designer and voice casting director. Assist the user in configuring distinct voiceover timbres, speech rates, emotional intonations, and character-specific acoustic profiles. Focus on optimizing vocal performance and matching roles to their ideal vocal qualities."
-        }
-      ];
-
-      for (const p of defaults) {
-        await database.execute(
-          "INSERT INTO system_prompts (uuid, name, classification, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-          [p.uuid, p.name, p.classification, p.prompt, Date.now(), Date.now()]
-        );
+    // Seed default/standard prompts using INSERT OR IGNORE
+    console.log("[Migration] Checking and seeding default system prompts & standard presets into database...");
+    const defaults = [
+      {
+        uuid: "prompt-uuid-details-default",
+        name: "Cover & Style Director (封面及风格导演)",
+        classification: "details",
+        prompt: "You are an expert design director and style consultant. Focus on analyzing the project's creative direction, visual theme, and storytelling tone. Guide the user in drafting consistent style guidelines, select fitting color schemes, and brainstorm evocative ideas for the project's cover image."
+      },
+      {
+        uuid: "prompt-uuid-script-default",
+        name: "Screenplay & Dialogue Maestro (编剧与对白大师)",
+        classification: "script",
+        prompt: "You are an elite screenwriter and script supervisor. Assist the user in drafting precise dialogues, voiceover lines, director's cues (camera angles, movements), and visual prompt descriptions for scene synthesis. Ensure the speech rhythm, dialogue style, and stage directions form a cohesive dramatic narrative."
+      },
+      {
+        uuid: "prompt-uuid-visuals-default",
+        name: "IP Character & Environment Sculptor (IP角色与环境塑造师)",
+        classification: "visuals",
+        prompt: "You are a lead character designer and worldbuilding artist. Help the user define consistent characters (IPs), props, and environmental parameters. Maintain detailed physical descriptions, clothing, mood settings, and lighting prompts to keep visual likeness intact across generations."
+      },
+      {
+        uuid: "prompt-uuid-audio-default",
+        name: "Voice Casting & Sound Designer (声色与声效设计师)",
+        classification: "audio",
+        prompt: "You are a professional audio designer and voice casting director. Assist the user in configuring distinct voiceover timbres, speech rates, emotional intonations, and character-specific acoustic profiles. Focus on optimizing vocal performance and matching roles to their ideal vocal qualities."
+      },
+      // Composition Type (构图类型)
+      {
+        uuid: "std-prompt-comp-wide",
+        name: "Cinematic Wide Shot (电影级宽画幅构图)",
+        classification: "composition",
+        prompt: "Cinematic wide shot, stunning landscape framing, deep depth of field, clear horizontal line, panoramic scale, epic sense of scale, balanced rule of thirds"
+      },
+      {
+        uuid: "std-prompt-comp-symmetric",
+        name: "Symmetric Cinematic (对称式电影构图)",
+        classification: "composition",
+        prompt: "Symmetric cinematic composition, perfect balance, center-focused framing, dramatic alignment, clean architectural guidelines, formal artistic structure"
+      },
+      {
+        uuid: "std-prompt-comp-thirds",
+        name: "Rule of Thirds Portrait (三分法黄金人物构图)",
+        classification: "composition",
+        prompt: "Rule of thirds portrait framing, subject aligned on vertical grid line, dynamic negative space, cinematic balance, comfortable visual negative space"
+      },
+      {
+        uuid: "std-prompt-comp-closeup",
+        name: "Extreme Close-Up Detail (局部极度特写)",
+        classification: "composition",
+        prompt: "Extreme close-up shot, macro detail focus, shallow depth of field, high-fidelity texture, intense emotional expression, dramatic focal point"
+      },
+      // Lighting Type (光影类型)
+      {
+        uuid: "std-prompt-light-volumetric",
+        name: "Volumetric God Rays (体积光/丁达尔圣光)",
+        classification: "lighting",
+        prompt: "Volumetric lighting, dramatic god rays, Tyndall effect, visible light beams cutting through atmosphere, smoky dust particles, high contrast shadows"
+      },
+      {
+        uuid: "std-prompt-light-rembrandt",
+        name: "Rembrandt Classic (古典伦勃朗肖像光)",
+        classification: "lighting",
+        prompt: "Rembrandt lighting style, classic 45-degree key light, dramatic triangle shadow on cheek, soft ambient fill, painterly contrast, moody chiaroscuro"
+      },
+      {
+        uuid: "std-prompt-light-backlight",
+        name: "Cinematic Backlight (电影感轮廓逆光)",
+        classification: "lighting",
+        prompt: "Cinematic backlighting, golden rim light, glowing hair strands, beautiful halo effect, rich background separation, high contrast silhouette, lens flare"
+      },
+      {
+        uuid: "std-prompt-light-neon",
+        name: "Cyberpunk Neon Glow (赛博朋克霓虹夜光)",
+        classification: "lighting",
+        prompt: "Cyberpunk neon glow, vivid pink and cyan dual lighting, wet pavement reflections, high contrast nocturnal shadows, futuristic moody illumination"
+      },
+      // Color Type (色彩类型)
+      {
+        uuid: "std-prompt-color-tealorange",
+        name: "Teal and Orange Blockbuster (好莱坞经典青橙色调)",
+        classification: "color",
+        prompt: "Hollywood Teal and Orange color grading, high contrast cinematic film palette, warm skin tones, cool shadows, atmospheric depth, blockbuster aesthetic"
+      },
+      {
+        uuid: "std-prompt-color-vintage",
+        name: "Vintage Kodachrome (复古柯达彩色胶片)",
+        classification: "color",
+        prompt: "Vintage Kodachrome color profile, warm nostalgic tones, subtle chromatic aberration, classic 35mm film grain, analog color saturation, retro aesthetic"
+      },
+      {
+        uuid: "std-prompt-color-moodydark",
+        name: "Moody Low Saturation (低饱和度冷郁氛围)",
+        classification: "color",
+        prompt: "Moody low saturation color grading, desaturated cool tones, deep dark shadows, gloomy atmospheric mist, muted colors, somber cinematic style"
+      },
+      {
+        uuid: "std-prompt-color-pastel",
+        name: "Vibrant Pastel Fantasy (高饱和幻想马卡龙色)",
+        classification: "color",
+        prompt: "Vibrant pastel colors, high saturation fantasy palette, soft whimsical tones, dreamy watercolor shades, bright and cheerful atmospheric grading"
+      },
+      // Quality (画质)
+      {
+        uuid: "std-prompt-qual-8k",
+        name: "8K UHD Masterpiece (8K超清杰作)",
+        classification: "quality",
+        prompt: "8k resolution, UHD masterpiece, razor-sharp details, high-fidelity textures, micro-detail rendering, photorealistic skin pores and surface fabrics, award-winning cinematic fidelity"
+      },
+      {
+        uuid: "std-prompt-qual-ue5",
+        name: "Unreal Engine 5 Render (虚幻5实时渲染级)",
+        classification: "quality",
+        prompt: "Unreal Engine 5 render style, hyperrealistic 3D graphics, ray-traced global illumination, Nanite micro-polygon details, sub-surface scattering, ultra high-end digital art"
+      },
+      // Style (画风)
+      {
+        uuid: "std-prompt-style-realism",
+        name: "Cinematic Realism (写实院线电影风)",
+        classification: "style",
+        prompt: "Cinematic photorealism, shot on 35mm Panavision camera, anamorphic lens, real-life lighting, raw documentary texture, high visual credibility"
+      },
+      {
+        uuid: "std-prompt-style-anime",
+        name: "Makoto Shinkai Anime (新海诚动漫插画风)",
+        classification: "style",
+        prompt: "Makoto Shinkai anime style, beautiful hand-drawn illustration, vibrant blue skies, fluffy clouds, highly detailed background, romantic anime lighting, soft dream-like colors"
+      },
+      {
+        uuid: "std-prompt-style-pixar",
+        name: "3D Disney Pixar (迪士尼皮克斯3D动画风)",
+        classification: "style",
+        prompt: "3D stylized character design, Disney Pixar animation style, adorable features, rich clay-like smooth textures, vibrant expressive lighting, cheerful color palette"
+      },
+      {
+        uuid: "std-prompt-style-watercolor",
+        name: "Traditional Ink Watercolor (国风水墨写意风)",
+        classification: "style",
+        prompt: "Traditional Chinese ink wash and watercolor painting, soft sweeping brushstrokes, minimalist composition, dynamic splash ink effect, elegant negative space, ethereal aesthetic"
+      },
+      // Atmosphere (氛围)
+      {
+        uuid: "std-prompt-atmos-eerie",
+        name: "Eerie Suspense Horror (惊悚诡异悬疑)",
+        classification: "atmosphere",
+        prompt: "Eerie suspenseful atmosphere, mysterious creeping fog, dim flickering light source, cold unsettling air, tense thriller mood, lingering shadows"
+      },
+      {
+        uuid: "std-prompt-atmos-epic",
+        name: "Epic Grand Scale (史诗宏大震撼)",
+        classification: "atmosphere",
+        prompt: "Epic grand atmosphere, awe-inspiring scale, majestic sweeping view, cinematic orchestration, heroic storytelling perspective, breath-taking dramatic depth"
+      },
+      {
+        uuid: "std-prompt-atmos-cozy",
+        name: "Cozy Warm Healing (治愈温馨安详)",
+        classification: "atmosphere",
+        prompt: "Cozy warm healing atmosphere, soft gentle sunlight, tranquil peaceful environment, comforting glowing ambiance, slow-living relaxation, serene emotional tone"
       }
+    ];
+
+    for (const p of defaults) {
+      await database.execute(
+        "INSERT OR IGNORE INTO system_prompts (uuid, name, classification, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        [p.uuid, p.name, p.classification, p.prompt, Date.now(), Date.now()]
+      );
     }
   } catch (errPromptsTable) {
     console.error("Failed to create/seed system_prompts table:", errPromptsTable);
@@ -541,6 +670,80 @@ export async function runDatabaseMigrations(database: Database): Promise<void> {
     }
   } catch (migrateErr) {
     console.error("Failed to run video_translation merge self-migration:", migrateErr);
+  }
+
+  // Create visual_library_template table
+  try {
+    await database.execute(`
+      CREATE TABLE IF NOT EXISTS visual_library_template (
+          template_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scene_type TEXT NOT NULL CHECK (scene_type IN ('short_video', 'story', 'dialogue', 'word','translation')),
+          template_name TEXT NOT NULL,
+          template_name_chinese TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          prompt_chinese TEXT NOT NULL,
+          template_type TEXT NOT NULL CHECK (template_type IN ('camera', 'enviroment', 'ip', 'tts','llm')),
+          is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+          create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Seed visual_library_template if empty
+    const existingTemplates = await database.select<any[]>(
+      "SELECT template_id FROM visual_library_template LIMIT 1"
+    );
+    if (!existingTemplates || existingTemplates.length === 0) {
+      console.log("[Migration] Seeding initial camera templates into visual_library_template...");
+      const insertSql = `
+        INSERT INTO visual_library_template
+        (scene_type, template_name, template_name_chinese, prompt, prompt_chinese, template_type, is_default)
+        VALUES
+        ('short_video', 'Pan Left', '左摇镜', 'Pan Left shot, stationary camera, slow horizontal pan to left, smooth motion, stable frame, cinematic composition, no camera position shift', '摄像机机位固定，镜头水平缓慢向左转动，画面同步右滑，带出画面右侧环境', 'camera', 0),
+        ('short_video', 'Pan Right', '右摇镜', 'Pan Right shot, fixed camera position, gentle horizontal pan right, silky smooth movement, natural perspective transition', '机位不动，镜头水平向右旋转，画面向左滑动，逐步展现左侧场景', 'camera', 0),
+        ('short_video', 'Pan Up', '上摇镜', 'Pan Up shot, static camera, vertical slow tilt upward, gradual reveal upper scenery, smooth motion blur', '机身固定，镜头垂直向上扬起，从低处景物缓缓抬至高空远景/人物面部上方', 'camera', 0),
+        ('short_video', 'Pan Down', '下摇镜', 'Pan Down shot, locked camera, vertical pan down, slow descending view, soft motion transition', '机位不变，镜头垂直向下转动，从高处缓缓落向地面、人物脚部或低处细节', 'camera', 0),
+        ('short_video', 'Dolly In', '物理前推镜', 'Dolly In shot, camera physically moving forward, natural depth of field, smooth linear movement, cinematic depth', '摄像机整体向前直线移动，空间纵深真实拉近主体，无数码放大畸变', 'camera', 0),
+        ('short_video', 'Dolly Out', '物理后拉镜', 'Dolly Out shot, camera slow backward movement, widening field of view, stable sliding motion, rich background context', '整机向后匀速后退，画面不断收纳更多周边环境，氛围感开阔', 'camera', 0),
+        ('short_video', 'Dolly Left', '轨道左移', 'Dolly Left sliding shot, parallel horizontal camera movement, subject centered in frame, ultra smooth track motion', '摄像机沿水平滑轨整体向左平行滑行，主体保持画面中心，横向空间流动', 'camera', 0),
+        ('short_video', 'Dolly Right', '轨道右移', 'Dolly Right track shot, horizontal slide to right, steady movement, clear spatial layering', '整机沿滑轨向右平稳滑行，横向平移运镜，适合双人平行行走跟拍', 'camera', 0),
+        ('short_video', 'Pedestal Up', '整机升镜', 'Pedestal Up shot, whole camera vertical lift upward, gradual elevation, wide landscape reveal, vibration-free', '摄像机整体垂直向上抬升，机位抬高，视野逐层拓宽，区别单纯向上摇镜', 'camera', 0),
+        ('short_video', 'Pedestal Down', '整机降镜', 'Pedestal Down shot, camera vertical descending movement, low angle gradual transition, smooth lifting gear motion', '摄像机垂直向下缓慢降低机位，视角下沉，聚焦地面低角度细节', 'camera', 0),
+        ('short_video', 'Zoom In', '数码/光学拉近', 'Slow Zoom In shot, fixed camera position, gradual focal length increase, soft background blur, subtle motion blur', '机位静止，镜头焦距拉长，画面放大主体，压缩空间感，轻微背景虚化增强', 'camera', 0),
+        ('short_video', 'Zoom Out', '数码/光学拉远', 'Slow Zoom Out shot, static camera, steadily widening focal view, full scene exposure, smooth zoom transition', '机位不动，焦距缩短，画面持续缩小，不断露出周边完整环境', 'camera', 0),
+        ('short_video', 'Dolly Zoom', '希区柯克眩晕变焦', 'Dolly Vertigo shot, camera dolly backward while zooming in, subject size unchanged, distorted background perspective, tense cinematic atmosphere', '摄像机匀速后移，同时镜头同步拉近，主体大小不变，背景拉伸扭曲，惊悚悬疑专用', 'camera', 0),
+        ('short_video', 'Orbit Left', '左环绕运镜', 'Slow Left Orbit shot, camera circling counterclockwise around central subject, consistent distance from target, smooth circular motion', '摄像机以主体为圆心，逆时针弧形环绕移动，360°环绕局部，全方位展示主体', 'camera', 0),
+        ('short_video', 'Orbit Right', '右环绕运镜', 'Right Orbit shot, clockwise circular camera movement around main subject, steady orbit radius, cinematic 360 partial view', '摄像机顺时针绕主体环形移动，多角度循环展示人物/物体轮廓', 'camera', 0),
+        ('short_video', 'Full Circular Orbit', '360°完整环绕', 'Full 360 Circular Orbit shot, complete circular camera loop around subject, uniform moving speed, balanced framing', '摄像机完整绕主体一周，全景无死角环绕拍摄，产品、人物展示专用', 'camera', 0),
+        ('short_video', 'Arc Shot', '半弧形运镜', 'Arc Shot, half-circle curved camera movement, gentle arc trajectory, moderate view transition, natural pacing', '仅做120°~180°弧形滑行，不完整绕圈，柔和过渡视角，自然不夸张', 'camera', 0),
+        ('short_video', 'Crane Up', '摇臂升镜', 'Crane Up shot, professional film camera crane lifting camera high, dramatic wide landscape reveal, fluid large range motion', '大型摄影摇臂携带摄像机快速抬升至高空，瞬间打开宏大全景视野', 'camera', 0),
+        ('short_video', 'Crane Down', '摇臂降镜', 'Crane Down shot, crane arm lowering camera from high altitude, slow descent from wide shot to close-up, epic cinematic feel', '摇臂从高空缓慢下放摄像机，从宏大远景缓缓落至近距离主体特写', 'camera', 0),
+        ('short_video', 'Drone Fly Forward', '无人机低空前飞', 'Drone forward fly shot, low altitude aerial camera, steady forward flight, sweeping landscape, smooth aerial stabilization', '无人机低空平稳向前直线飞行，贴地掠过道路、海面、山谷', 'camera', 0),
+        ('short_video', 'Drone Fly Backward', '无人机向后飞掠', 'Drone backward reveal shot, drone flying backward and slightly ascending, widening aerial view, grand scenery unfolding', '无人机匀速向后拉升后退，画面持续拓宽，宏大全景逐渐展开', 'camera', 0),
+        ('short_video', 'Drone Ascend', '无人机上升', 'Drone Ascend shot, stationary drone vertical climb upward, gradual high-angle aerial view, layered terrain display', '原地悬停垂直向上爬升，视野从近景逐步拔高至上帝视角', 'camera', 0),
+        ('short_video', 'Drone Descend', '无人机俯冲下降', 'Drone Descend shot, slow vertical aerial dive from high altitude, descending focus on ground subject, soft aerial motion', '无人机高空垂直向下缓慢俯冲，视角下沉，聚焦地面核心景物', 'camera', 0),
+        ('short_video', 'Drone Fly Past', '无人机擦身飞掠', 'Drone Fly Past shot, drone horizontally glide past central subject, dynamic fast aerial movement, slight motion blur for speed', '无人机横向从主体侧面快速划过，一掠而过，强烈速度感', 'camera', 0),
+        ('short_video', 'Top-Down Drone', '上帝垂直俯拍', 'Bird’s Eye Top-Down drone shot, perfectly vertical overhead aerial view, symmetrical composition, flat top perspective', '无人机90度垂直于地面纯俯视，无倾斜角度，规整对称构图', 'camera', 0),
+        ('short_video', 'Forward Tracking', '向前跟拍', 'Forward Tracking shot, camera moving synchronously with walking subject, subject stays centered, flowing foreground blur', '摄像机与人物同步向前移动，始终锁定主体，前景持续流动', 'camera', 0),
+        ('short_video', 'Backward Tracking', '倒退跟拍', 'Backward Tracking shot, camera moving backward facing subject, continuous front tracking, stable gimbal movement', '摄像机面向主体，匀速向后倒退移动，正面全程跟随人物前进', 'camera', 0),
+        ('short_video', 'Side Tracking', '侧面平行跟拍', 'Side Parallel Tracking shot, camera moving side-by-side with character, horizontal synchronized motion, clear side profile view', '摄像机与人物横向平行同步移动，侧面全程记录人物行动', 'camera', 0),
+        ('short_video', 'Low Angle Shot', '低角度仰拍', 'Low Angle shot, camera below subject eye level, upward looking perspective, powerful imposing atmosphere, slight wide distortion', '机位低于主体地平线，镜头向上仰视，突出人物高大强势气场', 'camera', 0),
+        ('short_video', 'High Angle Shot', '高角度俯拍', 'High Angle shot, elevated camera looking down at subject, restrained weak atmosphere, clear surrounding environment layout', '机位高于主体，向下倾斜俯视，弱化人物力量，营造压抑渺小感', 'camera', 0),
+        ('short_video', 'Dutch Tilt', '斜角歪镜', 'Dutch Tilt shot, canted tilted camera frame, slanted horizontal line, tense unstable psychological atmosphere, cinematic thriller style', '摄像机机身整体倾斜，画面水平线歪斜，紧张、癫狂、悬疑情绪专用', 'camera', 0),
+        ('short_video', 'Stabilized Hand Follow', '稳定器顺滑手持跟拍', 'Stabilized handheld follow shot, gimbal balanced camera, soft natural micro motion, documentary texture, no harsh shake', '云台稳定器手持跟随人物，轻微自然流动，无明显抖动，生活化质感', 'camera', 0),
+        ('short_video', 'Shoulder Cam', '肩扛手持镜头', 'Shoulder mount handheld shot, subtle natural camera shake, realistic documentary aesthetic, slight motion jitter', '摄像机肩扛拍摄，轻微自然低频抖动，纪实纪录片、街头vlog风格', 'camera', 0),
+        ('short_video', 'Running Hand Shot', '奔跑手持镜头', 'Running handheld shot, obvious dynamic camera shake, fast chase atmosphere, heavy motion blur for rapid movement', '手持设备跟随奔跑主体，明显动态抖动，强烈速度、紧张追逐氛围', 'camera', 0),
+        ('short_video', 'Whip Pan', '极速甩镜/闪摇转场', 'Whip Pan transition shot, ultra fast horizontal camera whip, heavy motion blur streak, quick scene cut transition effect', '镜头极快左右/上下甩动，画面模糊拖影，用于镜头快速切换转场', 'camera', 0),
+        ('short_video', 'POV Shot', '第一人称主观镜头', 'Human POV shot, first-person subjective perspective, camera movement simulate human eye vision, immersive viewing experience', '镜头模拟人眼视角，所有移动等同于人物自身视线移动，沉浸式视角', 'camera', 0),
+        ('short_video', 'Spin Rotate', '机身自旋镜头', 'Camera Spin Rotate shot, 360 axial self rotation of camera, swirling spinning frame, dreamy dizzy visual effect', '摄像机自身360°轴向自转，画面持续旋转，眩晕、梦幻、迷幻特效', 'camera', 0),
+        ('short_video', 'Creep Slow Push', '潜行慢推镜', 'Creep slow Dolly In shot, ultra slow forward camera creep, barely perceptible movement, eerie suspense horror atmosphere', '极低速度物理向前Dolly，近乎无声缓慢逼近主体，悬疑恐怖氛围感', 'camera', 0),
+        ('short_video', 'Rack Focus', '焦点切换运镜', 'Tracking shot with Rack Focus, camera slow movement, fast shift focal point between foreground and background, clear focus jump transition', '机位缓慢移动过程中，快速切换对焦前后景，引导观众视线跳转', 'camera', 0);
+      `;
+      await database.execute(insertSql);
+      console.log("[Migration] Successfully seeded initial camera templates into visual_library_template!");
+    }
+  } catch (errTemplatesTable) {
+    console.error("Failed to create/seed visual_library_template table:", errTemplatesTable);
   }
 }
 
@@ -902,6 +1105,9 @@ export async function fetchProjects(): Promise<VideoProject[]> {
 export async function seedSystemHarnessesForProject(projectId: string, visualStyle: string): Promise<void> {
   const now = Date.now();
   console.log(`Seeding system harnesses for project ${projectId} with style ${visualStyle}`);
+
+  // Seed standard visual styles in the prompt_harness table
+  await ensureVisualStylesSeeded(projectId);
 
   // Base items: System Camera Motion Harnesses (can be shared and used in visual library)
   const itemsToCreate = [
@@ -1763,6 +1969,7 @@ export function saveLocalStorageVisualLibrary(items: VisualLibraryItem[]) {
 }
 
 export async function fetchVisualLibraryByProject(projectId: string): Promise<VisualLibraryItem[]> {
+  await ensureCameraMotionsSeeded(projectId);
   if (isTauri) {
     const database = await getDb();
     if (database) {
@@ -1949,6 +2156,460 @@ export async function deleteVisualLibraryItem(id: number): Promise<boolean> {
 // ========================================================
 const PROMPT_HARNESS_LOCAL_STORAGE_KEY = 'ai_prompt_harnesses_fallback';
 
+export const STYLE_TEMPLATES = [
+  {
+    name_en: 'Cinematic',
+    name_zh: '电影',
+    image: "classic 35mm photograph, shallow depth of field, warm cinematic lighting, ultra-detailed photorealistic, shot on ARRI Alexa",
+    video: "35mm cinema camera film grain, dramatic high contrast, photorealistic cinematic movement"
+  },
+  {
+    name_en: 'Animation',
+    name_zh: '动画',
+    image: "Pixar style 3D animation, soft clay render, stylized big expressive eyes, bright colorful lighting, sub-surface scattering skin",
+    video: "3D stylized animation keyframes, soft render movement, vibrant colors"
+  },
+  {
+    name_en: 'Comic',
+    name_zh: '漫画',
+    image: "vibrant anime manga comic illustration, ink lineart, halftone dots, bold line weight, screentone shading overlay",
+    video: "dynamic visual novel anime style cells, bold outline transition"
+  },
+  {
+    name_en: 'Ghibli',
+    name_zh: '吉卜力',
+    image: "Studio Ghibli aesthetic watercolor handpainted anime wallpaper, nostalgic rich color scheme, gorgeous scenery master keyframe",
+    video: "nostalgic hand-painted watercolor anime scene landscape panning, retro aesthetic"
+  },
+  {
+    name_en: 'Pixar',
+    name_zh: '皮克斯动画',
+    image: "high-end 3D Disney Pixar animation render, cute stylized character, extremely expressive eyes, realistic hair groom, sub-surface scattering skin, cinematic colorful keyframe, smooth 3D render",
+    video: "smooth cinematic 3D character animation, playful expressions, classic Pixar storytelling camera pan"
+  },
+  {
+    name_en: 'PixarClay',
+    name_zh: '皮克斯粘土',
+    image: "claymation cute animation style, handcrafted cozy clay texture, soft matte finish, cute round proportions, miniature diorama set, stop-motion aesthetic",
+    video: "stop-motion claymation character movement, subtle playful clay deformation, tactile cozy animations"
+  },
+  {
+    name_en: 'Cyberpunk',
+    name_zh: '赛博朋克',
+    image: "futuristic cyberpunk cityscape portrait, glowing neon signs, vibrant pink and cyan highlights, wet rainy pavement reflections, detailed cybernetic enhancements, high-tech dark atmosphere",
+    video: "cinematic neon lighting reflection, rain trickling down, high-speed camera sweep with lens flares"
+  },
+  {
+    name_en: 'OilPainting',
+    name_zh: '写实油画',
+    image: "classical oil painting aesthetic, textured brush strokes, impasto technique, rich deep color palette, masterwork gallery level detail, fine canvas texture",
+    video: "slow moving camera panning across a fine-art oil canvas, artistic organic motion"
+  },
+  {
+    name_en: 'UkiyoE',
+    name_zh: '传统浮世绘',
+    image: "classic Japanese Ukiyo-e woodblock print style, handpainted mineral pigments, elegant dark ink outlines, flat solid color planes, vintage mulberry paper texture, flowing woodblock artwork",
+    video: "stylized woodblock flat illustration camera panning, gentle organic paper ripples, retro hand-drawn frames"
+  },
+  {
+    name_en: 'UnrealEngine',
+    name_zh: '虚幻写实',
+    image: "photorealistic ultra-detailed render, Unreal Engine 5 aesthetic, global illumination, hyper-detailed skin pores and fabric weave, ray-traced shadows, gorgeous cinematography",
+    video: "epic cinematic tracking shot, hyper-realistic physics engine movement, crisp focus pulling, atmospheric details"
+  }
+];
+
+export async function ensureVisualStylesSeeded(projectId: string): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const countResult = await database.select<any[]>(
+          "SELECT COUNT(*) as cnt FROM prompt_harness WHERE project_id = ? AND type = 'visual_style'",
+          [projectId]
+        );
+        const count = countResult[0]?.cnt || 0;
+        if (count === 0) {
+          console.log(`Dynamic seeding visual styles in DB for project ${projectId}`);
+          for (const style of STYLE_TEMPLATES) {
+            await database.execute(
+              `INSERT INTO prompt_harness (project_id, trigger_keyword, visual_asset_id, active, type, template, parameters, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [projectId, style.name_en, 0, 1, 'visual_style', style.image, style.video, now, now]
+            );
+            await database.execute(
+              `INSERT INTO prompt_harness (project_id, trigger_keyword, visual_asset_id, active, type, template, parameters, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [projectId, style.name_zh, 0, 1, 'visual_style', style.image, style.video, now, now]
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to dynamically seed visual styles in DB:", err);
+      }
+    }
+    return;
+  }
+
+  // Fallback to LocalStorage
+  try {
+    const allHarnessesRaw = localStorage.getItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY);
+    const allHarnesses: any[] = allHarnessesRaw ? JSON.parse(allHarnessesRaw) : [];
+    const count = allHarnesses.filter(h => h.projectId === projectId && h.type === 'visual_style').length;
+    if (count === 0) {
+      console.log(`Dynamic seeding visual styles in LocalStorage for project ${projectId}`);
+      let virtualIdCounter = Date.now();
+      for (const style of STYLE_TEMPLATES) {
+        allHarnesses.push({
+          id: ++virtualIdCounter,
+          projectId,
+          triggerKeyword: style.name_en,
+          visualAssetId: 0,
+          active: 1,
+          type: 'visual_style',
+          template: style.image,
+          parameters: style.video,
+          createdAt: now,
+          updatedAt: now
+        });
+        allHarnesses.push({
+          id: ++virtualIdCounter,
+          projectId,
+          triggerKeyword: style.name_zh,
+          visualAssetId: 0,
+          active: 1,
+          type: 'visual_style',
+          template: style.image,
+          parameters: style.video,
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+      localStorage.setItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY, JSON.stringify(allHarnesses));
+    }
+  } catch (err) {
+    console.error("Failed to dynamically seed visual styles in LocalStorage:", err);
+  }
+}
+
+export const CAMERA_MOTIONS = [
+  {
+    title: "Pan Left 左摇镜",
+    shortName: "@PanLeft",
+    english: "Pan Left",
+    prompt: "Pan Left shot, stationary camera, slow horizontal pan to left, smooth motion, stable frame, cinematic composition, no camera position shift"
+  },
+  {
+    title: "Pan Right 右摇镜",
+    shortName: "@PanRight",
+    english: "Pan Right",
+    prompt: "Pan Right shot, fixed camera position, gentle horizontal pan right, silky smooth movement, natural perspective transition"
+  },
+  {
+    title: "Pan Up 上摇镜",
+    shortName: "@PanUp",
+    english: "Pan Up",
+    prompt: "Pan Up shot, static camera, vertical slow tilt upward, gradual reveal upper scenery, smooth motion blur"
+  },
+  {
+    title: "Pan Down 下摇镜",
+    shortName: "@PanDown",
+    english: "Pan Down",
+    prompt: "Pan Down shot, locked camera, vertical pan down, slow descending view, soft motion transition"
+  },
+  {
+    title: "Dolly In 物理前推镜",
+    shortName: "@DollyIn",
+    english: "Dolly In",
+    prompt: "Dolly In shot, camera physically moving forward, natural depth of field, smooth linear movement, cinematic depth"
+  },
+  {
+    title: "Dolly Out 物理后拉镜",
+    shortName: "@DollyOut",
+    english: "Dolly Out",
+    prompt: "Dolly Out shot, camera slow backward movement, widening field of view, stable sliding motion, rich background context"
+  },
+  {
+    title: "Dolly Left 轨道左移",
+    shortName: "@DollyLeft",
+    english: "Dolly Left",
+    prompt: "Dolly Left sliding shot, parallel horizontal camera movement, subject centered in frame, ultra smooth track motion"
+  },
+  {
+    title: "Dolly Right 轨道右移",
+    shortName: "@DollyRight",
+    english: "Dolly Right",
+    prompt: "Dolly Right track shot, horizontal slide to right, steady movement, clear spatial layering"
+  },
+  {
+    title: "Pedestal Up 整机升镜",
+    shortName: "@PedestalUp",
+    english: "Pedestal Up",
+    prompt: "Pedestal Up shot, whole camera vertical lift upward, gradual elevation, wide landscape reveal, vibration-free"
+  },
+  {
+    title: "Pedestal Down 整机降镜",
+    shortName: "@PedestalDown",
+    english: "Pedestal Down",
+    prompt: "Pedestal Down shot, camera vertical descending movement, low angle gradual transition, smooth lifting gear motion"
+  },
+  {
+    title: "Zoom In 数码/光学拉近",
+    shortName: "@ZoomIn",
+    english: "Zoom In",
+    prompt: "Slow Zoom In shot, fixed camera position, gradual focal length increase, soft background blur, subtle motion blur"
+  },
+  {
+    title: "Zoom Out 数码/光学拉远",
+    shortName: "@ZoomOut",
+    english: "Zoom Out",
+    prompt: "Slow Zoom Out shot, static camera, steadily widening focal view, full scene exposure, smooth zoom transition"
+  },
+  {
+    title: "Dolly Zoom 希区柯克眩晕变焦",
+    shortName: "@DollyZoom",
+    english: "Dolly Zoom",
+    prompt: "Dolly Vertigo shot, camera dolly backward while zooming in, subject size unchanged, distorted background perspective, tense cinematic atmosphere"
+  },
+  {
+    title: "Orbit Left 左环绕运镜",
+    shortName: "@OrbitLeft",
+    english: "Orbit Left",
+    prompt: "Slow Left Orbit shot, camera circling counterclockwise around central subject, consistent distance from target, smooth circular motion"
+  },
+  {
+    title: "Orbit Right 右环绕运镜",
+    shortName: "@OrbitRight",
+    english: "Orbit Right",
+    prompt: "Right Orbit shot, clockwise circular camera movement around main subject, steady orbit radius, cinematic 360 partial view"
+  },
+  {
+    title: "Full Circular Orbit 360°完整环绕",
+    shortName: "@FullCircularOrbit",
+    english: "Full Circular Orbit",
+    prompt: "Full 360 Circular Orbit shot, complete circular camera loop around subject, uniform moving speed, balanced framing"
+  },
+  {
+    title: "Arc Shot 半弧形运镜",
+    shortName: "@ArcShot",
+    english: "Arc Shot",
+    prompt: "Arc Shot, half-circle curved camera movement, gentle arc trajectory, moderate view transition, natural pacing"
+  },
+  {
+    title: "Crane Up 摇臂升镜",
+    shortName: "@CraneUp",
+    english: "Crane Up",
+    prompt: "Crane Up shot, professional film crane lifting camera high, dramatic wide landscape reveal, fluid large range motion"
+  },
+  {
+    title: "Crane Down 摇臂降镜",
+    shortName: "@CraneDown",
+    english: "Crane Down",
+    prompt: "Crane Down shot, crane arm lowering camera from high altitude, slow descent from wide shot to close-up, epic cinematic feel"
+  },
+  {
+    title: "Drone Fly Forward 无人机低空前飞",
+    shortName: "@DroneFlyForward",
+    english: "Drone Fly Forward",
+    prompt: "Drone forward fly shot, low altitude aerial camera, steady forward flight, sweeping landscape, smooth aerial stabilization"
+  },
+  {
+    title: "Drone Fly Backward 无人机向后飞掠",
+    shortName: "@DroneFlyBackward",
+    english: "Drone Fly Backward",
+    prompt: "Drone backward reveal shot, drone flying backward and slightly ascending, widening aerial view, grand scenery unfolding"
+  },
+  {
+    title: "Drone Ascend 无人机上升",
+    shortName: "@DroneAscend",
+    english: "Drone Ascend",
+    prompt: "Drone Ascend shot, stationary drone vertical climb upward, gradual high-angle aerial view, layered terrain display"
+  },
+  {
+    title: "Drone Descend 无人机俯冲下降",
+    shortName: "@DroneDescend",
+    english: "Drone Descend",
+    prompt: "Drone Descend shot, slow vertical aerial dive from high altitude, descending focus on ground subject, soft aerial motion"
+  },
+  {
+    title: "Drone Fly Past 无人机擦身飞掠",
+    shortName: "@DroneFlyPast",
+    english: "Drone Fly Past",
+    prompt: "Drone Fly Past shot, drone horizontally glide past central subject, dynamic fast aerial movement, slight motion blur for speed"
+  },
+  {
+    title: "Top-Down Drone 上帝垂直俯拍",
+    shortName: "@TopDownDrone",
+    english: "Top-Down Drone",
+    prompt: "Bird’s Eye Top-Down drone shot, perfectly vertical overhead aerial view, symmetrical composition, flat top perspective"
+  },
+  {
+    title: "Forward Tracking 向前跟拍",
+    shortName: "@ForwardTracking",
+    english: "Forward Tracking",
+    prompt: "Forward Tracking shot, camera moving synchronously with walking subject, subject stays centered, flowing foreground blur"
+  },
+  {
+    title: "Backward Tracking 倒退跟拍",
+    shortName: "@BackwardTracking",
+    english: "Backward Tracking",
+    prompt: "Backward Tracking shot, camera moving backward facing subject, continuous front tracking, stable gimbal movement"
+  },
+  {
+    title: "Side Tracking 侧面平行跟拍",
+    shortName: "@SideTracking",
+    english: "Side Tracking",
+    prompt: "Side Parallel Tracking shot, camera moving side-by-side with character, horizontal synchronized motion, clear side profile view"
+  },
+  {
+    title: "Low Angle Shot 低角度仰拍",
+    shortName: "@LowAngleShot",
+    english: "Low Angle Shot",
+    prompt: "Low Angle shot, camera below subject eye level, upward looking perspective, powerful imposing atmosphere, slight wide distortion"
+  },
+  {
+    title: "High Angle Shot 高角度俯拍",
+    shortName: "@HighAngleShot",
+    english: "High Angle Shot",
+    prompt: "High Angle shot, elevated camera looking down at subject, restrained weak atmosphere, clear surrounding environment layout"
+  },
+  {
+    title: "Dutch Tilt 斜角歪镜",
+    shortName: "@DutchTilt",
+    english: "Dutch Tilt",
+    prompt: "Dutch Tilt shot, canted tilted camera frame, slanted horizontal line, tense unstable psychological atmosphere, cinematic thriller style"
+  },
+  {
+    title: "Stabilized Hand Follow 稳定器顺滑手持跟拍",
+    shortName: "@StabilizedHandFollow",
+    english: "Stabilized Hand Follow",
+    prompt: "Stabilized handheld follow shot, gimbal balanced camera, soft natural micro motion, documentary texture, no harsh shake"
+  },
+  {
+    title: "Shoulder Cam 肩扛手持镜头",
+    shortName: "@ShoulderCam",
+    english: "Shoulder Cam",
+    prompt: "Shoulder mount handheld shot, subtle natural camera shake, realistic documentary aesthetic, slight motion jitter"
+  },
+  {
+    title: "Running Hand Shot 奔跑手持镜头",
+    shortName: "@RunningHandShot",
+    english: "Running Hand Shot",
+    prompt: "Running handheld shot, obvious dynamic camera shake, fast chase atmosphere, heavy motion blur for rapid movement"
+  },
+  {
+    title: "Whip Pan 极速甩镜/闪摇转场",
+    shortName: "@WhipPan",
+    english: "Whip Pan",
+    prompt: "Whip Pan transition shot, ultra fast horizontal camera whip, heavy motion blur streak, quick scene cut transition effect"
+  },
+  {
+    title: "POV Shot 第一人称主观镜头",
+    shortName: "@POVShot",
+    english: "POV Shot",
+    prompt: "Human POV shot, first-person subjective perspective, camera movement simulate human eye vision, immersive immersive viewing experience"
+  },
+  {
+    title: "Spin Rotate 机身自旋镜头",
+    shortName: "@SpinRotate",
+    english: "Spin Rotate",
+    prompt: "Camera Spin Rotate shot, 360 axial self rotation of camera, swirling spinning frame, dreamy dizzy visual effect"
+  },
+  {
+    title: "Creep Slow Push 潜行慢推镜",
+    shortName: "@CreepSlowPush",
+    english: "Creep Slow Push",
+    prompt: "Creep slow Dolly In shot, ultra slow forward camera creep, barely perceptible movement, eerie suspense horror atmosphere"
+  },
+  {
+    title: "Rack Focus 焦点切换运镜",
+    shortName: "@RackFocus",
+    english: "Rack Focus",
+    prompt: "Tracking shot with Rack Focus, camera slow movement, fast shift focal point between foreground and background, clear focus jump transition"
+  }
+];
+
+export async function ensureCameraMotionsSeeded(projectId: string): Promise<void> {
+  const now = Date.now();
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        const countResult = await database.select<any[]>(
+          "SELECT COUNT(*) as cnt FROM visual_library WHERE project_id = ? AND type = '运镜'",
+          [projectId]
+        );
+        const count = countResult[0]?.cnt || 0;
+        if (count === 0) {
+          console.log(`Dynamic seeding camera motions in DB for project ${projectId}`);
+          
+          // Fetch from visual_library_template where template_type is camera
+          const templates = await database.select<any[]>(
+            "SELECT * FROM visual_library_template WHERE template_type = 'camera'"
+          );
+          
+          if (templates && templates.length > 0) {
+            console.log(`Retrieved ${templates.length} camera templates from database to seed project ${projectId}`);
+            for (const t of templates) {
+              const title = `${t.template_name} ${t.template_name_chinese}`;
+              const shortName = `@${t.template_name.replace(/\s+/g, '')}`;
+              const sceneId = shortName.toLowerCase().replace('@', '');
+              
+              await database.execute(
+                `INSERT INTO visual_library (project_id, scene_id, title, type, uuid, short_name, image_prompt, video_prompt, audio_prompt, image_path, video_path, audio_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [projectId, sceneId, title, '运镜', '', shortName, t.prompt, t.prompt, '', '', '', '', now, now]
+              );
+            }
+          } else {
+            console.warn("No camera templates found in visual_library_template, falling back to static CAMERA_MOTIONS");
+            for (const motion of CAMERA_MOTIONS) {
+              await database.execute(
+                `INSERT INTO visual_library (project_id, scene_id, title, type, uuid, short_name, image_prompt, video_prompt, audio_prompt, image_path, video_path, audio_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [projectId, motion.shortName.toLowerCase().replace('@', ''), motion.title, '运镜', '', motion.shortName, motion.prompt, motion.prompt, '', '', '', '', now, now]
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to dynamically seed camera motions in DB:", err);
+      }
+    }
+    return;
+  }
+
+  // Fallback to LocalStorage
+  try {
+    const allItemsRaw = localStorage.getItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY);
+    const allItems: any[] = allItemsRaw ? JSON.parse(allItemsRaw) : [];
+    const count = allItems.filter(item => item.projectId === projectId && item.type === '运镜').length;
+    if (count === 0) {
+      console.log(`Dynamic seeding camera motions in LocalStorage for project ${projectId}`);
+      let virtualIdCounter = Date.now();
+      for (const motion of CAMERA_MOTIONS) {
+        allItems.push({
+          id: ++virtualIdCounter,
+          projectId,
+          sceneId: motion.shortName.toLowerCase().replace('@', ''),
+          title: motion.title,
+          type: '运镜',
+          uuid: '',
+          shortName: motion.shortName,
+          imagePrompt: motion.prompt,
+          videoPrompt: motion.prompt,
+          audioPrompt: '',
+          imagePath: '',
+          videoPath: '',
+          audioPath: '',
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+      localStorage.setItem(VISUAL_LIBRARY_LOCAL_STORAGE_KEY, JSON.stringify(allItems));
+    }
+  } catch (err) {
+    console.error("Failed to dynamically seed camera motions in LocalStorage:", err);
+  }
+}
+
 export function getLocalStoragePromptHarnesses(): PromptHarness[] {
   const data = localStorage.getItem(PROMPT_HARNESS_LOCAL_STORAGE_KEY);
   return data ? JSON.parse(data) : [];
@@ -1959,6 +2620,7 @@ export function saveLocalStoragePromptHarnesses(items: PromptHarness[]) {
 }
 
 export async function fetchPromptHarnessByProject(projectId: string): Promise<PromptHarness[]> {
+  await ensureVisualStylesSeeded(projectId);
   if (isTauri) {
     const database = await getDb();
     if (database) {
@@ -2873,5 +3535,200 @@ export async function deleteSystemPrompt(uuid: string): Promise<void> {
     await setSetting('system_prompts', JSON.stringify(prompts));
   }
 }
+
+// Default Seed Voice Presets divided into English & Chinese definitions
+export const SEED_VOICE_PRESETS: DbVoicePreset[] = [
+  {
+    id: 'vox_female_news',
+    name_zh: '新闻女主播 (28–32 岁，时政 / 资讯播报专用)',
+    name_en: 'News Female Anchor (28-32 Years Old)',
+    desc_zh: '年龄声线：28 至 32 岁成熟女性，标准播音腔，声线沉稳厚实，共鸣饱满，中频突出，无轻浮尖细感\n发音韵律：普通话字正腔圆，吐字规整有力，断句专业规范，重音逻辑清晰；语速标准偏稳，快慢控制克制，无大幅度起伏\n情绪气质：端庄冷静、客观中立，语调克制克制，轻微庄重感，无夸张情绪，轻重层次分明，具备权威可信的听觉质感\n声学细节：气声极少，嗓音干净无杂音，音调均衡稳定，尾音收束利落，无拖音、夹子音、软糯少女音，长时间收听不刺耳\n适用场景：电视新闻、时事快讯、财经播报、官方资讯配音',
+    desc_en: 'News anchor female, 28-32 years old, standard broadcasting voice, steady thick timbre, full mid-frequency resonance, precise articulation, neutral calm tone, moderate steady speed, solemn and credible, minimal breath sound, clean voice without shrill high pitch, for news broadcast and official report.',
+    gender: 'female',
+    pitch: 0,
+    speed: 1.0,
+    emotion: 'articulate'
+  },
+  {
+    id: 'vox_male_tech',
+    name_zh: '科技男解说 (25–30 岁，数码 / AI / 硬件测评解说)',
+    name_en: 'Tech Male Commentator (25-30 Years Old)',
+    desc_zh: '年龄声线：25–30 岁青年男性，清爽低中音，声线干净通透，轻微少年感但不失专业，无厚重烟嗓、低沉大叔嗓\n发音韵律：吐字清晰利落，专业术语咬字清晰，停顿自然；语速中等偏轻快，节奏流畅不拖沓，讲解时轻重音区分明显\n情绪气质：理性冷静、条理清晰，语调平和客观，带轻微求知分享感，不亢奋嘶吼，逻辑感强，通俗易懂\n声学细节：轻微自然气声，音色通透清亮，音调平稳，无沙哑杂音，语速弹性适中，适配长时间产品讲解、技术科普\n适用场景：数码测评、AI 技术讲解、软件教程、科技资讯解说',
+    desc_en: 'Tech commentator male, 25-30 years old, clean young baritone, clear pronunciation for technical terms, moderate slightly brisk speed, rational calm tone, transparent timbre, natural soft breath sound, suitable for digital product review and tech popular science.',
+    gender: 'male',
+    pitch: -1,
+    speed: 1.05,
+    emotion: 'deep'
+  },
+  {
+    id: 'vox_healing_girl',
+    name_zh: '治愈系少女 (18–22 岁，睡前电台、英语伴读、治愈旁白)',
+    name_en: 'Healing Girl (18-22 Years Old)',
+    desc_zh: '年龄声线：18–22 岁少女声线，轻柔薄嗓，高频柔和不尖锐，自带温润软糯质感，无刻意夹子音，原生柔和少女感\n发音韵律：语速缓慢舒缓，断句松弛，尾音轻柔弱化，连读顺滑，咬字轻柔不费力\n情绪气质：温柔安静、松弛治愈，语调平缓起伏微小，自带安抚感，情绪柔软温和，无冷淡、亢奋音色\n声学细节：均匀微弱气声，嗓音通透温润，音量柔和，音调偏低柔，无刺耳高频，长时间收听舒缓放松\n适用场景：睡前电台、美文旁白、语言伴读、治愈短视频配音',
+    desc_en: 'Healing teenage girl voice, 18-22 years old, soft thin gentle timbre, slow relaxed speaking speed, mild soothing intonation, natural soft breath sound, no shrill pitch, warm comforting texture, for bedtime radio and reading narration.',
+    gender: 'female',
+    pitch: 2,
+    speed: 0.9,
+    emotion: 'soft'
+  },
+  {
+    id: 'vox_cyber_agent',
+    name_zh: '赛博女特工 (24–29 岁，科幻游戏、短片、悬疑旁白)',
+    name_en: 'Cyberpunk Female Agent (24-29 Years Old)',
+    desc_zh: '年龄声线：24–29 岁冷感御姐声线，偏低冷中音，声线紧致克制，自带疏离机械质感，无软糯甜嗓\n发音韵律：语速偏平稳偏快，吐字干脆利落，尾音短促收束，停顿克制克制，无多余拖腔，咬字锋利清晰\n情绪气质：冷静疏离、果决冷峻，语调起伏极小，中性冷感，暗藏沉稳压迫感，无温柔、活泼情绪\n声学细节：轻微低哑颗粒感，气声克制，音调偏冷沉，自带轻微电子疏离质感，无高亢刺耳频段\n适用场景：赛博朋克短片、游戏特工台词、悬疑科幻旁白、谍战剧情配音',
+    desc_en: 'Cyberpunk female agent, 24-29 years old, cold low mezzo timbre, compact restrained voice texture, crisp short ending sound, calm aloof tone, slightly grainy low voice, little pitch fluctuation, for sci-fi game lines and cyberpunk film narration.',
+    gender: 'cyber',
+    pitch: 1,
+    speed: 1.05,
+    emotion: 'cyber'
+  }
+];
+
+export async function fetchVoicePresets(): Promise<DbVoicePreset[]> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute(`
+          CREATE TABLE IF NOT EXISTS voice_presets (
+            id TEXT PRIMARY KEY,
+            name_zh TEXT NOT NULL,
+            name_en TEXT NOT NULL,
+            desc_zh TEXT,
+            desc_en TEXT,
+            gender TEXT,
+            pitch REAL DEFAULT 0.0,
+            speed REAL DEFAULT 1.0,
+            emotion TEXT,
+            ref_audio_name TEXT,
+            uploaded_audio_base64 TEXT
+          );
+        `);
+
+        const rows = await database.select<any[]>("SELECT * FROM voice_presets");
+        if (rows.length === 0) {
+          console.log("[Migration] Seeding database default voice presets...");
+          for (const preset of SEED_VOICE_PRESETS) {
+            await database.execute(`
+              INSERT INTO voice_presets (id, name_zh, name_en, desc_zh, desc_en, gender, pitch, speed, emotion)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              preset.id, 
+              preset.name_zh, 
+              preset.name_en, 
+              preset.desc_zh, 
+              preset.desc_en, 
+              preset.gender, 
+              preset.pitch, 
+              preset.speed, 
+              preset.emotion
+            ]);
+          }
+          return SEED_VOICE_PRESETS;
+        }
+
+        return rows.map(r => ({
+          id: r.id,
+          name_zh: r.name_zh,
+          name_en: r.name_en,
+          desc_zh: r.desc_zh,
+          desc_en: r.desc_en,
+          gender: r.gender as any,
+          pitch: r.pitch,
+          speed: r.speed,
+          emotion: r.emotion,
+          refAudioName: r.ref_audio_name || undefined,
+          uploadedAudioBase64: r.uploaded_audio_base64 || undefined
+        }));
+      } catch (err) {
+        console.error("Failed to fetch voice presets from SQLite:", err);
+      }
+    }
+  }
+
+  // Fallback to localStorage
+  const stored = localStorage.getItem('digital_human_voice_presets');
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      // JSON syntax error fallback
+    }
+  }
+
+  // Save seed data to localStorage for future use
+  localStorage.setItem('digital_human_voice_presets', JSON.stringify(SEED_VOICE_PRESETS));
+  return SEED_VOICE_PRESETS;
+}
+
+export async function saveVoicePreset(preset: DbVoicePreset): Promise<void> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute(`
+          INSERT INTO voice_presets (id, name_zh, name_en, desc_zh, desc_en, gender, pitch, speed, emotion, ref_audio_name, uploaded_audio_base64)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name_zh = EXCLUDED.name_zh,
+            name_en = EXCLUDED.name_en,
+            desc_zh = EXCLUDED.desc_zh,
+            desc_en = EXCLUDED.desc_en,
+            gender = EXCLUDED.gender,
+            pitch = EXCLUDED.pitch,
+            speed = EXCLUDED.speed,
+            emotion = EXCLUDED.emotion,
+            ref_audio_name = EXCLUDED.ref_audio_name,
+            uploaded_audio_base64 = EXCLUDED.uploaded_audio_base64
+        `, [
+          preset.id,
+          preset.name_zh,
+          preset.name_en,
+          preset.desc_zh || '',
+          preset.desc_en || '',
+          preset.gender,
+          preset.pitch,
+          preset.speed,
+          preset.emotion,
+          preset.refAudioName || null,
+          preset.uploadedAudioBase64 || null
+        ]);
+        return;
+      } catch (err) {
+        console.error("Failed to save voice preset in SQLite:", err);
+      }
+    }
+  }
+
+  // LocalStorage sync fallback
+  const all = await fetchVoicePresets();
+  const idx = all.findIndex(v => v.id === preset.id);
+  if (idx > -1) {
+    all[idx] = preset;
+  } else {
+    all.push(preset);
+  }
+  localStorage.setItem('digital_human_voice_presets', JSON.stringify(all));
+}
+
+export async function deleteVoicePreset(id: string): Promise<void> {
+  if (isTauri) {
+    const database = await getDb();
+    if (database) {
+      try {
+        await database.execute("DELETE FROM voice_presets WHERE id = ?", [id]);
+        return;
+      } catch (err) {
+        console.error("Failed to delete voice preset from SQLite:", err);
+      }
+    }
+  }
+
+  // LocalStorage fallback
+  const all = await fetchVoicePresets();
+  const filtered = all.filter(v => v.id !== id);
+  localStorage.setItem('digital_human_voice_presets', JSON.stringify(filtered));
+}
+
 
 

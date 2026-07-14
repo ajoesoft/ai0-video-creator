@@ -635,7 +635,7 @@ export function TimelineEditor() {
       if (!isTauri) {
         setGenerationMsg('Web Sandbox Mode: 模拟语音合成处理中...');
         await new Promise(resolve => setTimeout(resolve, 2000));
-        const mockAudioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+        const mockAudioUrl = '';
         await updateVocabulary(segment.id, { audioPath: mockAudioUrl });
         await loadProjectData(projectId);
         

@@ -36,6 +36,15 @@ import {
 import { cn, getAssetUrl, useLocalImageBase64, useMediaUrl } from '@/src/lib/utils';
 import { useTranslation } from '../contexts/LanguageContext';
 import { motion, AnimatePresence } from 'motion/react';
+import { buildFusedPrompt, getDecoratedPrompt } from '../lib/promptDecorator';
+
+const VOICE_PRESETS = [
+  { id: 'vox_female_news', name: '新闻女主播 (News Female)', desc: 'Professional, articulate, warm', gender: 'female', pitch: 0, speed: 1.0, emotion: 'articulate' },
+  { id: 'vox_male_tech', name: '科技男解说 (Tech Male)', desc: 'Deep, engaging, steady', gender: 'male', pitch: -2, speed: 1.0, emotion: 'deep' },
+  { id: 'vox_ghibli_boy', name: '吉卜力少年 (Ghibli Boy)', desc: 'Energetic, pure, bright', gender: 'male', pitch: 2, speed: 1.1, emotion: 'energetic' },
+  { id: 'vox_sweet_girl', name: '甜美萝莉 (Sweet Girl)', desc: 'Soft, cute, high pitch', gender: 'female', pitch: 3, speed: 0.95, emotion: 'soft' },
+  { id: 'vox_cyber_agent', name: 'AI 虚拟特工 (Cyber Agent)', desc: 'Slightly electronic, cool, modern', gender: 'cyber', pitch: 1, speed: 1.0, emotion: 'cyber' }
+];
 import { 
   fetchProjectById, 
   fetchVocabularyByProject, 
@@ -44,10 +53,12 @@ import {
   deleteVocabulary,
   applyPromptHarnessRules,
   fetchPromptHarnessByProject,
-  getSetting
+  fetchVisualLibraryByProject,
+  getSetting,
+  fetchSystemPrompts
 } from '../lib/db';
 import { comfy } from '../lib/comfy';
-import { VideoProject, Vocabulary, PromptHarness } from '../types';
+import { VideoProject, Vocabulary, PromptHarness, VisualLibraryItem, SystemPrompt } from '../types';
 import { join } from '@tauri-apps/api/path';
 import { exists, writeFile, mkdir } from '@tauri-apps/plugin-fs';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
@@ -108,14 +119,108 @@ function getLanguageCode(langName: string): string {
   return normalized.substring(0, 2);
 }
 
+interface StandardPromptSelectorProps {
+  systemPrompts: SystemPrompt[];
+  onSelectPrompt: (promptText: string) => void;
+  language: 'zh' | 'en';
+}
+
+function StandardPromptSelector({ systemPrompts, onSelectPrompt, language }: StandardPromptSelectorProps) {
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+
+  const categories = [
+    { id: 'composition', labelZh: '构图类型 (Composition)', labelEn: 'Composition' },
+    { id: 'lighting', labelZh: '光影类型 (Lighting)', labelEn: 'Lighting' },
+    { id: 'color', labelZh: '色彩类型 (Color)', labelEn: 'Color' },
+    { id: 'quality', labelZh: '画质 (Quality)', labelEn: 'Quality' },
+    { id: 'style', labelZh: '画风 (Style)', labelEn: 'Artistic Style' },
+    { id: 'atmosphere', labelZh: '氛围 (Atmosphere)', labelEn: 'Atmosphere' }
+  ];
+
+  const getCategoryLabel = (cat: typeof categories[0]) => {
+    return language === 'zh' ? cat.labelZh : cat.labelEn;
+  };
+
+  return (
+    <div className="space-y-2 border border-white/5 bg-white/[0.01] rounded-lg p-2.5 my-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-mono tracking-wider text-brand-primary uppercase font-bold flex items-center gap-1">
+          <span>✨</span>
+          <span>{language === 'zh' ? '快速插入标准提示词' : 'Quick Standard Prompts'}</span>
+        </span>
+        {activeCategory && (
+          <button 
+            type="button"
+            onClick={() => setActiveCategory(null)}
+            className="text-[9px] font-mono text-white/40 hover:text-white cursor-pointer hover:underline"
+          >
+            {language === 'zh' ? '收起' : 'Collapse'}
+          </button>
+        )}
+      </div>
+
+      {/* Category Tabs */}
+      <div className="flex flex-wrap gap-1">
+        {categories.map(cat => {
+          const hasPrompts = systemPrompts.some(p => p.classification === cat.id);
+          if (!hasPrompts) return null;
+          const isActive = activeCategory === cat.id;
+
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setActiveCategory(isActive ? null : cat.id)}
+              className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer border",
+                isActive 
+                  ? "bg-brand-primary/15 border-brand-primary/30 text-white" 
+                  : "bg-white/[0.03] border-white/5 text-white/60 hover:bg-white/[0.08] hover:text-white"
+              )}
+            >
+              {getCategoryLabel(cat)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Options list */}
+      {activeCategory && (
+        <div className="bg-black/40 border border-white/5 rounded p-2 mt-1.5 max-h-[140px] overflow-y-auto custom-scrollbar">
+          <div className="flex flex-wrap gap-1">
+            {systemPrompts
+              .filter(p => p.classification === activeCategory)
+              .map(p => (
+                <button
+                  key={p.uuid}
+                  type="button"
+                  title={p.prompt}
+                  onClick={() => onSelectPrompt(p.prompt)}
+                  className="px-2 py-0.5 rounded bg-white/[0.05] hover:bg-brand-primary/15 hover:text-brand-primary border border-white/[0.05] hover:border-brand-primary/20 text-[10px] text-white/80 transition-all cursor-pointer text-left font-mono truncate max-w-[200px]"
+                >
+                  {p.name}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SegmentCoverProps {
   segment: Vocabulary;
   project: VideoProject | null;
   onRefresh: () => void;
   onOpenVideoGen?: () => void;
+  visualLibraryItems?: VisualLibraryItem[];
+  promptHarnesses?: PromptHarness[];
+  systemPrompts?: SystemPrompt[];
 }
 
-export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: SegmentCoverProps) {
+export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen, visualLibraryItems, promptHarnesses, systemPrompts }: SegmentCoverProps) {
+  const { language } = useTranslation();
+  const itemsToUse = visualLibraryItems || [];
   const imageSrc = useLocalImageBase64(segment.imagePath);
   const videoSrc = useMediaUrl(segment.videoPath, 'video');
 
@@ -309,9 +414,9 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
     setProgress('Initializing...');
 
     try {
-      const promptPrefix = project?.prompt ? `${project.prompt}, ` : '';
-      const resolvedPromptInput = await applyPromptHarnessRules(promptInput, project?.id || '');
-      const fullPrompt = `${promptPrefix}${resolvedPromptInput}, 8k, photorealistic`;
+      const decoratedInput = getDecoratedPrompt(promptInput, false, itemsToUse, project, promptHarnesses);
+      const resolvedPromptInput = await applyPromptHarnessRules(decoratedInput, project?.id || '');
+      const fullPrompt = resolvedPromptInput;
       const isTurbo = selectedModel === 'z-image-turbo';
 
       let savedPath = '';
@@ -520,7 +625,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
       {/* Model and Prompt Modal Dialog */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-[2px]">
-          <div className="bg-[#0e0e11] border border-white/10 w-full max-w-lg rounded-lg overflow-hidden flex flex-col relative shadow-2xl">
+          <div className="bg-[#0e0e11] border border-white/10 w-full max-w-[95vw] md:max-w-5xl rounded-lg overflow-hidden flex flex-col relative shadow-2xl">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
               <h3 className="font-bold text-sm tracking-widest uppercase text-white/95 flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-brand-primary animate-pulse" />
@@ -582,9 +687,23 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
                     className="text-[9px] font-bold text-brand-primary uppercase tracking-widest hover:text-white flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded border border-white/5 transition-colors"
                   >
                     <Sparkles className="w-2.5 h-2.5 text-brand-primary animate-pulse" />
-                    <span>{isHarnessResolving ? 'Resolving...' : 'Inject Harness (@name)'}</span>
+                    <span>{isHarnessResolving ? 'Resolving...' : 'Inject Harness (@一致性)'}</span>
                   </button>
                 </div>
+
+                <StandardPromptSelector 
+                  systemPrompts={systemPrompts || []} 
+                  language={language} 
+                  onSelectPrompt={(text) => {
+                    setPromptInput(prev => {
+                      const trimmed = prev.trim();
+                      if (!trimmed) return text;
+                      if (trimmed.endsWith(',')) return `${trimmed} ${text}`;
+                      return `${trimmed}, ${text}`;
+                    });
+                  }}
+                />
+
                 <textarea
                   disabled={isGenerating}
                   value={promptInput}
@@ -593,6 +712,17 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
                   placeholder="Describe the cinematic scene details (supports English & Chinese)..."
                   className="w-full bg-black border border-white/5 rounded px-3 py-2 text-xs text-white placeholder-white/20 focus:outline-none focus:border-brand-primary"
                 />
+                
+                {/* Decorated Prompt Preview inside SegmentCover Modal */}
+                <div className="bg-[#1a1a24] border border-white/5 rounded p-3 space-y-1.5 mt-2">
+                  <div className="flex items-center gap-1.5 text-[9px] font-mono font-bold text-brand-primary uppercase">
+                    <Sparkles className="w-3.5 h-3.5 text-brand-primary animate-pulse" />
+                    <span>{language === 'zh' ? '装饰后的完整图片生成提示词' : 'Decorated Complete Image Prompt'}</span>
+                  </div>
+                  <div className="text-[10px] font-mono text-[#FFCC00]/90 italic bg-black/40 p-2.5 rounded border border-white/5 select-all leading-relaxed whitespace-pre-wrap max-h-[280px] md:max-h-[35vh] overflow-y-auto custom-scrollbar">
+                    {getDecoratedPrompt(promptInput, false, itemsToUse, project, promptHarnesses)}
+                  </div>
+                </div>
               </div>
 
               {/* Grab previous last frame button */}
@@ -613,7 +743,7 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
                     ) : (
                       <>
                         <FileVideo className="w-3.5 h-3.5 text-blue-400 animate-pulse" />
-                        <span>Get the last frame of the last video(Use Last Frame of Previous Video)</span>
+                        <span>获取上一视频最后一帧 (Use Last Frame of Previous Video)</span>
                       </>
                     )}
                   </button>
@@ -669,12 +799,14 @@ export function SegmentCover({ segment, project, onRefresh, onOpenVideoGen }: Se
 
 export function ScriptEditor() {
   const { id } = useParams<{ id: string }>();
+  const { language } = useTranslation();
   const [project, setProject] = useState<VideoProject | null>(null);
   const [activeTab, setActiveTab] = useState<'segments' | 'subtitles'>('segments');
   const [engine, setEngine] = useState<'online' | 'local'>('local');
   
   // Script and Segment states
   const [scriptSegments, setScriptSegments] = useState<Vocabulary[]>([]);
+  const [visualLibraryItems, setVisualLibraryItems] = useState<VisualLibraryItem[]>([]);
   const [activeSubTabs, setActiveSubTabs] = useState<Record<number, 'speech' | 'dialog' | 'direction' | 'textToImage' | 'videoPrompt'>>({});
   const [generatingPromptIds, setGeneratingPromptIds] = useState<Record<number, boolean>>({});
   const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
@@ -699,6 +831,7 @@ export function ScriptEditor() {
   const [translatingIds, setTranslatingIds] = useState<Record<number, boolean>>({});
   const [doctoringIds, setDoctoringIds] = useState<Record<number, boolean>>({});
   const [promptHarnesses, setPromptHarnesses] = useState<PromptHarness[]>([]);
+  const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([]);
   const [isApplyingGenre, setIsApplyingGenre] = useState(false);
 
   // Audio Recognition (ASR) States
@@ -868,6 +1001,20 @@ export function ScriptEditor() {
         setPromptHarnesses(harnesses || []);
       } catch (err) {
         console.error("Failed to load prompt harnesses inside ScriptEditor:", err);
+      }
+
+      try {
+        const prompts = await fetchSystemPrompts();
+        setSystemPrompts(prompts || []);
+      } catch (err) {
+        console.error("Failed to load system prompts inside ScriptEditor:", err);
+      }
+
+      try {
+        const vItems = await fetchVisualLibraryByProject(projectId);
+        setVisualLibraryItems(vItems || []);
+      } catch (err) {
+        console.error("Failed to load visual library items in ScriptEditor:", err);
       }
 
       // Pre-populate simulated subtitle base values
@@ -1146,14 +1293,14 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     if (!segment.id) return;
     const textToDoctor = segment.dialog || segment.script || '';
     if (!textToDoctor || textToDoctor.trim() === '') {
-      alert("Dialogue content is empty!");
+      alert("Dialogue content is empty! (对白内容不能为空)");
       return;
     }
 
     // Check dialogue format
     const charMatch = textToDoctor.match(/^([^:]+):/);
     if (!charMatch) {
-      alert("Dialogue must start with 'CharacterName:' format to trigger Persona alignment. (Example 'Lily: Hello')");
+      alert("Dialogue must start with 'CharacterName:' format to trigger Persona alignment. (对白需以 '角色名:' 格式开始，例如 'Lily: Hello')");
       return;
     }
 
@@ -1816,6 +1963,22 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
     await updateVocabulary(segmentId, { category: cat });
   };
 
+  const handleUpdatePreset = async (segmentId: number, key: 'ipPreset' | 'scenePreset' | 'lightingPreset' | 'voicePreset', val: string) => {
+    const segment = scriptSegments.find(s => s.id === segmentId);
+    if (!segment) return;
+    let currentCustomData: any = {};
+    try {
+      currentCustomData = segment.data ? JSON.parse(segment.data) : {};
+    } catch (e) {
+      currentCustomData = {};
+    }
+    currentCustomData[key] = val;
+    const dataStr = JSON.stringify(currentCustomData);
+
+    setScriptSegments(prev => prev.map(s => s.id === segmentId ? { ...s, data: dataStr } : s));
+    await updateVocabulary(segmentId, { data: dataStr });
+  };
+
   const handleUpdateContent = async (segmentId: number, content: string) => {
     const seg = scriptSegments.find(s => s.id === segmentId);
     const updates: Partial<Vocabulary> = { script: content };
@@ -2228,6 +2391,10 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                         return {};
                       }
                     })();
+                    const segIP = customData.ipPreset || 'none';
+                    const segScene = customData.scenePreset || 'none';
+                    const segLighting = customData.lightingPreset || 'none';
+                    const segVoice = customData.voicePreset || 'vox_female_news';
                     const translatedAudioPath = isDialogue ? (customData.translatedDialogAudioPath || "") : (customData.translatedAudioPath || "");
                     const isTranslatedAudioReady = !!(audioPlaybacks[transIdentifier] || translatedAudioPath);
 
@@ -2256,7 +2423,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                             <button 
                               onClick={() => handleOpenSceneNameModal(segment)}
                               className="text-[10px] font-bold text-gray-400 hover:text-brand-primary flex items-center gap-1 cursor-pointer bg-white/5 hover:bg-white/10 px-2 py-0.5 rounded border border-white/5 hover:border-brand-primary/20 transition-all uppercase font-mono tracking-wider"
-                              title="Click to edit scene name"
+                              title="Click to edit scene name 点击修改场景名称"
                             >
                               <Edit2 className="w-2.5 h-2.5 text-white/40" />
                               <span>{segment.word || `Scene ${index + 1}`}</span>
@@ -2272,7 +2439,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     await handleMoveSegment(index, index - 1);
                                   }}
                                   className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-brand-primary transition-all cursor-pointer"
-                                  title="Move Up"
+                                  title="Move Up 向上移动"
                                 >
                                   <ChevronUp className="w-3.5 h-3.5" />
                                 </button>
@@ -2285,7 +2452,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     await handleMoveSegment(index, index + 1);
                                   }}
                                   className="p-1 rounded hover:bg-white/10 text-white/50 hover:text-brand-primary transition-all cursor-pointer"
-                                  title="Move Down"
+                                  title="Move Down 向下移动"
                                 >
                                   <ChevronDown className="w-3.5 h-3.5" />
                                 </button>
@@ -2346,7 +2513,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     ) : (
                                       <Sparkles className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
                                     )}
-                                    <span>ALIGN PERSONA</span>
+                                    <span>ALIGN PERSONA (口吻修饰)</span>
                                   </button>
                                 )}
                               </>
@@ -2369,11 +2536,11 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                             {/* Sub-tabs Selection for Speech / Dialogue / Direction / Image Prompt / Video Prompt */}
                             <div className="flex border-b border-white/[0.05] mb-5 gap-2">
                               {[
-                                { id: 'speech', label: 'Speech' },
-                                { id: 'dialog', label: 'Dialogue' },
-                                { id: 'direction', label: 'Direction' },
-                                { id: 'textToImage', label: 'Image Prompt' },
-                                { id: 'videoPrompt', label: 'Video Prompt' }
+                                { id: 'speech', label: 'Speech 旁白' },
+                                { id: 'dialog', label: 'Dialogue 对白' },
+                                { id: 'direction', label: 'Direction 画面' },
+                                { id: 'textToImage', label: 'Image Prompt 绘图' },
+                                { id: 'videoPrompt', label: 'Video Prompt 视频' }
                               ].map(tab => (
                                 <button
                                   key={tab.id}
@@ -2418,7 +2585,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                         e.target.style.height = `${e.target.scrollHeight}px`;
                                       }}
                                       style={{ overflow: 'hidden' }}
-                                      placeholder="Type speech narrative prose here..."
+                                      placeholder="Type speech narrative prose here (旁白解说内容)..."
                                       className="w-full bg-black/20 border border-white/5 rounded-lg p-3 outline-none leading-relaxed text-white text-lg font-light tracking-wide focus:border-brand-primary transition-all resize-none min-h-[80px]"
                                     />
 
@@ -2481,7 +2648,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                     />
 
                                     <p className="text-[10px] text-brand-primary/70 font-mono">
-                                      (Format): <strong className="text-white">CharacterName: Dialogue line text</strong>Mapping character voice automaticlly.
+                                      格式 (Format): <strong className="text-white">CharacterName: Dialogue line text</strong> 自动映射对应角色声音。
                                     </p>
 
                                     {/* Dialog synthesis buttons */}
@@ -2525,7 +2692,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                         ) : (
                                           <Sparkles className="w-3.5 h-3.5 text-orange-400 animate-pulse" />
                                         )}
-                                        <span>ALIGN PERSONA</span>
+                                        <span>ALIGN PERSONA (口吻修饰)</span>
                                       </button>
                                     </div>
                                   </div>
@@ -2566,7 +2733,7 @@ Personality: Mature, sophisticated, observant, and possessing a captivating aura
                                   <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                       <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
-                                        Text-to-Image Prompt
+                                        Text-to-Image Prompt (文生图 Prompt)
                                       </span>
                                       
                                       <button
@@ -2618,6 +2785,49 @@ Scene text: "${textToAnalyze}"`;
                                         <span>AI Prompt Gen</span>
                                       </button>
                                     </div>
+
+                                    {/* Prompts Decorator Preview inside Text-to-Image Tab */}
+                                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3.5 space-y-3">
+                                      <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-brand-primary border-b border-white/5 pb-1.5 justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                          <Sparkles className="w-3.5 h-3.5 text-brand-primary animate-pulse" />
+                                          <span>{language === 'zh' ? '智能提示词装饰器 (文生图)' : 'Prompt Decorator (Image)'}</span>
+                                        </div>
+                                        <span className="text-[10px] text-white/40 uppercase font-mono">
+                                          Style: {project?.visualStyle || 'Cinematic'}
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="text-[11px] text-white/60 space-y-1">
+                                        <p>{language === 'zh' ? '💡 系统已自动应用项目的视觉风格。在下方输入框中输入 @名字 即可自动导入对应的角色IP或运镜设定。' : '💡 The project style is auto-applied. Type @name below to automatically insert your characters or motion presets.'}</p>
+                                      </div>
+
+                                      {/* Decorated Complete Prompt Readout */}
+                                      <div className="space-y-1.5">
+                                        <span className="text-[9px] text-brand-primary font-mono uppercase block">{language === 'zh' ? '装饰后的完整图片生成提示词' : 'Decorated Complete Image Prompt'}</span>
+                                        <div className="w-full bg-black/40 border border-white/5 rounded p-2.5 text-[11px] font-mono text-[#FFCC00]/90 italic leading-relaxed whitespace-pre-wrap select-all">
+                                          {getDecoratedPrompt(segment.textToImagePrompt || '', false, visualLibraryItems, project, promptHarnesses)}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <StandardPromptSelector 
+                                      systemPrompts={systemPrompts} 
+                                      language={language} 
+                                      onSelectPrompt={(text) => {
+                                        const trimmed = (segment.textToImagePrompt || '').trim();
+                                        let newVal = '';
+                                        if (!trimmed) {
+                                          newVal = text;
+                                        } else if (trimmed.endsWith(',')) {
+                                          newVal = `${trimmed} ${text}`;
+                                        } else {
+                                          newVal = `${trimmed}, ${text}`;
+                                        }
+                                        handleUpdateField(segment.id, 'textToImagePrompt', newVal);
+                                      }}
+                                    />
+
                                     <textarea 
                                       ref={el => {
                                         textareaRefs.current[segment.id] = el;
@@ -2646,7 +2856,7 @@ Scene text: "${textToAnalyze}"`;
                                   <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                       <span className="text-[10px] font-mono tracking-widest text-white/30 uppercase">
-                                        Text-to-Video Prompt 
+                                        Text-to-Video Prompt (视频生成 / RegVid Prompt)
                                       </span>
                                       
                                       <button
@@ -2698,6 +2908,32 @@ Scene text: "${textToAnalyze}"`;
                                         <span>AI Video Prompt Gen</span>
                                       </button>
                                     </div>
+
+                                    {/* Prompts Decorator Preview inside Text-to-Video Tab */}
+                                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3.5 space-y-3">
+                                      <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-brand-primary border-b border-white/5 pb-1.5 justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                          <Sparkles className="w-3.5 h-3.5 text-brand-primary animate-pulse" />
+                                          <span>{language === 'zh' ? '智能提示词装饰器 (文生视频)' : 'Prompt Decorator (Video)'}</span>
+                                        </div>
+                                        <span className="text-[10px] text-white/40 uppercase font-mono">
+                                          Style: {project?.visualStyle || 'Cinematic'}
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="text-[11px] text-white/60 space-y-1">
+                                        <p>{language === 'zh' ? '💡 系统已自动应用项目的视觉风格。在下方输入框中输入 @名字 即可自动导入对应的角色IP或运镜设定。' : '💡 The project style is auto-applied. Type @name below to automatically insert your characters or motion presets.'}</p>
+                                      </div>
+
+                                      {/* Decorated Complete Prompt Readout */}
+                                      <div className="space-y-1.5">
+                                        <span className="text-[9px] text-brand-primary font-mono uppercase block">{language === 'zh' ? '装饰后的完整视频生成提示词' : 'Decorated Complete Video Prompt'}</span>
+                                        <div className="w-full bg-black/40 border border-white/5 rounded p-2.5 text-[11px] font-mono text-[#FFCC00]/90 italic leading-relaxed whitespace-pre-wrap select-all">
+                                          {getDecoratedPrompt(segment.ltx23Prompt || '', true, visualLibraryItems, project, promptHarnesses)}
+                                        </div>
+                                      </div>
+                                    </div>
+
                                     <textarea 
                                       ref={el => {
                                         textareaRefs.current[segment.id] = el;
@@ -2791,6 +3027,9 @@ Scene text: "${textToAnalyze}"`;
                               project={project} 
                               onRefresh={() => loadData(id!)} 
                               onOpenVideoGen={() => setVideoGenSegment(segment)}
+                              visualLibraryItems={visualLibraryItems}
+                              promptHarnesses={promptHarnesses}
+                              systemPrompts={systemPrompts}
                             />
                           </div>
                         </div>
@@ -3340,6 +3579,8 @@ Scene text: "${textToAnalyze}"`;
               if (found) setVideoGenSegment(found);
             });
           }}
+          visualLibraryItems={visualLibraryItems}
+          promptHarnesses={promptHarnesses}
         />
       )}
 
@@ -3381,7 +3622,7 @@ Scene text: "${textToAnalyze}"`;
                   />
                 </div>
                 <p className="text-[10px] text-gray-400/60 leading-relaxed italic">
-                  The scene name is used to distinguish different shots in the storyboard, and changes will be instantly synchronized to the project database.
+                  场景名称用于区分故事板中的不同镜头，修改后会立即同步至项目数据库。
                 </p>
               </div>
               <div className="p-4 bg-black/40 border-t border-white/5 flex justify-end gap-3">
@@ -3389,13 +3630,13 @@ Scene text: "${textToAnalyze}"`;
                   onClick={() => setEditingSceneSegment(null)}
                   className="px-4 py-2 text-xs font-bold text-gray-400 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all"
                 >
-                  Cancel
+                  取消 Cancel
                 </button>
                 <button 
                   onClick={handleSaveSceneName}
                   className="px-5 py-2 bg-[#FF5D22] hover:bg-[#FF5D22]/90 text-black text-xs font-black uppercase tracking-wider rounded-lg shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
                 >
-                  Save
+                  保存修改 Save
                 </button>
               </div>
             </motion.div>
@@ -3423,13 +3664,18 @@ export function VideoGenModal({
   segment, 
   project, 
   onClose, 
-  onRefresh 
+  onRefresh,
+  visualLibraryItems,
+  promptHarnesses
 }: { 
   segment: Vocabulary; 
   project: VideoProject | null; 
   onClose: () => void; 
   onRefresh: () => void; 
+  visualLibraryItems: VisualLibraryItem[];
+  promptHarnesses?: PromptHarness[];
 }) {
+  const itemsToUse = visualLibraryItems || [];
   let customData: any = {};
   try {
     customData = segment.data ? JSON.parse(segment.data) : {};
@@ -3759,7 +4005,8 @@ export function VideoGenModal({
       }
 
       let results;
-      const resolvedLtxPrompt = await applyPromptHarnessRules(ltxPrompt, project?.id || '');
+      const decoratedLtxPrompt = getDecoratedPrompt(ltxPrompt, true, itemsToUse, project, promptHarnesses);
+      const resolvedLtxPrompt = await applyPromptHarnessRules(decoratedLtxPrompt, project?.id || '');
 
       if (videoModel === 'wan') {
         if (!startFramePath) {
@@ -3952,6 +4199,17 @@ export function VideoGenModal({
                   className="w-full bg-black/40 border border-white/5 rounded p-3 text-xs text-white/90 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 leading-relaxed outline-none transition-all"
                   placeholder={videoModel === 'wan' ? "Describe your scene for Wan 2.2 Image-to-Video. Focus on detailed motions, camera zoom/pan directions, weather, and realistic physics details..." : "Describe your scene in detail. For LTX-2.3 dynamic backgrounds, focus on ambient light, texture, movement speed, and camera focus shifts..."}
                 />
+                
+                {/* Decorated Video Prompt Display */}
+                <div className="bg-[#1a1a24] border border-white/5 rounded-lg p-3 space-y-1.5 mt-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold text-brand-primary uppercase">
+                    <Sparkles className="w-3.5 h-3.5 text-brand-primary animate-pulse" />
+                    <span>{language === 'zh' ? '装饰后的完整视频生成提示词' : 'Decorated Complete Video Prompt'}</span>
+                  </div>
+                  <div className="text-[11px] font-mono text-[#FFCC00]/90 italic bg-black/30 p-2.5 rounded border border-white/5 select-all leading-relaxed whitespace-pre-wrap">
+                    {getDecoratedPrompt(ltxPrompt, true, itemsToUse, project, promptHarnesses)}
+                  </div>
+                </div>
               </div>
 
               {/* Reference Audio selector */}
@@ -4247,7 +4505,7 @@ export function VideoGenModal({
                 ) : (
                   <>
                     <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Generate Scene Reference Image (Multiple outputs can be generated.)</span>
+                    <span>Generate Scene Reference Image (可以生成多个)</span>
                   </>
                 )}
               </button>

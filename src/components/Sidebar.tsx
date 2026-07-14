@@ -55,21 +55,21 @@ export function Sidebar() {
   const mainNav: NavItem[] = [
     { label: t('dashboard'), icon: LayoutDashboard, path: '/' },
     { label: t('models'), icon: Database, path: '/models' },
-    { label: '后台队列 Queue', icon: GanttChart, path: '/queue' },
+    { label: 'Queue', icon: GanttChart, path: '/queue' },
   ];
 
   const projectNav: NavItem[] = isProjectView ? (
     sceneType === 'video_translation' ? [
-      { label: 'Project Detail', icon: Settings, path: `/project/${projectId}/details` },
-      { label: t('videoTranslation') || '视频翻译 Workspace', icon: Languages, path: `/project/${projectId}/translation` },
+      { label: t('projectDetails'), icon: Settings, path: `/project/${projectId}/details` },
+      { label: t('videoTranslation') || 'Translation Workspace', icon: Languages, path: `/project/${projectId}/translation` },
     ] : sceneType === 'digital_human' ? [
-      { label: 'Project Details', icon: Settings, path: `/project/${projectId}/details` },
-      { label: '数字人工坊 Digital Human', icon: User, path: `/project/${projectId}/digital-human` },
+      { label: t('projectDetails'), icon: Settings, path: `/project/${projectId}/details` },
+      { label: t('digitalHuman'), icon: User, path: `/project/${projectId}/digital-human` },
     ] : sceneType === 'reverse_prompt' ? [
-      { label: 'Project Details', icon: Settings, path: `/project/${projectId}/details` },
-      { label: 'Image Reverse (图生提示词)', icon: ImageIcon, path: `/project/${projectId}/reverse-prompt` },
+      { label: t('projectDetails'), icon: Settings, path: `/project/${projectId}/details` },
+      { label: t('imageReverse'), icon: ImageIcon, path: `/project/${projectId}/reverse-prompt` },
     ] : [
-      { label: 'Project Details', icon: Settings, path: `/project/${projectId}/details` },
+      { label: t('projectDetails'), icon: Settings, path: `/project/${projectId}/details` },
       { label: t('scripting'), icon: FileText, path: `/project/${projectId}/script` },
       { label: t('visuals'), icon: ImageIcon, path: `/project/${projectId}/visuals` },
       { label: t('audio'), icon: Mic2, path: `/project/${projectId}/audio` },
@@ -88,7 +88,7 @@ export function Sidebar() {
       <div className={cn("p-6 flex items-center justify-between mb-4", isCollapsed ? "flex-col gap-4" : "flex-row")}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-brand-primary rounded-sm flex items-center justify-center font-bold text-black shadow-lg shadow-brand-primary/10 shrink-0">
-            T
+            <img src="/logo.png" alt="Logo" className="w-6 h-6" />
           </div>
           {!isCollapsed && (
             <span className="font-semibold tracking-[0.2em] text-[10px] uppercase opacity-80 text-white truncate animate-in fade-in duration-500">
@@ -119,32 +119,9 @@ export function Sidebar() {
             ))}
           </div>
         )}
-
-        {!isCollapsed && (
-          <div className="pt-6 border-t border-border-subtle space-y-4 animate-in fade-in duration-700">
-            <div className="bg-white/5 rounded-sm p-4 border border-border-subtle">
-              <div className="text-[9px] uppercase tracking-tighter opacity-40 mb-3 font-mono font-bold">Local Compute Health</div>
-              <div className="flex justify-between items-center text-[11px] mb-2">
-                <span className="text-gray-400">Ollama / Qwen-7B</span>
-                <span className="text-green-500">●</span>
-              </div>
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-gray-400">ComfyUI / LTX-2.3</span>
-                <span className="text-green-500">●</span>
-              </div>
-            </div>
-          </div>
-        )}
       </nav>
 
-      <div className="p-4 bg-black/40">
-        {!isCollapsed && (
-          <div className="flex items-center gap-2 px-3 text-[9px] font-mono opacity-30 uppercase tracking-widest mb-4 whitespace-nowrap overflow-hidden">
-            <span>Python 3.11</span>
-            <span>|</span>
-            <span>SQLite 3.0</span>
-          </div>
-        )}
+      <div className="p-4 bg-black/40">      
         <NavLink 
           item={{ label: t('configuration'), icon: Settings, path: '/settings' }} 
           active={path === '/settings'} 

@@ -9,20 +9,20 @@ export interface TranslationKeys {
   localNode: string;
   masterNodeLink: string;
   render4K: string;
-  
+
   // Navigation
   dashboard: string;
   models: string;
   configuration: string;
   editorSuite: string;
   discovery: string;
-  
+
   scripting: string;
   visuals: string;
   audio: string;
   timeline: string;
   export: string;
-  
+
   // Dashboard & Project general
   projectDetails: string;
   wordManagement: string;
@@ -32,7 +32,7 @@ export interface TranslationKeys {
   noProjects: string;
   refresh: string;
   batchSync: string;
-  
+  imageReverse: string;
   // Audio Page specific
   auralSynthesis: string;
   freqOrch: string;
@@ -50,7 +50,7 @@ export interface TranslationKeys {
   mapTTS: string;
   activeCloner: string;
   diagnosticsDesc: string;
-  
+  digitalHuman: string;
   // Settings
   globalSettings: string;
   workspacePath: string;
@@ -72,6 +72,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     editorSuite: "Editor Suite",
     discovery: "Discovery",
     scripting: "Scripting",
+    digitalHuman: 'Digital Human',
+    imageReverse: 'Image Reverse',
     visuals: "Visuals",
     audio: "Audio",
     timeline: "Timeline",
@@ -114,6 +116,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     render4K: "渲染 4K",
     dashboard: "仪表盘",
     models: "模型管理",
+    digitalHuman: '数字人类',
+    imageReverse: '图像反向',
     configuration: "参数配置",
     editorSuite: "编辑套件",
     discovery: "资源发现",
@@ -168,6 +172,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     audio: "الصوت",
     timeline: "المخطط الزمني",
     export: "التصدير",
+    digitalHuman: 'Digital Human',
+    imageReverse: 'Image Reverse',
     projectDetails: "تفاصيل المشروع",
     wordManagement: "إدارة الكلمات",
     createProject: "إنشاء مشروع",
@@ -203,6 +209,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     system: "System",
     localNode: "Lokal Node",
     masterNodeLink: "Hovednodekobling",
+    digitalHuman: 'Digital Human',
+    imageReverse: 'Image Reverse',
     render4K: "Rendre 4K",
     dashboard: "Oversikt",
     models: "Modeller",
@@ -249,6 +257,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     system: "Système",
     localNode: "Nœud Local",
     masterNodeLink: "Lien Nœud Maître",
+    digitalHuman: 'Digital Human',
+    imageReverse: 'Image Reverse',
     render4K: "Rendre en 4K",
     dashboard: "Tableau de Bord",
     models: "Modèles",
@@ -298,6 +308,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     render4K: "Renderizar 4K",
     dashboard: "Panel",
     models: "Modelos",
+    digitalHuman: 'Digital Human',
+    imageReverse: 'Image Reverse',
     configuration: "Configuración",
     editorSuite: "Suite de Edición",
     discovery: "Descubrimiento",
@@ -340,6 +352,8 @@ const translations: Record<ActualLanguageCode, TranslationKeys> = {
     appName: "AI0 Video Studio",
     system: "Systeem",
     localNode: "Lokale Node",
+    digitalHuman: 'Digital Human',
+    imageReverse: 'Image Reverse',
     masterNodeLink: "Hoofdnodekoppeling",
     render4K: "Renderen in 4K",
     dashboard: "Dashboard",
@@ -395,7 +409,7 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
-  auto: "跟随系统 (Auto)",
+  auto: "Auto",
   en: "English",
   zh: "中文",
   ar: "العربية",
@@ -446,12 +460,12 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   return (
-    <LanguageContext.Provider value={{ 
-      language: resolvedLanguage, 
-      selectedLanguage, 
-      translations: translations[resolvedLanguage], 
-      setLanguage, 
-      t 
+    <LanguageContext.Provider value={{
+      language: resolvedLanguage,
+      selectedLanguage,
+      translations: translations[resolvedLanguage],
+      setLanguage,
+      t
     }}>
       {children}
     </LanguageContext.Provider>

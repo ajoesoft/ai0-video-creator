@@ -34,6 +34,14 @@ export function ProjectDetail() {
       }
     } catch (e) {
       console.warn('Failed to parse project cover JSON:', e);
+      // Robust regex fallback
+      const selectedAvatarMatch = actualCoverPath.match(/"selectedAvatar"\s*:\s*"([^"]+)"/);
+      const avatarsMatch = actualCoverPath.match(/"avatars"\s*:\s*\[\s*"([^"]+)"/);
+      if (selectedAvatarMatch) {
+        actualCoverPath = selectedAvatarMatch[1];
+      } else if (avatarsMatch) {
+        actualCoverPath = avatarsMatch[1];
+      }
     }
   }
 

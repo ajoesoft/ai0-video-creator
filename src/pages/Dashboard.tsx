@@ -741,9 +741,31 @@ function ProjectCard({
   const navigate = useNavigate();
   const [showMenu, setShowMenu] = useState(false);
   const [imageExists, setImageExists] = useState(false);
+  let actualCoverPath = project?.coverImagePath || '';
+  if (actualCoverPath.startsWith('JSON:')) {
+    try {
+      const parsed = JSON.parse(actualCoverPath.replace('JSON:', ''));
+      if (parsed.selectedAvatar) {
+        actualCoverPath = parsed.selectedAvatar;
+      } else if (parsed.avatars && parsed.avatars.length > 0) {
+        actualCoverPath = parsed.avatars[0];
+      }
+    } catch (e) {
+      console.warn('Failed to parse project cover JSON inside ProjectCard:', e);
+      // Robust regex fallback
+      const selectedAvatarMatch = actualCoverPath.match(/"selectedAvatar"\s*:\s*"([^"]+)"/);
+      const avatarsMatch = actualCoverPath.match(/"avatars"\s*:\s*\[\s*"([^"]+)"/);
+      if (selectedAvatarMatch) {
+        actualCoverPath = selectedAvatarMatch[1];
+      } else if (avatarsMatch) {
+        actualCoverPath = avatarsMatch[1];
+      }
+    }
+  }
+
   const [coverImageBase64, setCoverImageBase64] = useState<string>("");
 
-  const localCoverBase64 = useLocalImageBase64(project?.coverImagePath);
+  const localCoverBase64 = useLocalImageBase64(actualCoverPath);
 
   const getAspectRatioClass = (ratio?: string) => {
     if (!ratio) return "aspect-[16/10]";
@@ -812,28 +834,28 @@ function ProjectCard({
             getAspectRatioClass(project.aspectRatio),
           )}
         >
-          {project?.coverImagePath &&
-          (project.coverImagePath.startsWith("http") || coverImageBase64) ? (
+          {actualCoverPath &&
+          (actualCoverPath.startsWith("http") || coverImageBase64) ? (
             <>
               {/* Cinematic Blurred Background */}
               {!(
-                project.coverImagePath.endsWith(".mp4") ||
-                project.coverImagePath.endsWith(".webm")
+                actualCoverPath.endsWith(".mp4") ||
+                actualCoverPath.endsWith(".webm")
               ) && (
                 <div
                   className="absolute inset-0 bg-cover bg-center blur-md opacity-30 select-none scale-110 pointer-events-none transition-all duration-700 group-hover:opacity-40"
                   style={{
-                    backgroundImage: `url(${project.coverImagePath.startsWith("http") ? project.coverImagePath : coverImageBase64})`,
+                    backgroundImage: `url(${actualCoverPath.startsWith("http") ? actualCoverPath : coverImageBase64})`,
                   }}
                 />
               )}
               {/* Uncropped True Aspect Ratio Image or Video */}
-              {project.coverImagePath.endsWith(".mp4") ||
-              project.coverImagePath.endsWith(".webm") ? (
+              {actualCoverPath.endsWith(".mp4") ||
+              actualCoverPath.endsWith(".webm") ? (
                 <video
                   src={
-                    project.coverImagePath.startsWith("http")
-                      ? project.coverImagePath
+                    actualCoverPath.startsWith("http")
+                      ? actualCoverPath
                       : coverImageBase64
                   }
                   muted
@@ -845,8 +867,8 @@ function ProjectCard({
               ) : (
                 <img
                   src={
-                    project.coverImagePath.startsWith("http")
-                      ? project.coverImagePath
+                    actualCoverPath.startsWith("http")
+                      ? actualCoverPath
                       : coverImageBase64
                   }
                   alt={project.name}

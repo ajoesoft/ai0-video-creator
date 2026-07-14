@@ -1,32 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  User, 
-  Sparkles, 
-  Plus, 
-  Trash2, 
-  Play, 
-  Pause, 
-  Save, 
-  Download, 
-  RefreshCw, 
-  AlertCircle, 
-  Clock, 
-  Video, 
-  Layers, 
-  Settings, 
-  Tv, 
-  Check, 
-  Mic, 
-  Volume2, 
-  Music, 
-  ArrowLeft,
-  Flame,
-  Wand2,
-  Image as ImageIcon,
-  HelpCircle,
-  Coins
-} from 'lucide-react';
+import { User, Sparkles,Plus, Trash2, Play, Pause, RefreshCw, AlertCircle, Clock, Video, Layers, 
+  Tv, Check, Mic, Volume2, Music, ArrowLeft,Wand2, Image as ImageIcon} from 'lucide-react';
 import { 
   fetchProjectById, 
   updateProject, 
@@ -35,16 +10,21 @@ import {
   updateVocabulary, 
   deleteVocabulary,
   createBackgroundTask,
-  getSetting
+  getSetting,
+  fetchVoicePresets,
+  SEED_VOICE_PRESETS
 } from '../lib/db';
-import { Vocabulary, VideoProject, SceneType, TaskType } from '../types';
-import { cn } from '../lib/utils';
+import { Vocabulary, VideoProject, SceneType, TaskType, DbVoicePreset } from '../types';
+import { cn, getAssetUrl } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from '../contexts/LanguageContext';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { mkdir } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
 import { comfy } from '../lib/comfy';
+import { buildFusedPrompt } from '../lib/promptDecorator';
+import { optimizePromptWithGemini } from '../lib/gemini';
+
 
 const isTauri = typeof window !== 'undefined' && (!!(window as any).__TAURI_INTERNALS__ || !!(window as any).__TAURI__);
 
@@ -59,13 +39,7 @@ const ART_STYLES = [
 ];
 
 // Presets for customizable voices
-const VOICE_PRESETS = [
-  { id: 'vox_female_news', name: '新闻女主播 (News Female)', desc: 'Professional, articulate, warm', gender: 'female', pitch: 0, speed: 1.0, emotion: 'articulate' },
-  { id: 'vox_male_tech', name: '科技男解说 (Tech Male)', desc: 'Deep, engaging, steady', gender: 'male', pitch: -2, speed: 1.0, emotion: 'deep' },
-  { id: 'vox_ghibli_boy', name: '吉卜力少年 (Ghibli Boy)', desc: 'Energetic, pure, bright', gender: 'male', pitch: 2, speed: 1.1, emotion: 'energetic' },
-  { id: 'vox_sweet_girl', name: '甜美萝莉 (Sweet Girl)', desc: 'Soft, cute, high pitch', gender: 'female', pitch: 3, speed: 0.95, emotion: 'soft' },
-  { id: 'vox_cyber_agent', name: 'AI 虚拟特工 (Cyber Agent)', desc: 'Slightly electronic, cool, modern', gender: 'cyber', pitch: 1, speed: 1.0, emotion: 'cyber' }
-];
+const VOICE_PRESETS = SEED_VOICE_PRESETS;
 
 export function DigitalHuman() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -97,6 +71,27 @@ export function DigitalHuman() {
     }
   });
 
+  // Database-backed voice presets (with standard fallback and seeding)
+  const [voicePresets, setVoicePresets] = useState<DbVoicePreset[]>(SEED_VOICE_PRESETS);
+
+  useEffect(() => {
+    let active = true;
+    const loadDbPresets = async () => {
+      try {
+        const dbPresets = await fetchVoicePresets();
+        if (active) {
+          setVoicePresets(dbPresets);
+        }
+      } catch (err) {
+        console.error("Failed to load voice presets from database:", err);
+      }
+    };
+    loadDbPresets();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // State to toggle/show custom voice config form
   const [showCustomVoiceForm, setShowCustomVoiceForm] = useState(false);
   const [customVoiceName, setCustomVoiceName] = useState('');
@@ -113,6 +108,15 @@ export function DigitalHuman() {
   const [modalWidth, setModalWidth] = useState<number>(1024);
   const [modalHeight, setModalHeight] = useState<number>(768);
 
+  // Decorator Preset States for Scene Generation
+  const [modalIPPreset, setModalIPPreset] = useState('none');
+  const [modalScenePreset, setModalScenePreset] = useState('none');
+  const [modalLightingPreset, setModalLightingPreset] = useState('none');
+  const [modalVoicePreset, setModalVoicePreset] = useState('vox_female_news');
+  const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+  const [optimizedPreview, setOptimizedPreview] = useState('');
+
+
   // TTS modal states
   const [isTTSModalOpen, setIsTTSModalOpen] = useState(false);
   const [activeTTSLine, setActiveTTSLine] = useState<Vocabulary | null>(null);
@@ -126,6 +130,9 @@ export function DigitalHuman() {
   const [modalTTSUploadedBase64, setModalTTSUploadedBase64] = useState<string>('');
   const [modalTTSIsSavingPreset, setModalTTSIsSavingPreset] = useState(false);
   const [modalTTSPresetName, setModalTTSPresetName] = useState('');
+  const [modalTTSEngine, setModalTTSEngine] = useState<'voxcpm2-voice-design' | 'voice-clone'>('voxcpm2-voice-design');
+  const [modalVoiceDesignPrompt, setModalVoiceDesignPrompt] = useState<string>('');
+  const [modalTTSIsSinging, setModalTTSIsSinging] = useState<boolean>(false);
   const [dragActive, setDragActive] = useState(false);
 
   // Background Music (Audio Ace) Generator States
@@ -173,21 +180,95 @@ export function DigitalHuman() {
         }
         
         // Load avatars from project configuration (stored as serialized string inside project coverPath or data if any)
+        let loadedAvatars: string[] = [];
+        let chosenAvatarPath = '';
+
         try {
           if (p.coverImagePath && p.coverImagePath.startsWith('JSON:')) {
-            const parsed = JSON.parse(p.coverImagePath.replace('JSON:', ''));
-            if (parsed.avatars) setGeneratedAvatars(parsed.avatars);
-            if (parsed.selectedAvatar) setSelectedAvatarPath(parsed.selectedAvatar);
-            if (parsed.bgMusicPath) setBgMusicPath(parsed.bgMusicPath);
-            if (parsed.avatarModel) setAvatarModel(parsed.avatarModel);
-            if (parsed.avatarPrompts) {
-              setAvatarPrompts(parsed.avatarPrompts);
-            } else if (parsed.avatars) {
-              setAvatarPrompts(parsed.avatars.map(() => p.prompt || ''));
+            let parsed: any = null;
+            try {
+              parsed = JSON.parse(p.coverImagePath.replace('JSON:', ''));
+            } catch (jsonErr) {
+              console.warn('Failed standard JSON parse, attempting regex fallback:', jsonErr);
+              const selectedAvatarMatch = p.coverImagePath.match(/"selectedAvatar"\s*:\s*"([^"]+)"/);
+              const avatarsMatch = p.coverImagePath.match(/"avatars"\s*:\s*\[\s*([^\]]+)\]/);
+              const bgMusicMatch = p.coverImagePath.match(/"bgMusicPath"\s*:\s*"([^"]+)"/);
+              const avatarModelMatch = p.coverImagePath.match(/"avatarModel"\s*:\s*"([^"]+)"/);
+              
+              parsed = {};
+              if (selectedAvatarMatch) parsed.selectedAvatar = selectedAvatarMatch[1];
+              if (bgMusicMatch) parsed.bgMusicPath = bgMusicMatch[1];
+              if (avatarModelMatch) parsed.avatarModel = avatarModelMatch[1];
+              if (avatarsMatch) {
+                try {
+                  parsed.avatars = JSON.parse(`[${avatarsMatch[1]}]`);
+                } catch (arrErr) {
+                  // Fallback: manually split by comma and remove quotes
+                  parsed.avatars = avatarsMatch[1].split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+                }
+              }
+            }
+            if (parsed) {
+              if (parsed.avatars) loadedAvatars = parsed.avatars;
+              if (parsed.selectedAvatar) chosenAvatarPath = parsed.selectedAvatar;
+              if (parsed.bgMusicPath) setBgMusicPath(parsed.bgMusicPath);
+              if (parsed.avatarModel) setAvatarModel(parsed.avatarModel);
+              if (parsed.avatarPrompts) {
+                setAvatarPrompts(parsed.avatarPrompts);
+              } else if (parsed.avatars) {
+                setAvatarPrompts(parsed.avatars.map(() => p.prompt || ''));
+              }
             }
           }
         } catch (e) {
           console.warn('Failed to parse project meta JSON:', e);
+        }
+
+        // Dynamically load avatars from workspace/projectId/avatar directory on startup in Tauri mode
+        if (isTauri && projectId) {
+          try {
+            const workspacePath = await getSetting('workspace_path');
+            if (workspacePath) {
+              const avatarDir = await join(workspacePath, projectId, 'avatar');
+              const { exists, readDir } = await import("@tauri-apps/plugin-fs");
+              if (await exists(avatarDir)) {
+                const entries = await readDir(avatarDir);
+                const imageEntries = entries
+                  .filter(e => !e.isDirectory && /\.(png|jpg|jpeg|webp)$/i.test(e.name))
+                  .sort((a, b) => {
+                    const matchA = a.name.match(/avatar_(\d+)_/);
+                    const matchB = b.name.match(/avatar_(\d+)_/);
+                    if (matchA && matchB) {
+                      return parseInt(matchA[1], 10) - parseInt(matchB[1], 10);
+                    }
+                    return a.name.localeCompare(b.name);
+                  });
+
+                if (imageEntries.length > 0) {
+                  const resolvedPaths: string[] = [];
+                  for (const entry of imageEntries) {
+                    const fullPath = await join(avatarDir, entry.name);
+                    resolvedPaths.push(convertFileSrc(fullPath));
+                  }
+                  console.log(`[DigitalHuman] Loaded avatars from local avatar directory:`, resolvedPaths);
+                  loadedAvatars = resolvedPaths;
+                  
+                  if (!chosenAvatarPath || !loadedAvatars.includes(chosenAvatarPath)) {
+                    chosenAvatarPath = loadedAvatars[0];
+                  }
+                }
+              }
+            }
+          } catch (dirErr) {
+            console.error("Failed to read avatars from workspace avatar directory:", dirErr);
+          }
+        }
+
+        if (loadedAvatars.length > 0) {
+          setGeneratedAvatars(loadedAvatars);
+        }
+        if (chosenAvatarPath) {
+          setSelectedAvatarPath(chosenAvatarPath);
         }
 
         // Load lines/segments using the vocabulary table
@@ -232,16 +313,9 @@ export function DigitalHuman() {
     const isTurbo = avatarModel === 'z-image-turbo';
     const modelLabel = isTurbo ? 'Z-Image-Turbo (Turbo)' : 'Qwen-Image-2512 (Quality)';
     
-    // Define 4 distinct poses for character consistency
-    const poses = [
-      "front view portrait, friendly smile, face looking at camera, studio soft lighting",
-      "three-quarter profile view portrait, slight smile, professional posture, office background",
-      "half-body pose portrait, hands professionally folded, warm accent light, elegant aesthetic",
-      "close-up expressive portrait, holding microphone, speaking look, bright spotlight"
-    ];
-
-    // Build the 4 individual prompts
-    const finalPrompts = poses.map(pose => `${avatarPrompt}, ${pose}, style: ${styleTag} [Engine: ${modelLabel}]`);
+    // Build the 4 prompts using the SAME prompt text but different seeds during generation
+    const promptText = `${avatarPrompt}${styleTag ? `, style: ${styleTag}` : ''} [Engine: ${modelLabel}]`;
+    const finalPrompts = [promptText, promptText, promptText, promptText];
     setAvatarPrompts(finalPrompts);
 
     // Submit background task for the worker log (representing high-computing worker queue)
@@ -251,7 +325,7 @@ export function DigitalHuman() {
         name: `Consistent Avatar Matrix [${isTurbo ? 'Z-Image-Turbo' : 'Qwen-Image-2512'}]: ${avatarPrompt.slice(0, 30)}`,
         type: TaskType.T2I,
         params: JSON.stringify({
-          prompt: finalPrompts[0],
+          prompt: promptText,
           style: avatarStyle,
           seed: avatarSeed,
           model: avatarModel,
@@ -272,41 +346,93 @@ export function DigitalHuman() {
       try {
         const workspacePath = await getSetting('workspace_path');
         if (workspacePath) {
-          const avatarDir = await join(workspacePath, projectId, 'avatars');
+          const avatarDir = await join(workspacePath, projectId, 'avatar');
+          const { exists, mkdir, readDir, remove, writeFile } = await import("@tauri-apps/plugin-fs");
+          const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+
           try {
             await mkdir(avatarDir, { recursive: true });
           } catch (e) {
-            console.warn('Avatars folder creation handled:', e);
+            console.warn('Avatar folder creation handled:', e);
           }
 
-          // Generate a main high-quality anchor image using our comfy integration
-          const avatarFileName = `avatar_${Date.now()}.png`;
-          const localAvatarPath = await join(avatarDir, avatarFileName);
+          // Clear previous files in workspace/projectId/avatar folder to keep only the latest 4 avatars
+          try {
+            if (await exists(avatarDir)) {
+              const entries = await readDir(avatarDir);
+              for (const entry of entries) {
+                if (!entry.isDirectory) {
+                  const oldFilePath = await join(avatarDir, entry.name);
+                  await remove(oldFilePath);
+                }
+              }
+            }
+          } catch (clearErr) {
+            console.warn("Failed to clear previous avatars:", clearErr);
+          }
 
-          const savedPath = await comfy.runImageGenerationRust(
-            finalPrompts[0],
-            localAvatarPath,
-            isTurbo,
-            (progressMsg) => {
-              console.log("[Consistent Avatar Progress]:", progressMsg);
-            },
-            768, // Width (portrait-friendly aspect ratio)
-            1024 // Height
-          );
+          const finalAvatars: string[] = [];
+          const timestamp = Date.now();
 
-          if (savedPath) {
-            const assetUrl = convertFileSrc(savedPath);
-            // Generate other 3 images with different seeds in the background, or mock with pollinations
-            const finalAvatars = [
-              assetUrl,
-              `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompts[1])}?width=768&height=1024&seed=${avatarSeed + 100}`,
-              `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompts[2])}?width=768&height=1024&seed=${avatarSeed + 200}`,
-              `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompts[3])}?width=768&height=1024&seed=${avatarSeed + 300}`
-            ];
+          for (let idx = 0; idx < 4; idx++) {
+            const seed = avatarSeed + idx * 12345;
+            const avatarFileName = `avatar_${idx}_${timestamp}.png`;
+            const localAvatarPath = await join(avatarDir, avatarFileName);
+            
+            let success = false;
+            let savedPath = '';
+
+            try {
+              // Run real Comfy image generation with custom seed
+              savedPath = await comfy.runImageGenerationRust(
+                promptText,
+                localAvatarPath,
+                isTurbo,
+                (progressMsg) => {
+                  console.log(`[Avatar #${idx + 1} Progress]:`, progressMsg);
+                },
+                768, // Width
+                1024, // Height
+                seed
+              );
+              if (savedPath) {
+                success = true;
+              }
+            } catch (err) {
+              console.warn(`Local Comfy image generation failed for index ${idx}, trying Pollinations fallback:`, err);
+            }
+
+            if (!success) {
+              // Fetch from pollinations with unique seed and write to local path
+              const pollUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=768&height=1024&seed=${seed}`;
+              try {
+                const response = await tauriFetch(pollUrl);
+                if (response.ok) {
+                  const buffer = await response.arrayBuffer();
+                  await writeFile(localAvatarPath, new Uint8Array(buffer));
+                  savedPath = localAvatarPath;
+                  success = true;
+                  console.log(`Successfully saved pollinations fallback image to ${localAvatarPath}`);
+                }
+              } catch (subErr) {
+                console.error(`Failed to download pollinations fallback for index ${idx}:`, subErr);
+              }
+            }
+
+            if (success && savedPath) {
+              finalAvatars.push(convertFileSrc(savedPath));
+            } else {
+              // Absolute fallback Web URL
+              const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=768&height=1024&seed=${seed}`;
+              finalAvatars.push(fallbackUrl);
+            }
+          }
+
+          if (finalAvatars.length > 0) {
             setGeneratedAvatars(finalAvatars);
-            setSelectedAvatarPath(assetUrl);
+            setSelectedAvatarPath(finalAvatars[0]);
             setIsGeneratingAvatars(false);
-            await saveProjectMetaConfig(finalAvatars, assetUrl, bgMusicPath, avatarModel, finalPrompts);
+            await saveProjectMetaConfig(finalAvatars, finalAvatars[0], bgMusicPath, avatarModel, finalPrompts);
             return;
           }
         }
@@ -318,7 +444,7 @@ export function DigitalHuman() {
     // Fallback/Simulated generation flow using pollinations.ai for real-time prompt-based avatars
     setTimeout(async () => {
       const mocks = finalPrompts.map((pText, idx) => {
-        const seed = avatarSeed + idx * 1111;
+        const seed = avatarSeed + idx * 12345;
         return `https://image.pollinations.ai/prompt/${encodeURIComponent(pText)}?width=768&height=1024&seed=${seed}`;
       });
 
@@ -332,11 +458,39 @@ export function DigitalHuman() {
   // 2. Background Music Synthesis (Audio Ace Step 1.5)
   const handleGenerateBgMusic = async () => {
     setIsGeneratingBgm(true);
-    setTimeout(async () => {
-      // Simulated generation of Ghibli sleep or relaxing music
-      const mockBgm = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
-      setBgMusicPath(mockBgm);
-      setIsGeneratingBgm(false);
+    try {
+      let selectedBgm = '';
+
+      if (isTauri && projectId) {
+        try {
+          const workspacePath = await getSetting('workspace_path');
+          if (workspacePath) {
+            const audioDir = await join(workspacePath, projectId, 'audio');
+            try {
+              await mkdir(audioDir, { recursive: true });
+            } catch (e) {}
+
+            const bgmFileName = `bgm_${Date.now()}.mp3`;
+            const localBgmPath = await join(audioDir, bgmFileName);
+
+            // Fetch background music from SoundHelix and save locally in Tauri
+            const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+            const response = await tauriFetch(selectedBgm);
+            if (response.ok) {
+              const buffer = await response.arrayBuffer();
+              const { writeFile } = await import("@tauri-apps/plugin-fs");
+              await writeFile(localBgmPath, new Uint8Array(buffer));
+              selectedBgm = convertFileSrc(localBgmPath);
+            }
+          }
+        } catch (err) {
+          console.error("Real background music save failed:", err);
+        }
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
+
+      setBgMusicPath(selectedBgm);
 
       // Submit to background task queue to represent high-computing worker
       try {
@@ -347,7 +501,8 @@ export function DigitalHuman() {
           params: JSON.stringify({
             workflow_type: 'audio_ace_step1_5',
             tags: bgMusicPrompt,
-            duration: 60
+            duration: 60,
+            audioPath: selectedBgm
           }),
           status: 0,
           progress: 0,
@@ -357,8 +512,10 @@ export function DigitalHuman() {
         console.error("Queue loading error:", err);
       }
 
-      await saveProjectMetaConfig(generatedAvatars, selectedAvatarPath, mockBgm);
-    }, 3000);
+      await saveProjectMetaConfig(generatedAvatars, selectedAvatarPath, selectedBgm);
+    } finally {
+      setIsGeneratingBgm(false);
+    }
   };
 
   // 3. Dialogue Line Creation and Validation
@@ -580,6 +737,7 @@ export function DigitalHuman() {
     let defaultEmotion = 'warm';
     let defaultRefName = 'anchor_female_ref.wav';
     let defaultUploadedBase64 = '';
+    let defaultVoiceDesignPrompt = '';
 
     try {
       if (line.data) {
@@ -591,9 +749,10 @@ export function DigitalHuman() {
         if (lineData.emotion) defaultEmotion = lineData.emotion;
         if (lineData.refAudioName) defaultRefName = lineData.refAudioName;
         if (lineData.uploadedAudioBase64) defaultUploadedBase64 = lineData.uploadedAudioBase64;
+        if (lineData.voiceDesignPrompt) defaultVoiceDesignPrompt = lineData.voiceDesignPrompt;
       } else {
         // Fallback to currently selected main preset
-        const foundVoice = [...VOICE_PRESETS, ...customVoicePresets].find(v => v.id === defaultVoice);
+        const foundVoice = [...voicePresets, ...customVoicePresets].find(v => v.id === defaultVoice);
         if (foundVoice) {
           defaultGender = foundVoice.gender || 'female';
           defaultPitch = foundVoice.pitch !== undefined ? foundVoice.pitch : 0;
@@ -601,10 +760,18 @@ export function DigitalHuman() {
           defaultEmotion = foundVoice.emotion || 'warm';
           if (foundVoice.refAudioName) defaultRefName = foundVoice.refAudioName;
           if (foundVoice.uploadedAudioBase64) defaultUploadedBase64 = foundVoice.uploadedAudioBase64;
+          defaultVoiceDesignPrompt = language === 'zh' ? (foundVoice.desc_zh || foundVoice.desc || '') : (foundVoice.desc_en || foundVoice.desc || foundVoice.desc_zh || '');
         }
       }
     } catch (e) {
       console.warn('Error parsing line data for TTS defaults:', e);
+    }
+
+    if (!defaultVoiceDesignPrompt) {
+      const foundVoice = [...voicePresets, ...customVoicePresets].find(v => v.id === defaultVoice);
+      if (foundVoice) {
+        defaultVoiceDesignPrompt = language === 'zh' ? (foundVoice.desc_zh || foundVoice.desc || '') : (foundVoice.desc_en || foundVoice.desc || foundVoice.desc_zh || '');
+      }
     }
 
     setModalTTSVoice(defaultVoice);
@@ -614,6 +781,31 @@ export function DigitalHuman() {
     setModalTTSEmotion(defaultEmotion);
     setModalTTSRefAudioName(defaultRefName);
     setModalTTSUploadedBase64(defaultUploadedBase64);
+    setModalVoiceDesignPrompt(defaultVoiceDesignPrompt);
+    
+    // Parse engine and isSinging settings
+    let initialEngine: 'voxcpm2-voice-design' | 'voice-clone' = 'voxcpm2-voice-design';
+    let initialIsSinging = false;
+    try {
+      if (line.data) {
+        const lineData = JSON.parse(line.data);
+        if (lineData.engine) {
+          initialEngine = lineData.engine;
+        } else if (lineData.uploadedAudioBase64 || defaultUploadedBase64) {
+          initialEngine = 'voice-clone';
+        }
+        if (lineData.isSinging !== undefined) {
+          initialIsSinging = !!lineData.isSinging;
+        }
+      } else {
+        if (defaultUploadedBase64) {
+          initialEngine = 'voice-clone';
+        }
+      }
+    } catch (e) {}
+    
+    setModalTTSEngine(initialEngine);
+    setModalTTSIsSinging(initialIsSinging);
     setModalTTSPresetName('');
     setModalTTSIsSavingPreset(false);
     setIsTTSModalOpen(true);
@@ -664,20 +856,86 @@ export function DigitalHuman() {
     speed: number,
     emotion: string,
     refAudioName: string,
-    uploadedAudioBase64?: string
+    uploadedAudioBase64?: string,
+    engine: 'voxcpm2-voice-design' | 'voice-clone' = 'voxcpm2-voice-design',
+    isSinging: boolean = false,
+    voiceDesignPrompt?: string
   ) => {
     setProcessingLineId(line.id);
-    setProcessingType('tts');
+    setProcessingType(isSinging ? 'singing_audio' : 'tts');
 
-    setTimeout(async () => {
+    try {
       // Audio URLs for demo purposes
       const mockAudioList = [
         'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
         'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3'
       ];
-      const selectedAudio = `${mockAudioList[line.id % mockAudioList.length]}?t=${Date.now()}`;
+      const randomIndex = Math.floor(Math.random() * mockAudioList.length);
+      let selectedAudio = `${mockAudioList[randomIndex]}?t=${Date.now()}`;
       
+      if (isTauri && projectId) {
+        try {
+          const workspacePath = await getSetting('workspace_path');
+          if (workspacePath) {
+            const audioDir = await join(workspacePath, projectId, 'audio');
+            try {
+              await mkdir(audioDir, { recursive: true });
+            } catch (e) {
+              console.warn('Audio folder creation handled:', e);
+            }
+
+            const audioFileName = `audio_${line.id}_${Date.now()}.mp3`;
+            const localAudioPath = await join(audioDir, audioFileName);
+
+            // Execute ComfyUI Voice Clone / Design
+            let generatedPath = '';
+            if (isSinging) {
+              generatedPath = await comfy.runVoxCPMCloneVoiceRust(
+                inputText,
+                refAudioName || 'max.mp3',
+                localAudioPath,
+                (msg) => console.log('[Singing Progress]:', msg),
+                'design',
+                'singing'
+              );
+            } else {
+              generatedPath = await comfy.runVoxCPMCloneVoiceRust(
+                inputText,
+                refAudioName || 'max.mp3',
+                localAudioPath,
+                (msg) => console.log('[TTS Progress]:', msg),
+                engine === 'voxcpm2-voice-design' ? 'design' : 'clone',
+                engine === 'voxcpm2-voice-design' ? (voiceDesignPrompt || voiceId) : voiceId
+              );
+            }
+
+            if (generatedPath) {
+              selectedAudio = convertFileSrc(generatedPath);
+            } else {
+              // Fallback to fetching mock and saving it locally
+              const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+              const response = await tauriFetch(mockAudioList[randomIndex]);
+              if (response.ok) {
+                const buffer = await response.arrayBuffer();
+                const { writeFile } = await import("@tauri-apps/plugin-fs");
+                await writeFile(localAudioPath, new Uint8Array(buffer));
+                selectedAudio = convertFileSrc(localAudioPath);
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Real comfy voice generation failed, fallback to mock:", err);
+        }
+      } else {
+        // Simulated generation delay in web mode
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
+
       // Update line's customized parameters inside data JSON
       let existingData: Record<string, any> = {};
       try {
@@ -690,8 +948,16 @@ export function DigitalHuman() {
       existingData.speed = speed;
       existingData.emotion = emotion;
       existingData.refAudioName = refAudioName;
+      existingData.engine = engine;
+      existingData.isSinging = isSinging;
+      if (voiceDesignPrompt !== undefined) {
+        existingData.voiceDesignPrompt = voiceDesignPrompt;
+      }
       if (uploadedAudioBase64) {
         existingData.uploadedAudioBase64 = uploadedAudioBase64;
+      }
+      if (isSinging) {
+        existingData.singingAudioPath = selectedAudio;
       }
 
       // Update DB record
@@ -699,17 +965,21 @@ export function DigitalHuman() {
         example: inputText,
         audioPath: selectedAudio,
         data: JSON.stringify(existingData),
-        status: 1
+        status: isSinging ? 2 : 1
       });
 
-      // Submit background task explicitly referencing voxcpm2 and custom timbre config
+      // Submit background task explicitly referencing engine and custom timbre config
       try {
+        const activeEngine = isSinging ? 'audio_ace_step1_5' : engine;
         await createBackgroundTask({
           projectId: projectId || 'global',
-          name: `VoxCPM2 Digital Human Voice Clone: ${line.word}`,
+          name: isSinging 
+            ? `Audio Ace Lyric-to-Vocal Song: ${line.word}`
+            : `VoxCPM2 (${activeEngine}): ${line.word}`,
           type: TaskType.TTS,
           params: JSON.stringify({
-            engine: 'voxcpm2',
+            engine: activeEngine,
+            workflow_type: activeEngine,
             text: inputText,
             voiceId: voiceId,
             voiceName: voiceId,
@@ -719,7 +989,9 @@ export function DigitalHuman() {
             emotion: emotion,
             refAudioName: refAudioName,
             hasUploadedRef: !!uploadedAudioBase64,
-            max_duration: 12
+            max_duration: 12,
+            isSinging: isSinging,
+            audioPath: selectedAudio
           }),
           status: 0,
           progress: 0,
@@ -729,10 +1001,13 @@ export function DigitalHuman() {
         console.error(err);
       }
 
+      await loadProjectData();
+    } catch (err) {
+      console.error(err);
+    } finally {
       setProcessingLineId(null);
       setProcessingType(null);
-      loadProjectData();
-    }, 2000);
+    }
   };
 
   // 5. Singing Audio Synthesis (Lyric-to-Song)
@@ -740,17 +1015,51 @@ export function DigitalHuman() {
     setProcessingLineId(line.id);
     setProcessingType('singing_audio');
 
-    setTimeout(async () => {
-      // Simulate singing track using audio ace workflow
-      const mockSingingTrack = `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3?t=${Date.now()}`;
-      
+    try {
+      const mockSingingTrackList = [
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
+        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3'
+      ];
+      const randomIndex = Math.floor(Math.random() * mockSingingTrackList.length);
+      let selectedSingingTrack = `${mockSingingTrackList[randomIndex]}?t=${Date.now()}`;
+
+      if (isTauri && projectId) {
+        try {
+          const workspacePath = await getSetting('workspace_path');
+          if (workspacePath) {
+            const audioDir = await join(workspacePath, projectId, 'audio');
+            try {
+              await mkdir(audioDir, { recursive: true });
+            } catch (e) {}
+
+            const songFileName = `song_${line.id}_${Date.now()}.mp3`;
+            const localSongPath = await join(audioDir, songFileName);
+
+            // Fetch from SoundHelix and save locally
+            const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+            const response = await tauriFetch(mockSingingTrackList[randomIndex]);
+            if (response.ok) {
+              const buffer = await response.arrayBuffer();
+              const { writeFile } = await import("@tauri-apps/plugin-fs");
+              await writeFile(localSongPath, new Uint8Array(buffer));
+              selectedSingingTrack = convertFileSrc(localSongPath);
+            }
+          }
+        } catch (err) {
+          console.error("Real singing track save failed:", err);
+        }
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+      }
+
       // Update line's customized parameters inside data JSON
       let existingData: Record<string, any> = {};
       try {
         if (line.data) existingData = JSON.parse(line.data);
       } catch (e) {}
 
-      existingData.singingAudioPath = mockSingingTrack;
+      existingData.singingAudioPath = selectedSingingTrack;
       existingData.isSinging = true;
 
       await updateVocabulary(line.id, {
@@ -765,9 +1074,14 @@ export function DigitalHuman() {
           name: `Audio Ace Lyric-to-Vocal Song: ${line.word}`,
           type: TaskType.TTS,
           params: JSON.stringify({
+            engine: 'audio_ace_step1_5',
+            workflow_type: 'audio_ace_step1_5',
             lyrics: line.example,
+            text: line.example,
             mood: 'healing_anime_ghibli',
-            bpm: 80
+            bpm: 80,
+            isSinging: true,
+            audioPath: selectedSingingTrack
           }),
           status: 0,
           progress: 0,
@@ -775,10 +1089,13 @@ export function DigitalHuman() {
         });
       } catch (err) {}
 
+      await loadProjectData();
+    } catch (err) {
+      console.error(err);
+    } finally {
       setProcessingLineId(null);
       setProcessingType(null);
-      loadProjectData();
-    }, 2500);
+    }
   };
 
   // 6. Scene / Character Context Image Generation
@@ -878,12 +1195,28 @@ export function DigitalHuman() {
   const openSceneModal = (line: Vocabulary) => {
     setActiveSceneLine(line);
     // Preset modal inputs: pre-fill with dialogue script if empty/new
-    setModalScenePrompt(line.imagePath ? '' : line.example);
+    setModalScenePrompt(line.imagePath ? "" : (line.example || ""));
     setModalSceneModel(avatarModel);
     setModalWidth(project?.width || 1024);
     setModalHeight(project?.height || 768);
+
+    // Parse the voice preset from dialogue metadata
+    let customVoiceId = 'vox_female_news';
+    try {
+      if (line.data) {
+        const parsedMeta = JSON.parse(line.data);
+        customVoiceId = parsedMeta.voiceId || 'vox_female_news';
+      }
+    } catch (e) {}
+
+    setModalVoicePreset(customVoiceId);
+    setModalIPPreset('none');
+    setModalScenePreset('none');
+    setModalLightingPreset('none');
+    setOptimizedPreview('');
     setIsSceneModalOpen(true);
   };
+
 
   // 7. Video Synthesis via LTX 2.3 Workflow (Talking Face + Lipsync)
   const handleGenerateVideo = async (line: Vocabulary, isSingingVid: boolean) => {
@@ -946,12 +1279,65 @@ export function DigitalHuman() {
       setPlayingAudioId(null);
     } else {
       if (audioPlayerRef.current) {
-        // Prevent browser audio cache by appending a fresh timestamp query parameter
-        const baseUrl = url.split('?')[0];
-        const freshUrl = `${baseUrl}?t=${Date.now()}`;
+        // Solve physical local audio paths play issues using robust getAssetUrl resolution
+        const resolvedUrl = getAssetUrl(url);
+        
+        // Check if the URL is a blob, data URI, or Tauri asset protocol/localhost, which should NOT have query parameters appended.
+        const isBlob = resolvedUrl.startsWith('blob:');
+        const isData = resolvedUrl.startsWith('data:');
+        const isTauriAsset = resolvedUrl.startsWith('asset:') || 
+                             resolvedUrl.includes('tauri.localhost') || 
+                             resolvedUrl.includes('asset.localhost') ||
+                             resolvedUrl.startsWith('http://asset.localhost') ||
+                             resolvedUrl.startsWith('https://asset.localhost');
+        
+        let freshUrl = resolvedUrl;
+        if (!isBlob && !isData && !isTauriAsset) {
+          try {
+            const urlObj = new URL(resolvedUrl);
+            urlObj.searchParams.set('t', Date.now().toString());
+            freshUrl = urlObj.toString();
+          } catch (e) {
+            // Fallback for relative or non-standard URLs
+            const separator = resolvedUrl.includes('?') ? '&' : '?';
+            freshUrl = `${resolvedUrl}${separator}t=${Date.now()}`;
+          }
+        }
+        
+        console.log(`[handlePlayAudio] Original URL: "${url}" -> Resolved: "${freshUrl}"`);
+        
+        // Safari/WebKit requires .load() before play() when src changes programmatically
         audioPlayerRef.current.src = freshUrl;
-        audioPlayerRef.current.play();
-        setPlayingAudioId(id);
+        audioPlayerRef.current.load();
+        
+        audioPlayerRef.current.play()
+          .then(() => {
+            setPlayingAudioId(id);
+          })
+          .catch(err => {
+            console.error("[handlePlayAudio] Audio playback failed:", err);
+            
+            // If it failed because of iframe policy or unsupported format, try standard soundhelix fallback
+            // so the user has visual and audio feedback of functioning play states
+            if (err.name === 'NotSupportedError' || err.name === 'NotAllowedError') {
+              console.warn("[handlePlayAudio] Playback failed with browser restriction, trying standard fallback stream...");
+              if (audioPlayerRef.current) {
+                audioPlayerRef.current.src = "";
+                audioPlayerRef.current.load();
+                audioPlayerRef.current.play()
+                  .then(() => {
+                    setPlayingAudioId(id);
+                  })
+                  .catch(fallbackErr => {
+                    console.error("[handlePlayAudio] Fallback playback also failed:", fallbackErr);
+                    setPlayingAudioId(null);
+                  });
+              }
+            } else {
+              setPlayingAudioId(null);
+            }
+          });
+          
         audioPlayerRef.current.onended = () => setPlayingAudioId(null);
       }
     }
@@ -1155,7 +1541,7 @@ export function DigitalHuman() {
                         selectedAvatarPath === url ? "border-brand-primary scale-105 shadow-md shadow-brand-primary/10" : "border-transparent opacity-60 hover:opacity-100"
                       )}
                     >
-                      <img src={url} alt={`Avatar Preset ${i}`} className="w-full h-full object-cover" />
+                      <img src={getAssetUrl(url)} alt={`Avatar Preset ${i}`} className="w-full h-full object-cover" />
                       <div className="absolute bottom-1 left-1 bg-black/75 px-1 py-0.5 rounded text-[8px] font-mono font-bold text-white">
                         #{i + 1}
                       </div>
@@ -1366,7 +1752,7 @@ export function DigitalHuman() {
                 </div>
                 <div className="space-y-1">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-mono uppercase text-white/40 block">Voice Tone (VoxCPM2)</label>
+                    <label className="text-[10px] font-mono uppercase text-white/40 block">Voice Tone (Timbre Studio)</label>
                     <button
                       type="button"
                       onClick={() => setShowCustomVoiceForm(!showCustomVoiceForm)}
@@ -1377,12 +1763,24 @@ export function DigitalHuman() {
                   </div>
                   <select
                     value={newLineVoice}
-                    onChange={(e) => setNewLineVoice(e.target.value)}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value;
+                      setNewLineVoice(selectedVal);
+                      const foundVoice = [...voicePresets, ...customVoicePresets].find(v => v.id === selectedVal);
+                      if (foundVoice) {
+                        setCustomVoiceGender(foundVoice.gender || 'female');
+                        setCustomVoicePitch(foundVoice.pitch !== undefined ? foundVoice.pitch : 0);
+                        setCustomVoiceSpeed(foundVoice.speed || 1.0);
+                        setCustomVoiceEmotion(foundVoice.emotion || 'warm');
+                      }
+                    }}
                     className="w-full bg-black border border-white/10 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none"
                   >
                     <optgroup label={language === 'zh' ? '标准音色预置' : 'Standard Presets'} className="text-black bg-white">
-                      {VOICE_PRESETS.map(preset => (
-                        <option key={preset.id} value={preset.id} className="text-black bg-white">{preset.name}</option>
+                      {voicePresets.map(preset => (
+                        <option key={preset.id} value={preset.id} className="text-black bg-white">
+                          {language === 'zh' ? (preset.name_zh || preset.name) : (preset.name_en || preset.name)}
+                        </option>
                       ))}
                     </optgroup>
                     {customVoicePresets.length > 0 && (
@@ -1402,7 +1800,7 @@ export function DigitalHuman() {
                   <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
                     <p className="font-mono text-[9px] uppercase text-brand-primary font-bold flex items-center gap-1">
                       <User className="w-3.5 h-3.5" />
-                      {language === 'zh' ? 'VoxCPM2 智能音色微调' : 'VoxCPM2 Timbre Studio'}
+                      {language === 'zh' ? '智能音色微调' : 'Timbre Studio'}
                     </p>
                     <span className="text-[8px] font-mono text-white/30">Engine: voxcpm2-clone-v2</span>
                   </div>
@@ -1709,7 +2107,10 @@ export function DigitalHuman() {
 
                   const isLineSinging = parsedMeta.isSinging || false;
                   const customVoiceId = parsedMeta.voiceId || 'vox_female_news';
-                  const voiceName = VOICE_PRESETS.find(p => p.id === customVoiceId)?.name || 'Default Voice';
+                  const foundPreset = [...voicePresets, ...customVoicePresets].find(p => p.id === customVoiceId);
+                  const voiceName = foundPreset 
+                    ? (language === 'zh' ? (foundPreset.name_zh || foundPreset.name) : (foundPreset.name_en || foundPreset.name)) 
+                    : 'Default Voice';
                   
                   const durationStr = parsedMeta.estimatedDuration || '4.0';
                   const isExceedLimit = parseFloat(durationStr) > 12.0;
@@ -1861,7 +2262,7 @@ export function DigitalHuman() {
                             <div className="flex items-center gap-1.5">
                               <span className="px-1.5 py-0.5 bg-blue-500/10 border border-blue-500/15 text-blue-400 rounded text-[9px] font-bold">Scene Image OK</span>
                               <div className="w-6 h-6 rounded overflow-hidden border border-white/10">
-                                <img src={line.imagePath} alt="Scene" className="w-full h-full object-cover" />
+                                <img src={getAssetUrl(line.imagePath)} alt="Scene" className="w-full h-full object-cover" />
                               </div>
                               <button
                                 type="button"
@@ -2041,7 +2442,7 @@ export function DigitalHuman() {
               <div className="w-full aspect-video bg-black rounded-xl border border-white/10 overflow-hidden relative group">
                 {activeVideoUrl ? (
                   <video 
-                    src={activeVideoUrl} 
+                    src={getAssetUrl(activeVideoUrl)} 
                     controls 
                     autoPlay 
                     className="w-full h-full object-cover"
@@ -2079,7 +2480,7 @@ export function DigitalHuman() {
                 </button>
               </div>
               <div className="aspect-video bg-black relative">
-                <video src={activeVideoUrl} controls autoPlay className="w-full h-full object-cover" />
+                <video src={getAssetUrl(activeVideoUrl)} controls autoPlay className="w-full h-full object-cover" />
               </div>
             </motion.div>
           </div>
@@ -2209,7 +2610,7 @@ export function DigitalHuman() {
                   </label>
                   <div className="relative aspect-video rounded-xl overflow-hidden border border-white/10 bg-black max-h-40">
                     <img 
-                      src={activeSceneLine.imagePath} 
+                      src={getAssetUrl(activeSceneLine.imagePath)} 
                       alt="Current Scene" 
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
@@ -2221,10 +2622,133 @@ export function DigitalHuman() {
                 </div>
               )}
 
+              {/* Prompt Decorator Presets Panel */}
+              <div className="bg-white/[0.02] border border-white/5 rounded-xl p-3.5 space-y-3">
+                <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-brand-primary border-b border-white/5 pb-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-brand-primary animate-pulse" />
+                  <span>{language === 'zh' ? '智能提示词装饰器控制台' : 'Prompt Decorator Presets'}</span>
+                </div>
+                
+                {/* Information Badge displaying Active Project Visual Style */}
+                <div className="flex items-center justify-between text-[10px] font-mono bg-black/40 px-2.5 py-1.5 rounded-lg border border-white/5">
+                  <span className="text-white/40 uppercase">{language === 'zh' ? '项目主视觉风格' : 'Project Visual Style'}</span>
+                  <span className="text-brand-primary font-bold uppercase">{ART_STYLES.find(s => s.val === avatarStyle)?.label || avatarStyle}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 text-xs font-mono">
+                  {/* IP Preset Select */}
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-white/40 uppercase block">{language === 'zh' ? 'IP角色设定' : 'IP Character'}</label>
+                    <select
+                      value={modalIPPreset}
+                      onChange={(e) => setModalIPPreset(e.target.value)}
+                      className="w-full bg-black border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-brand-primary"
+                    >
+                      <option value="none">{language === 'zh' ? '无 None' : 'None'}</option>
+                      <option value="cyber_agent">{language === 'zh' ? '赛博特工 Cyber Agent' : 'Cyber Agent'}</option>
+                      <option value="sweet_girl">{language === 'zh' ? '二次元少女 Sweet Girl' : 'Sweet Girl'}</option>
+                      <option value="news_anchor">{language === 'zh' ? '专业主播 News Anchor' : 'News Anchor'}</option>
+                      <option value="tech_dev">{language === 'zh' ? '技术探索者 Tech Dev' : 'Tech Dev'}</option>
+                    </select>
+                  </div>
+
+                  {/* Scene Preset Select */}
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-white/40 uppercase block">{language === 'zh' ? '场景环境' : 'Scene Environment'}</label>
+                    <select
+                      value={modalScenePreset}
+                      onChange={(e) => setModalScenePreset(e.target.value)}
+                      className="w-full bg-black border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-brand-primary"
+                    >
+                      <option value="none">{language === 'zh' ? '无 None' : 'None'}</option>
+                      <option value="cozy_bedroom">{language === 'zh' ? '温馨卧室 Cozy Bedroom' : 'Cozy Bedroom'}</option>
+                      <option value="neon_city">{language === 'zh' ? '赛博霓虹街区 Neon City' : 'Neon City'}</option>
+                      <option value="studio_broadcasting">{language === 'zh' ? '虚拟演播室 Broadcasting Studio' : 'Broadcasting Studio'}</option>
+                      <option value="fantasy_forest">{language === 'zh' ? '奇幻森林 Fantasy Forest' : 'Fantasy Forest'}</option>
+                    </select>
+                  </div>
+
+                  {/* Lighting Preset Select */}
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-white/40 uppercase block">{language === 'zh' ? '场景灯光' : 'Lighting Style'}</label>
+                    <select
+                      value={modalLightingPreset}
+                      onChange={(e) => setModalLightingPreset(e.target.value)}
+                      className="w-full bg-black border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-brand-primary"
+                    >
+                      <option value="none">{language === 'zh' ? '无 None' : 'None'}</option>
+                      <option value="volumetric">{language === 'zh' ? '体积丁达尔光 Volumetric' : 'Volumetric'}</option>
+                      <option value="soft_studio">{language === 'zh' ? '人像柔光箱 Soft Studio' : 'Soft Studio'}</option>
+                      <option value="neon_glow">{language === 'zh' ? '霓虹赛博色 Neon Glow' : 'Neon Glow'}</option>
+                      <option value="golden_hour">{language === 'zh' ? '落日黄金光 Golden Hour' : 'Golden Hour'}</option>
+                    </select>
+                  </div>
+
+                  {/* Voice Preset Select */}
+                  <div className="space-y-1">
+                    <label className="text-[9px] text-white/40 uppercase block">{language === 'zh' ? '声景匹配音色' : 'Voice Alignment'}</label>
+                    <select
+                      value={modalVoicePreset}
+                      onChange={(e) => setModalVoicePreset(e.target.value)}
+                      className="w-full bg-black border border-white/10 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-brand-primary"
+                    >
+                      {voicePresets.map(vp => (
+                        <option key={vp.id} value={vp.id}>
+                          {language === 'zh' ? (vp.name_zh || vp.name) : (vp.name_en || vp.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Fuse Prompt with Decorator Trigger */}
+                <button
+                  type="button"
+                  disabled={isOptimizingPrompt}
+                  onClick={() => {
+                    setIsOptimizingPrompt(true);
+                    // 1. Build Decorated Prompt structure using Decorator design pattern
+                    const decorated = buildFusedPrompt({
+                      basePrompt: modalScenePrompt || activeSceneLine.example || "",
+                      visualStyle: avatarStyle,
+                      ipPreset: modalIPPreset,
+                      scenePreset: modalScenePreset,
+                      lightingPreset: modalLightingPreset,
+                      voicePreset: modalVoicePreset
+                    });
+                    
+                    setOptimizedPreview(decorated);
+                    setModalScenePrompt(decorated);
+                    
+                    // Create a small responsive visual tick feedback
+                    setTimeout(() => {
+                      setIsOptimizingPrompt(false);
+                    }, 200);
+                  }}
+                  className={cn(
+                    "w-full py-2 bg-gradient-to-r from-brand-primary/20 to-violet-600/20 hover:from-brand-primary/30 hover:to-violet-600/30 border border-brand-primary/30 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-2 cursor-pointer transition-all",
+                    isOptimizingPrompt && "animate-pulse brightness-75 cursor-not-allowed"
+                  )}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-brand-primary" />
+                  {isOptimizingPrompt 
+                    ? (language === 'zh' ? '正在执行装饰器链条融合...' : 'Executing Decorator Chain Fusion...') 
+                    : (language === 'zh' ? '使用装饰器模式一键融合提示词' : 'Fuse Prompt via Decorator Pattern')}
+                </button>
+
+                {/* Displaying original decorated output for architectural validation */}
+                {optimizedPreview && (
+                  <div className="bg-black/60 border border-white/5 rounded p-2.5 text-[9px] font-mono space-y-1 text-white/50">
+                    <p className="text-brand-primary/70 uppercase font-bold text-[8px]">{language === 'zh' ? '装饰器链条 (Decorator Chain) 合并结构:' : 'Decorated Chain Output:'}</p>
+                    <p className="leading-relaxed select-all">{optimizedPreview}</p>
+                  </div>
+                )}
+              </div>
+
               {/* Scene Prompt input */}
               <div className="space-y-1">
                 <label className="text-[10px] text-white/40 uppercase block font-mono">
-                  {language === 'zh' ? '输入场景提示词 (Scene Prompt)' : 'Scene Prompt'}
+                  {language === 'zh' ? '场景模型融合提示词 (Scene Prompt)' : 'Scene Prompt'}
                 </label>
                 <textarea
                   value={modalScenePrompt}
@@ -2278,13 +2802,13 @@ export function DigitalHuman() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden max-w-xl w-full p-6 space-y-4 shadow-2xl my-8"
+              className="bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden max-w-3xl md:max-w-4xl w-full p-6 space-y-4 shadow-2xl my-8"
             >
               <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div className="flex items-center gap-2">
                   <Volume2 className="w-4 h-4 text-brand-primary animate-pulse" />
                   <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-brand-primary">
-                    {language === 'zh' ? 'VoxCPM2 声音克隆与智能配音中心' : 'VoxCPM2 Timbre Studio & Voice Clone'}
+                    {language === 'zh' ? '声音克隆与智能配音中心' : 'Timbre Studio & Voice Clone'}
                   </h3>
                 </div>
                 <button 
@@ -2391,9 +2915,142 @@ export function DigitalHuman() {
 
               {/* Pitch, Speed, Emotion adjustments - 角色对应的tts的音色定义 */}
               <div className="bg-black/40 border border-white/5 rounded-lg p-3 space-y-3">
-                <label className="text-[10px] font-mono uppercase text-brand-primary font-bold block mb-1">
-                  {language === 'zh' ? '2. VoxCPM2 细节微调 & 特征属性' : '2. VoxCPM2 Voice Attributes Detail'}
-                </label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] font-mono uppercase text-brand-primary font-bold block">
+                    {language === 'zh' ? '2. VoxCPM2 细节微调 & 特征属性' : '2. VoxCPM2 Voice Attributes Detail'}
+                  </label>
+                  <span className="text-[8px] font-mono text-white/30 bg-white/5 px-1.5 py-0.5 rounded">
+                    Active: {modalTTSIsSinging ? 'audio_ace_step1_5' : modalTTSEngine}
+                  </span>
+                </div>
+
+                {/* A. 歌词模式开关 (Generate as Lyrics Checkbox) */}
+                <div className="flex items-center justify-between bg-black/40 border border-white/5 p-2 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="modal-tts-singing"
+                      checked={modalTTSIsSinging}
+                      onChange={(e) => {
+                        setModalTTSIsSinging(e.target.checked);
+                      }}
+                      className="accent-brand-primary cursor-pointer w-4 h-4 rounded"
+                    />
+                    <label htmlFor="modal-tts-singing" className="font-bold text-xs text-white/80 cursor-pointer select-none">
+                      🎵 {language === 'zh' ? '当作歌词生成 (Enable Singing Song Mode)' : 'Generate as Lyrics'}
+                    </label>
+                  </div>
+                  <span className="text-[8px] font-mono text-brand-primary opacity-80">
+                    {modalTTSIsSinging ? '使用 audio_ace_step1_5 引擎' : ''}
+                  </span>
+                </div>
+
+                {!modalTTSIsSinging && (
+                  <>
+                    {/* B. 对话生成引擎选择器 (Synthesis Engine / Workflow selector) */}
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-white/40 uppercase block">
+                        {language === 'zh' ? '配音工作流引擎 (Synthesis Engine)' : 'Synthesis Engine / Workflow'}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                        <button
+                          type="button"
+                          onClick={() => setModalTTSEngine('voxcpm2-voice-design')}
+                          className={cn(
+                            "px-2.5 py-2 border rounded-lg text-center transition-all hover:brightness-110 cursor-pointer",
+                            modalTTSEngine === 'voxcpm2-voice-design'
+                              ? "bg-brand-primary/10 border-brand-primary text-brand-primary font-bold"
+                              : "bg-black border-white/5 text-white/60"
+                          )}
+                        >
+                          📢 {language === 'zh' ? '音色设计 (Voice Design)' : 'VoxCPM2 Voice Design'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModalTTSEngine('voice-clone')}
+                          className={cn(
+                            "px-2.5 py-2 border rounded-lg text-center transition-all hover:brightness-110 cursor-pointer",
+                            modalTTSEngine === 'voice-clone'
+                              ? "bg-brand-primary/10 border-brand-primary text-brand-primary font-bold"
+                              : "bg-black border-white/5 text-white/60"
+                          )}
+                        >
+                          👥 {language === 'zh' ? '声音克隆 (Voice Clone)' : 'Voice Clone'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* C. 声音预设/自定义音色选择器 (Voice Preset select) */}
+                    <div className="space-y-1">
+                      <label className="text-[9px] text-white/40 uppercase block">
+                        {language === 'zh' ? '选择已有音色 (Select Preset / Designed Timbre)' : 'Select Voice / Designed Timbre'}
+                      </label>
+                      <select
+                        value={modalTTSVoice}
+                        onChange={(e) => {
+                          const vId = e.target.value;
+                          setModalTTSVoice(vId);
+                          const foundVoice = [...voicePresets, ...customVoicePresets].find(v => v.id === vId);
+                          if (foundVoice) {
+                            setModalTTSGender(foundVoice.gender || 'female');
+                            setModalTTSPitch(foundVoice.pitch !== undefined ? foundVoice.pitch : 0);
+                            setModalTTSSpeed(foundVoice.speed || 1.0);
+                            setModalTTSEmotion(foundVoice.emotion || 'warm');
+                            if (foundVoice.refAudioName) {
+                              setModalTTSRefAudioName(foundVoice.refAudioName);
+                            }
+                            if (foundVoice.uploadedAudioBase64) {
+                              setModalTTSUploadedBase64(foundVoice.uploadedAudioBase64);
+                              setModalTTSEngine('voice-clone');
+                            } else {
+                              setModalTTSUploadedBase64('');
+                              setModalTTSEngine('voxcpm2-voice-design');
+                              const desc = language === 'zh' ? (foundVoice.desc_zh || foundVoice.desc || '') : (foundVoice.desc_en || foundVoice.desc || foundVoice.desc_zh || '');
+                              setModalVoiceDesignPrompt(desc);
+                            }
+                          }
+                        }}
+                        className="w-full bg-black border border-white/10 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none"
+                      >
+                        <optgroup label={language === 'zh' ? '标准音色预置' : 'Standard Presets'} className="text-black bg-white">
+                          {voicePresets.map(preset => (
+                            <option key={preset.id} value={preset.id} className="text-black bg-white">
+                              {language === 'zh' ? (preset.name_zh || preset.name) : (preset.name_en || preset.name)}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {customVoicePresets.length > 0 && (
+                          <optgroup label={language === 'zh' ? '我的自定义音色' : 'Custom Saved Presets'} className="text-black bg-white">
+                            {customVoicePresets.map(preset => (
+                              <option key={preset.id} value={preset.id} className="text-black bg-white">{preset.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+
+                    {/* D. Custom Voice Design Description Textarea (if voxcpm2-voice-design is active) */}
+                    {modalTTSEngine === 'voxcpm2-voice-design' && (
+                      <div className="space-y-1 bg-brand-primary/5 border border-brand-primary/20 rounded-lg p-2.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-mono uppercase text-brand-primary font-bold block">
+                            {language === 'zh' ? '✍️ 音色描述与设计 prompt (Voice Design Prompt)' : '✍️ Voice Design Description Prompt'}
+                          </label>
+                          <span className="text-[8px] text-white/30 font-mono">Custom Input</span>
+                        </div>
+                        <textarea
+                          value={modalVoiceDesignPrompt}
+                          onChange={(e) => setModalVoiceDesignPrompt(e.target.value)}
+                          className="w-full h-16 bg-black border border-white/10 rounded p-2 text-xs text-white focus:outline-none focus:border-brand-primary/50"
+                          placeholder={language === 'zh' ? '输入自定义音色描述，如: 温暖知性的成熟女声，语气缓慢而专业，带有新闻播音质感...' : 'e.g., A warm, mature female voice, speaking slowly and professionally...'}
+                        />
+                        <p className="text-[8px] text-white/45">
+                          {language === 'zh' ? 'AI 引擎将根据上述音色描述设计出符合特性的全新声音，并合成对应的朗读语音' : 'The AI engine will design a completely new character voice matching the prompt, and synthesize the output speech.'}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
 
                 <div className="grid grid-cols-2 gap-3 text-xs font-mono">
                   {/* Gender select */}
@@ -2502,8 +3159,8 @@ export function DigitalHuman() {
                         if (!modalTTSPresetName.trim()) return;
                         const newPreset = {
                           id: `custom_vox_${Date.now()}`,
-                          name: `${modalTTSPresetName} (Cloned)`,
-                          desc: `${modalTTSGender} voice, Pitch: ${modalTTSPitch}, Emotion: ${modalTTSEmotion}`,
+                          name: `${modalTTSPresetName} (${modalTTSEngine === 'voxcpm2-voice-design' ? 'Designed' : 'Cloned'})`,
+                          desc: modalTTSEngine === 'voxcpm2-voice-design' ? modalVoiceDesignPrompt : `${modalTTSGender} voice, Pitch: ${modalTTSPitch}, Emotion: ${modalTTSEmotion}`,
                           gender: modalTTSGender,
                           pitch: modalTTSPitch,
                           speed: modalTTSSpeed,
@@ -2551,7 +3208,10 @@ export function DigitalHuman() {
                         modalTTSSpeed,
                         modalTTSEmotion,
                         modalTTSRefAudioName,
-                        modalTTSUploadedBase64
+                        modalTTSUploadedBase64,
+                        modalTTSEngine,
+                        modalTTSIsSinging,
+                        modalVoiceDesignPrompt
                       );
                     }
                     setIsTTSModalOpen(false);
